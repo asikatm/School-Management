@@ -1,0 +1,93 @@
+﻿@inherits AppPage
+
+<div class="d-flex align-center mb-2">
+    <MudText Typo="Typo.h6">Document vault</MudText>
+    <MudSpacer />
+    @if (Session.Has(P.Students.Edit))
+    {
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.UploadFile" OnClick="Upload">Upload document</MudButton>
+    }
+</div>
+
+<MudTable Items="Student.Documents" Dense="true" Hover="true" Elevation="0" Outlined="true">
+    <HeaderContent>
+        <MudTh>Type</MudTh>
+        <MudTh>File</MudTh>
+        <MudTh>Size</MudTh>
+        <MudTh>Expires</MudTh>
+        <MudTh>Verification</MudTh>
+        <MudTh>Uploaded</MudTh>
+        <MudTh></MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd DataLabel="Type">
+            @context.DocumentType
+            @if (context.IsConfidential)
+            {
+                <MudChip T="string" Size="Size.Small" Color="Color.Warning" Icon="@Icons.Material.Filled.Lock">Confidential</MudChip>
+            }
+        </MudTd>
+        <MudTd DataLabel="File">@context.FileName</MudTd>
+        <MudTd DataLabel="Size">@StudentChoices.Size(context.SizeBytes)</MudTd>
+        <MudTd DataLabel="Expires">
+            <MudText Typo="Typo.body2" Color="@(context.ExpiresOn is { } d && d <= DateOnly.FromDateTime(DateTime.Today) ? Color.Error : Color.Default)">
+                @Format.Date(context.ExpiresOn)
+            </MudText>
+        </MudTd>
+        <MudTd DataLabel="Verification">
+            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined"
+                     Color="@(context.VerificationStatus switch { DocumentVerificationStatus.Verified => Color.Success, DocumentVerificationStatus.Rejected => Color.Error, _ => Color.Default })">
+                @Format.Enum(context.VerificationStatus)
+            </MudChip>
+        </MudTd>
+        <MudTd DataLabel="Uploaded">@Format.DateTime(context.UploadedAtUtc)</MudTd>
+        <MudTd Style="text-align:right;white-space:nowrap">
+            <MudIconButton Icon="@Icons.Material.Filled.Visibility" Size="Size.Small" title="Open" Disabled="Busy"
+                           OnClick="@(() => OpenFile(DocUrl(context)))" />
+            <MudIconButton Icon="@Icons.Material.Filled.Download" Size="Size.Small" title="Download" Disabled="Busy"
+                           OnClick="@(() => Download(DocUrl(context)))" />
+            @if (Session.Has(P.Students.Edit))
+            {
+                <MudMenu Icon="@Icons.Material.Filled.FactCheck" Size="Size.Small" Dense="true" title="Verify">
+                    <MudMenuItem OnClick="@(() => Verify(context, DocumentVerificationStatus.Verified))">Mark verified</MudMenuItem>
+                    <MudMenuItem OnClick="@(() => Verify(context, DocumentVerificationStatus.Rejected))">Mark rejected</MudMenuItem>
+                    <MudMenuItem OnClick="@(() => Verify(context, DocumentVerificationStatus.Pending))">Reset to pending</MudMenuItem>
+                </MudMenu>
+            }
+            @if (Session.Has(P.Students.Documents))
+            {
+                <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" title="Delete" Disabled="Busy"
+                               OnClick="@(() => Delete(context))" />
+            }
+        </MudTd>
+    </RowTemplate>
+    <NoRecordsContent><MudText>No documents uploaded.</MudText></NoRecordsContent>
+</MudTable>
+
+@code {
+    [Parameter, EditorRequired] public StudentDetail Student { get; set; } = default!;
+    [Parameter] public EventCallback Reload { get; set; }
+
+    private string DocUrl(StudentDocumentView d) => $"api/students/{Student.Id}/documents/{d.Id}";
+
+    private async Task Upload()
+    {
+        var dlg = await Dialogs.ShowAsync<DocumentUploadDialog>("Upload document",
+            new DialogParameters<DocumentUploadDialog> { { x => x.StudentId, Student.Id } },
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (await dlg.Result is { Canceled: false }) await Reload.InvokeAsync();
+    }
+
+    private async Task Verify(StudentDocumentView d, DocumentVerificationStatus status)
+    {
+        if (await Run(() => Api.PostAsync(ApiClient.Query($"{DocUrl(d)}/verify", ("status", status))), "Verification updated."))
+            await Reload.InvokeAsync();
+    }
+
+    private async Task Delete(StudentDocumentView d)
+    {
+        if (!await Confirm("Delete document", $"Delete {d.DocumentType} ({d.FileName})? This cannot be undone.", "Delete")) return;
+        if (await Run(() => Api.DeleteAsync(DocUrl(d)), "Document deleted."))
+            await Reload.InvokeAsync();
+    }
+}

@@ -1,0 +1,166 @@
+@page "/academic/sections"
+@inherits AppPage
+
+<PageTitle>Sections</PageTitle>
+
+<div class="d-flex align-center mb-4">
+    <MudText Typo="Typo.h4">Sections</MudText>
+    <MudSpacer />
+    @if (canManage)
+    {
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="() => Edit(null)"
+                   Disabled="@(Busy || campuses.Count == 0 || years.Count == 0)">New section</MudButton>
+    }
+</div>
+
+<MudPaper Class="pa-3 mb-4" Elevation="1">
+    <MudGrid Spacing="2">
+        <MudItem xs="12" sm="4">
+            <MudSelect T="Guid?" Value="yearId" ValueChanged="v => SetFilter(() => yearId = v)" Label="Academic year" Dense="true">
+                @foreach (var y in years)
+                {
+                    <MudSelectItem T="Guid?" Value="y.Id">@y.Name@(y.IsCurrent ? " (current)" : "")</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="4">
+            <MudSelect T="Guid?" Value="campusId" ValueChanged="v => SetFilter(() => campusId = v)" Label="Campus" Clearable="true" Placeholder="All campuses" Dense="true">
+                @foreach (var c in campuses)
+                {
+                    <MudSelectItem T="Guid?" Value="c.Id">@c.Name</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="4">
+            <MudSelect T="Guid?" Value="yearGroupId" ValueChanged="v => SetFilter(() => yearGroupId = v)" Label="Class" Clearable="true" Placeholder="All classes" Dense="true">
+                @foreach (var p in programmes)
+                {
+                    @foreach (var g in p.YearGroups)
+                    {
+                        <MudSelectItem T="Guid?" Value="g.Id">@p.Name › @g.Name</MudSelectItem>
+                    }
+                }
+            </MudSelect>
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+<MudTable T="SectionView" Items="sections" Loading="loading" Hover="true" Dense="true" Elevation="1" GroupBy="groupByClass"
+          GroupHeaderStyle="background-color:var(--mud-palette-background-gray)">
+    <GroupHeaderTemplate>
+        <MudTh colspan="7"><b>@context.Key</b> · @context.Items.Count() section(s), @context.Items.Sum(s => s.StudentCount) students</MudTh>
+    </GroupHeaderTemplate>
+    <HeaderContent>
+        <MudTh>Section</MudTh>
+        <MudTh>Campus</MudTh>
+        <MudTh>Students / capacity</MudTh>
+        <MudTh>Shift</MudTh>
+        <MudTh>Room</MudTh>
+        <MudTh>Class teacher</MudTh>
+        <MudTh></MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd DataLabel="Section"><b>@context.Name</b></MudTd>
+        <MudTd DataLabel="Campus">@CampusName(context.CampusId)</MudTd>
+        <MudTd DataLabel="Students / capacity" Style="min-width:160px">
+            @context.StudentCount / @context.Capacity
+            <MudProgressLinear Value="@Math.Min(100, context.Capacity == 0 ? 0 : 100.0 * context.StudentCount / context.Capacity)"
+                               Color="@(context.StudentCount >= context.Capacity ? Color.Error : Color.Primary)" Size="Size.Small" Rounded="true" />
+        </MudTd>
+        <MudTd DataLabel="Shift">@ShiftName(context.ShiftId)</MudTd>
+        <MudTd DataLabel="Room">@(context.Room ?? "—")</MudTd>
+        <MudTd DataLabel="Class teacher">@TeacherName(context.ClassTeacherUserId)</MudTd>
+        <MudTd Style="text-align:right; white-space:nowrap">
+            @if (canManage)
+            {
+                <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" title="Edit" OnClick="() => Edit(context)" Disabled="Busy" />
+                <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" title="Delete" OnClick="() => Delete(context)"
+                               Disabled="@(Busy || context.StudentCount > 0)" />
+            }
+        </MudTd>
+    </RowTemplate>
+    <NoRecordsContent><MudText>No sections match the filters.</MudText></NoRecordsContent>
+</MudTable>
+
+@code {
+    private readonly TableGroupDefinition<SectionView> groupByClass = new() { Selector = s => s.YearGroupName, Indentation = false };
+
+    private List<CampusView> campuses = [];
+    private List<AcademicYearView> years = [];
+    private List<ProgrammeView> programmes = [];
+    private List<ShiftView> shifts = [];
+    private List<UserListItem> staff = [];
+    private List<SectionView> sections = [];
+    private Guid? yearId, campusId, yearGroupId;
+    private bool loading = true;
+    private bool canManage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        canManage = Session.Has(P.Settings.Manage);
+        await Run(async () =>
+        {
+            var c = Api.GetAsync<List<CampusView>>("api/campuses");
+            var y = Api.GetAsync<List<AcademicYearView>>("api/academic-years");
+            var p = Api.GetAsync<List<ProgrammeView>>("api/structure/programmes");
+            var s = Api.GetAsync<List<ShiftView>>("api/structure/shifts");
+            (campuses, years, programmes, shifts) = (await c, await y, await p, await s);
+        });
+        // Class teachers are staff users; listing them needs users.view.
+        if (Session.Has(P.Users.View))
+        {
+            try
+            {
+                staff = (await Api.GetAsync<PagedResult<UserListItem>>(ApiClient.Query("api/users", ("type", UserType.Staff), ("page", 1), ("pageSize", 200)))).Items.ToList();
+            }
+            catch (ApiException) { /* names fall back to "Assigned" */ }
+        }
+        yearId = years.FirstOrDefault(y => y.IsCurrent)?.Id ?? years.FirstOrDefault()?.Id;
+        await Load();
+    }
+
+    private async Task SetFilter(Action set)
+    {
+        set();
+        await Load();
+    }
+
+    private async Task Load()
+    {
+        loading = true;
+        await Run(async () => sections = await Api.GetAsync<List<SectionView>>(ApiClient.Query("api/structure/sections",
+            ("campusId", campusId), ("academicYearId", yearId), ("yearGroupId", yearGroupId))));
+        loading = false;
+    }
+
+    private string CampusName(Guid id) => campuses.FirstOrDefault(c => c.Id == id)?.Name ?? "—";
+    private string ShiftName(Guid? id) => id is null ? "—" : shifts.FirstOrDefault(s => s.Id == id)?.Name ?? "—";
+    private string TeacherName(Guid? id) => id is null ? "—" : staff.FirstOrDefault(u => u.Id == id)?.FullName ?? "Assigned";
+
+    private async Task Edit(SectionView? item)
+    {
+        var dlg = await Dialogs.ShowAsync<SectionDialog>(item is null ? "New section" : $"Edit section {item.YearGroupName} {item.Name}",
+            new DialogParameters<SectionDialog>
+            {
+                { x => x.Item, item },
+                { x => x.Campuses, campuses },
+                { x => x.Years, years },
+                { x => x.Programmes, programmes },
+                { x => x.Shifts, shifts },
+                { x => x.Staff, staff },
+                { x => x.DefaultCampusId, campusId ?? (campuses.Count == 1 ? campuses[0].Id : null) },
+                { x => x.DefaultYearId, yearId },
+                { x => x.DefaultYearGroupId, yearGroupId }
+            },
+            new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+        var r = await dlg.Result;
+        if (r is { Canceled: false }) await Load();
+    }
+
+    private async Task Delete(SectionView s)
+    {
+        if (!await Confirm("Delete section", $"Delete section {s.YearGroupName} {s.Name} ({CampusName(s.CampusId)})?", "Delete")) return;
+        if (await Run(() => Api.DeleteAsync($"api/structure/sections/{s.Id}"), "Section deleted."))
+            await Load();
+    }
+}

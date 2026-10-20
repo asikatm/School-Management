@@ -1,0 +1,33 @@
+@inherits AppPage
+
+<MudDialog>
+    <DialogContent>
+        <MudText Typo="Typo.subtitle1">@AdminLookups.Humanize(Request.RequestType)</MudText>
+        <MudText Typo="Typo.body2" Class="mb-4">@(Request.Summary ?? $"{Request.EntityType} {Request.EntityId}")</MudText>
+        <MudTextField @bind-Value="comment" Label="@(Approve ? "Comment (optional)" : "Reason for rejecting")" Variant="Variant.Outlined"
+                      Lines="3" Required="!Approve" Immediate="true"
+                      Error="HasError(nameof(ApprovalDecisionRequest.Comment))" ErrorText="@ErrorFor(nameof(ApprovalDecisionRequest.Comment))" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="() => MudDialog.Cancel()">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="@(Approve ? Color.Success : Color.Error)" OnClick="Save"
+                   Disabled="@(Busy || (!Approve && string.IsNullOrWhiteSpace(comment)))">@(Approve ? "Approve" : "Reject")</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter, EditorRequired] public ApprovalRequestView Request { get; set; } = default!;
+    [Parameter] public bool Approve { get; set; }
+
+    private string? comment;
+
+    private async Task Save()
+    {
+        var body = new ApprovalDecisionRequest(Approve, string.IsNullOrWhiteSpace(comment) ? null : comment.Trim());
+        ApprovalRequestView? result = null;
+        if (await Run(async () => result = await Api.PostAsync<ApprovalRequestView>($"api/approvals/requests/{Request.Id}/decide", body),
+                Approve ? "Approved." : "Rejected."))
+            MudDialog.Close(DialogResult.Ok(result!));
+    }
+}

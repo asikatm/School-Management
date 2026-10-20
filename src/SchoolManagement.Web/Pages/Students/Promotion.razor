@@ -1,0 +1,205 @@
+@page "/students/promotion"
+@inherits AppPage
+
+<PageTitle>Promotion</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-4">Year-end promotion</MudText>
+
+<MudTabs Elevation="1" Rounded="true" PanelClass="pa-4">
+    <MudTabPanel Text="Promotion review" Icon="@Icons.Material.Filled.TrendingUp">
+        <MudGrid Spacing="2">
+            <StudentClassPicker @bind-CampusId="campusId" @bind-AcademicYearId="sourceYearId" @bind-YearGroupId="yearGroupId"
+                                ShowSection="false" Required="true" YearLabel="From year" Changed="Reset" />
+            <MudItem xs="12" sm="6" md="3">
+                <MudSelect T="Guid?" @bind-Value="targetYearId" Label="To year" Required="true" Variant="Variant.Outlined" Margin="Margin.Dense"
+                           ToStringFunc="@(id => years.FirstOrDefault(y => y.Id == id)?.Name ?? "")">
+                    @foreach (var y in years.Where(y => y.Id != sourceYearId))
+                    {
+                        <MudSelectItem T="Guid?" Value="@y.Id">@y.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" Class="d-flex flex-wrap gap-2 align-center">
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="LoadPreview" Disabled="@(Busy || campusId is null || sourceYearId is null)">
+                    Load students
+                </MudButton>
+                @if (rows.Count > 0)
+                {
+                    <MudSpacer />
+                    <MudText Typo="Typo.body2">@selected.Count of @rows.Count selected</MudText>
+                    <MudMenu Label="Set outcome for selected" Variant="Variant.Outlined" Disabled="@(selected.Count == 0)">
+                        @foreach (var o in Enum.GetValues<StudentPromotionOutcome>())
+                        {
+                            <MudMenuItem OnClick="@(() => SetOutcome(o))">@Format.Enum(o)</MudMenuItem>
+                        }
+                    </MudMenu>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Apply" Disabled="@(Busy || selected.Count == 0 || targetYearId is null)">
+                        Apply to selected
+                    </MudButton>
+                }
+            </MudItem>
+        </MudGrid>
+
+        @if (applied is { } r)
+        {
+            <MudAlert Severity="Severity.Success" Class="mt-4">
+                Promoted @r.Promoted · conditional @r.Conditional · repeated @r.Repeated · graduated @r.Graduated · held @r.Held.
+            </MudAlert>
+        }
+
+        @if (loaded)
+        {
+            <MudTable Items="rows" Dense="true" Hover="true" Class="mt-4" MultiSelection="true" @bind-SelectedItems="selected" T="PromotionRow"
+                      RowsPerPage="100" SelectOnRowClick="false">
+                <HeaderContent>
+                    <MudTh>Student</MudTh>
+                    <MudTh>Current class</MudTh>
+                    <MudTh>Outcome</MudTh>
+                    <MudTh>Next class</MudTh>
+                    <MudTh>Target section</MudTh>
+                    <MudTh>Note</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Student">
+                        @context.Candidate.Name
+                        <MudText Typo="Typo.caption" Class="d-block">@context.Candidate.AdmissionNo@(context.Candidate.RollNo is null ? "" : $" · Roll {context.Candidate.RollNo}")</MudText>
+                        @foreach (var n in context.Candidate.Notes)
+                        {
+                            <MudText Typo="Typo.caption" Color="Color.Warning" Class="d-block">@n</MudText>
+                        }
+                    </MudTd>
+                    <MudTd DataLabel="Current class">@context.Candidate.YearGroupName</MudTd>
+                    <MudTd DataLabel="Outcome" Style="min-width:160px">
+                        <MudSelect T="StudentPromotionOutcome" Value="context.Outcome" ValueChanged="@(v => { context.Outcome = v; context.TargetSectionId = null; })"
+                                   Dense="true" Margin="Margin.Dense" ToStringFunc="@(o => Format.Enum(o))">
+                            @foreach (var o in Enum.GetValues<StudentPromotionOutcome>())
+                            {
+                                <MudSelectItem T="StudentPromotionOutcome" Value="@o">@Format.Enum(o)@(o == context.Candidate.SuggestedOutcome ? " (suggested)" : "")</MudSelectItem>
+                            }
+                        </MudSelect>
+                    </MudTd>
+                    <MudTd DataLabel="Next class">@NextClassName(context)</MudTd>
+                    <MudTd DataLabel="Target section" Style="min-width:160px">
+                        @if (TargetYearGroup(context) is { } tyg)
+                        {
+                            <MudSelect T="Guid?" @bind-Value="context.TargetSectionId" Dense="true" Margin="Margin.Dense" Clearable="true" Placeholder="Same letter"
+                                       ToStringFunc="@(id => targetSections.FirstOrDefault(s => s.Id == id)?.Name ?? "")">
+                                @foreach (var s in targetSections.Where(s => s.YearGroupId == tyg))
+                                {
+                                    <MudSelectItem T="Guid?" Value="@s.Id">@s.Name (@s.StudentCount/@s.Capacity)</MudSelectItem>
+                                }
+                            </MudSelect>
+                        }
+                        else
+                        {
+                            <span>—</span>
+                        }
+                    </MudTd>
+                    <MudTd DataLabel="Note">
+                        <MudTextField @bind-Value="context.Note" Margin="Margin.Dense" Placeholder="Optional" />
+                    </MudTd>
+                </RowTemplate>
+                <NoRecordsContent><MudText>No active students in the source year for this selection.</MudText></NoRecordsContent>
+                <PagerContent><MudTablePager PageSizeOptions="new[] { 50, 100, 200, 500 }" /></PagerContent>
+            </MudTable>
+        }
+    </MudTabPanel>
+
+    <MudTabPanel Text="Graduates → alumni" Icon="@Icons.Material.Filled.School">
+        <GraduatesPanel />
+    </MudTabPanel>
+</MudTabs>
+
+@code {
+    private sealed class PromotionRow(StudentPromotionCandidate candidate)
+    {
+        public StudentPromotionCandidate Candidate { get; } = candidate;
+        public StudentPromotionOutcome Outcome { get; set; } = candidate.SuggestedOutcome;
+        public Guid? TargetSectionId { get; set; }
+        public string? Note { get; set; }
+    }
+
+    private Guid? campusId, sourceYearId, yearGroupId, targetYearId;
+    private List<StudentAcademicYearOption> years = [];
+    private List<StudentYearGroupOption> yearGroups = [];
+    private List<StudentSectionOption> targetSections = [];
+    private List<PromotionRow> rows = [];
+    private HashSet<PromotionRow> selected = [];
+    private bool loaded;
+    private StudentPromotionApplyResult? applied;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Run(async () =>
+        {
+            years = await StudentLookups.YearsAsync(Api);
+            yearGroups = await StudentLookups.YearGroupsAsync(Api);
+        });
+        // Suggest the year that starts after the current one.
+        var current = years.FirstOrDefault(y => y.IsCurrent);
+        targetYearId = years.Where(y => current is not null && y.StartDate > current.StartDate).OrderBy(y => y.StartDate).FirstOrDefault()?.Id;
+    }
+
+    private void Reset()
+    {
+        rows = [];
+        selected = [];
+        loaded = false;
+    }
+
+    private Guid? TargetYearGroup(PromotionRow r) => r.Outcome switch
+    {
+        StudentPromotionOutcome.Repeat => r.Candidate.YearGroupId,
+        StudentPromotionOutcome.Promote or StudentPromotionOutcome.Conditional =>
+            r.Candidate.TargetYearGroupId ?? yearGroups.FirstOrDefault(y => y.Id == r.Candidate.YearGroupId)?.NextYearGroupId,
+        _ => null
+    };
+
+    private string NextClassName(PromotionRow r) => r.Outcome switch
+    {
+        StudentPromotionOutcome.Graduate => "Graduates",
+        StudentPromotionOutcome.Hold => "No change",
+        _ => TargetYearGroup(r) is { } id ? yearGroups.FirstOrDefault(y => y.Id == id)?.Name ?? "?" : "No next class"
+    };
+
+    private async Task LoadPreview()
+    {
+        applied = null;
+        var url = ApiClient.Query("api/students/promotion/preview", ("academicYearId", sourceYearId), ("campusId", campusId), ("yearGroupId", yearGroupId));
+        List<StudentPromotionCandidate>? candidates = null;
+        if (!await Run(async () =>
+            {
+                candidates = await Api.GetAsync<List<StudentPromotionCandidate>>(url);
+                targetSections = targetYearId is null ? [] : await StudentLookups.SectionsAsync(Api, campusId, targetYearId, null);
+            })) return;
+        rows = candidates!.Select(c => new PromotionRow(c)).ToList();
+        selected = rows.ToHashSet();
+        loaded = true;
+    }
+
+    private void SetOutcome(StudentPromotionOutcome outcome)
+    {
+        foreach (var r in selected)
+        {
+            r.Outcome = outcome;
+            r.TargetSectionId = null;
+        }
+    }
+
+    private async Task Apply()
+    {
+        var counts = selected.GroupBy(r => r.Outcome).Select(g => $"{Format.Enum(g.Key)}: {g.Count()}");
+        if (!await Confirm("Apply promotion", $"Apply decisions for {selected.Count} students? {string.Join(", ", counts)}. This closes their current enrolments.", "Apply"))
+            return;
+        var request = new StudentPromotionApplyRequest(sourceYearId!.Value, targetYearId!.Value,
+            selected.Select(r => new StudentPromotionDecision(r.Candidate.StudentId, r.Outcome, r.TargetSectionId, StudentProfileModel.Blank(r.Note))).ToList());
+        StudentPromotionApplyResult? result = null;
+        if (await Run(async () => result = await Api.PostAsync<StudentPromotionApplyResult>("api/students/promotion/apply", request), "Promotion applied."))
+        {
+            applied = result;
+            // Held students stay active in the source year; reload so the list reflects what is left.
+            await LoadPreview();
+            applied = result;
+        }
+    }
+}

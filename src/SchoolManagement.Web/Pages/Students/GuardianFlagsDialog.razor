@@ -1,0 +1,50 @@
+@inherits AppPage
+
+<MudDialog>
+    <DialogContent>
+        <MudSelect T="string" @bind-Value="relationship" Label="Relationship" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-3"
+                   Error="HasError(nameof(StudentGuardianFlagsRequest.Relationship))" ErrorText="@ErrorFor(nameof(StudentGuardianFlagsRequest.Relationship))">
+            @foreach (var r in StudentChoices.Relationships.Append(relationship).Distinct())
+            {
+                <MudSelectItem T="string" Value="@r">@r</MudSelectItem>
+            }
+        </MudSelect>
+        <MudStack Spacing="0">
+            <MudCheckBox T="bool" @bind-Value="primary" Label="Primary contact" Disabled="Guardian.IsPrimaryContact"
+                         title="@(Guardian.IsPrimaryContact ? "Make another guardian primary to change this." : null)" />
+            <MudCheckBox T="bool" @bind-Value="pickup" Label="Authorised to pick up the student" />
+            <MudCheckBox T="bool" @bind-Value="emergency" Label="Emergency contact" />
+            <MudCheckBox T="bool" @bind-Value="fees" Label="Can view fees" />
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => MudDialog.Cancel())">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Save" Disabled="Busy">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public Guid StudentId { get; set; }
+    [Parameter, EditorRequired] public StudentGuardianView Guardian { get; set; } = default!;
+
+    private string relationship = "";
+    private bool primary, pickup, emergency, fees;
+
+    protected override void OnInitialized()
+    {
+        relationship = Guardian.Relationship;
+        primary = Guardian.IsPrimaryContact;
+        pickup = Guardian.IsAuthorisedPickup;
+        emergency = Guardian.IsEmergencyContact;
+        fees = Guardian.CanViewFees;
+    }
+
+    private async Task Save()
+    {
+        var request = new StudentGuardianFlagsRequest(relationship, primary, pickup, emergency, fees);
+        StudentDetail? updated = null;
+        if (await Run(async () => updated = await Api.PutAsync<StudentDetail>($"api/students/{StudentId}/guardians/{Guardian.GuardianId}", request), "Saved."))
+            MudDialog.Close(DialogResult.Ok(updated));
+    }
+}

@@ -1,0 +1,81 @@
+@inherits AppPage
+
+<MudDialog>
+    <DialogContent>
+        <MudGrid Spacing="2">
+            <MudItem xs="12" sm="6">
+                <MudSelect T="Guid?" @bind-Value="yearId" Label="Academic year" Required="true">
+                    @foreach (var y in Years)
+                    {
+                        <MudSelectItem T="Guid?" Value="y.Id">@y.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudSelect T="Guid?" @bind-Value="campusId" Label="Campus" Clearable="true" Placeholder="All campuses">
+                    @foreach (var c in Campuses)
+                    {
+                        <MudSelectItem T="Guid?" Value="c.Id">@c.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="8">
+                <MudTextField @bind-Value="name" Label="Name" Required="true"
+                              Error="HasError(nameof(HolidayRequest.Name))" ErrorText="@ErrorFor(nameof(HolidayRequest.Name))" />
+            </MudItem>
+            <MudItem xs="12" sm="4">
+                <MudSelect T="HolidayType" @bind-Value="type" Label="Type">
+                    @foreach (var t in Enum.GetValues<HolidayType>())
+                    {
+                        <MudSelectItem T="HolidayType" Value="t">@Format.Enum(t)</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12">
+                <MudTextField @bind-Value="nameBn" Label="Name (Bangla)" />
+            </MudItem>
+            <MudItem xs="6">
+                <MudDatePicker Date="start" DateChanged="StartChanged" Label="From" DateFormat="dd MMM yyyy" Required="true" />
+            </MudItem>
+            <MudItem xs="6">
+                <MudDatePicker @bind-Date="end" Label="To" DateFormat="dd MMM yyyy" Required="true"
+                               Error="HasError(nameof(HolidayRequest.EndDate))" ErrorText="@ErrorFor(nameof(HolidayRequest.EndDate))" />
+            </MudItem>
+        </MudGrid>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="() => MudDialog.Cancel()">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Save"
+                   Disabled="@(Busy || yearId is null || string.IsNullOrWhiteSpace(name) || start is null || end is null || end < start)">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public IReadOnlyList<AcademicYearView> Years { get; set; } = [];
+    [Parameter] public IReadOnlyList<CampusView> Campuses { get; set; } = [];
+    [Parameter] public Guid? YearId { get; set; }
+    [Parameter] public Guid? CampusId { get; set; }
+
+    private Guid? yearId, campusId;
+    private string name = "";
+    private string? nameBn;
+    private HolidayType type = HolidayType.National;
+    private DateTime? start, end;
+
+    protected override void OnInitialized() => (yearId, campusId) = (YearId, CampusId);
+
+    /// <summary>Single-day holidays are the common case, so "To" follows "From" until changed.</summary>
+    private void StartChanged(DateTime? value)
+    {
+        if (end is null || end < value || end == start) end = value;
+        start = value;
+    }
+
+    private async Task Save()
+    {
+        var request = new HolidayRequest(yearId!.Value, campusId, name.Trim(), nameBn, type, DateOnly.FromDateTime(start!.Value), DateOnly.FromDateTime(end!.Value));
+        if (await Run(() => Api.PostAsync<Guid>("api/master/holidays", request), "Holiday added."))
+            MudDialog.Close(DialogResult.Ok(true));
+    }
+}

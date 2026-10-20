@@ -1,0 +1,88 @@
+@inherits AppPage
+
+<MudText Typo="Typo.h6" Class="mb-2">ID card</MudText>
+
+@if (Student.Status != StudentStatus.Active)
+{
+    <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">ID cards are issued to active students only.</MudAlert>
+}
+else if (Session.Has(P.Students.Edit))
+{
+    <MudGrid Spacing="2" Class="mb-3">
+        <MudItem xs="12" md="6">
+            <MudPaper Outlined="true" Class="pa-3">
+                <MudText Typo="Typo.subtitle2" Class="mb-2">Issue a new card</MudText>
+                <div class="d-flex flex-wrap align-center gap-2">
+                    <MudDatePicker @bind-Date="validUntil" Label="Valid until" DateFormat="dd MMM yyyy" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:200px" />
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Issue" Disabled="@(Busy || validUntil is null)">Issue</MudButton>
+                </div>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" md="6">
+            <MudPaper Outlined="true" Class="pa-3">
+                <MudText Typo="Typo.subtitle2" Class="mb-2">Reissue a lost or damaged card</MudText>
+                <div class="d-flex flex-wrap align-center gap-2">
+                    <MudTextField @bind-Value="reason" Label="Reason" Placeholder="e.g. Lost" MaxLength="200" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:240px"
+                                  Error="HasError(nameof(StudentReasonBody.Reason))" ErrorText="@ErrorFor(nameof(StudentReasonBody.Reason))" />
+                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="Reissue" Disabled="@(Busy || string.IsNullOrWhiteSpace(reason))">Reissue</MudButton>
+                </div>
+                <MudText Typo="Typo.caption" Class="d-block mt-1">The previous card is deactivated and the configured reissue fee is recorded.</MudText>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+}
+
+@if (card is not null)
+{
+    <IdCardPreview Card="card" />
+}
+
+@if (Current?.SectionId is { } sectionId)
+{
+    <MudButton Class="mt-3" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Print" Disabled="Busy"
+               OnClick="@(() => OpenFile(ApiClient.Query("api/students/id-cards/print", ("sectionId", sectionId))))">
+        Print cards for @Current.ClassName - @Current.Section
+    </MudButton>
+}
+
+@code {
+    [Parameter, EditorRequired] public StudentDetail Student { get; set; } = default!;
+
+    private DateTime? validUntil;
+    private string reason = "";
+    private StudentIdCardData? card;
+
+    private StudentEnrolmentView? Current => Student.Enrolments.FirstOrDefault(e => e.Id == Student.CurrentEnrolmentId);
+
+    protected override async Task OnInitializedAsync()
+    {
+        validUntil = new DateTime(DateTime.Today.Year, 12, 31);
+        // Default validity: end of the current academic year.
+        try
+        {
+            var years = await StudentLookups.YearsAsync(Api);
+            if (years.FirstOrDefault(y => y.Id == Current?.AcademicYearId) is { } year)
+                validUntil = year.EndDate.ToDateTime(TimeOnly.MinValue);
+        }
+        catch (ApiException) { }
+    }
+
+    private async Task Issue()
+    {
+        var request = new StudentIssueCardsRequest([Student.Id], null, DateOnly.FromDateTime(validUntil!.Value));
+        List<StudentIdCardData>? cards = null;
+        if (await Run(async () => cards = await Api.PostAsync<List<StudentIdCardData>>("api/students/id-cards", request), "Card issued."))
+            card = cards?.FirstOrDefault();
+    }
+
+    private async Task Reissue()
+    {
+        if (!await Confirm("Reissue card", "Deactivate the current card and issue a new one?", "Reissue")) return;
+        StudentIdCardData? result = null;
+        if (await Run(async () => result = await Api.PostAsync<StudentIdCardData>($"api/students/{Student.Id}/id-cards/reissue", new StudentReasonBody(reason.Trim())), "Card reissued."))
+        {
+            card = result;
+            reason = "";
+        }
+    }
+}

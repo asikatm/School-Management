@@ -1,0 +1,89 @@
+@page "/public/offer"
+@inherits AppPage
+
+<PageTitle>Offer of admission · Lighthouse School</PageTitle>
+
+<PublicShell Subtitle="Offer of admission">
+    @if (offer is null)
+    {
+        if (Busy)
+        {
+            <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+        }
+        else
+        {
+            <MudAlert Severity="Severity.Error">This offer link is not valid. Please use the link from the SMS or e-mail, or contact the admission office.</MudAlert>
+        }
+    }
+    else
+    {
+        var pending = offer.Status == OfferStatus.Pending && offer.ExpiresAtUtc > DateTime.UtcNow;
+        <MudPaper Class="pa-6">
+            <div class="d-flex flex-wrap align-center gap-2 mb-4">
+                <MudText Typo="Typo.h6">Offer @offer.OfferNo</MudText>
+                <MudSpacer />
+                <MudChip T="string" Color="AdmissionUi.OfferColor(offer.Status)">@Format.Enum(offer.Status)</MudChip>
+            </div>
+            <MudText Class="mb-4">
+                We are pleased to offer <b>@offer.ApplicantName</b> a place in <b>@(offer.ClassName ?? "the class applied for")</b>
+                at our @(offer.CampusName ?? "") campus for the @(offer.AcademicYear ?? "coming") academic year.
+            </MudText>
+            @if (!string.IsNullOrWhiteSpace(offer.FeeScheduleText))
+            {
+                <MudText Typo="Typo.body2" Class="mb-4" Style="white-space:pre-wrap">@offer.FeeScheduleText</MudText>
+            }
+            <div class="d-flex flex-wrap gap-2 mb-4">
+                <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Description" OnClick="@(() => OpenFile($"{Url}/letter?lang=bn"))">ভর্তির প্রস্তাবপত্র (বাংলা)</MudButton>
+                <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Description" OnClick="@(() => OpenFile($"{Url}/letter?lang=en"))">Offer letter (English)</MudButton>
+            </div>
+
+            @if (pending)
+            {
+                <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-4">Please respond by @Format.DateTime(offer.ExpiresAtUtc). After that the seat is offered to the next applicant.</MudAlert>
+                <MudTextField @bind-Value="note" Label="Message to the admission office (optional)" Variant="Variant.Outlined" Lines="2" Class="mb-4" />
+                <div class="d-flex flex-wrap gap-2">
+                    <MudButton Variant="Variant.Filled" Color="Color.Success" Size="Size.Large" Disabled="Busy" OnClick="() => Respond(true)">Accept the offer</MudButton>
+                    <MudButton Variant="Variant.Outlined" Color="Color.Error" Size="Size.Large" Disabled="Busy" OnClick="() => Respond(false)">Decline</MudButton>
+                </div>
+            }
+            else if (offer.Status == OfferStatus.Accepted)
+            {
+                <MudAlert Severity="Severity.Success">Thank you for accepting. The admission office will send the admission invoice and next steps by SMS.</MudAlert>
+            }
+            else if (offer.Status == OfferStatus.Pending)
+            {
+                <MudAlert Severity="Severity.Error">This offer expired on @Format.DateTime(offer.ExpiresAtUtc).</MudAlert>
+            }
+            else
+            {
+                <MudAlert Severity="Severity.Info">This offer is @Format.Enum(offer.Status).ToLowerInvariant() and can no longer be answered online.</MudAlert>
+            }
+        </MudPaper>
+    }
+</PublicShell>
+
+@code {
+    [SupplyParameterFromQuery(Name = "token")] public string? Token { get; set; }
+
+    private AdmissionPublicOfferView? offer;
+    private string? note;
+
+    private string Url => $"api/public/admission/offers/{Uri.EscapeDataString(Token ?? "")}";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        offer = null;
+        if (string.IsNullOrWhiteSpace(Token)) return;
+        await Run(async () => offer = await Api.GetAsync<AdmissionPublicOfferView>(Url));
+    }
+
+    private async Task Respond(bool accept)
+    {
+        var ok = accept
+            ? await Confirm("Accept offer", $"Accept the offer of admission for {offer!.ApplicantName}?", "Accept")
+            : await Confirm("Decline offer", $"Decline the offer for {offer!.ApplicantName}? The seat will be given to another applicant and this cannot be undone.", "Decline");
+        if (!ok) return;
+        await Run(async () => offer = await Api.PostAsync<AdmissionPublicOfferView>($"{Url}/respond", new AdmissionOfferResponseRequest(accept, ApplicationForm.Blank(note))),
+            accept ? "Offer accepted." : "Offer declined.");
+    }
+}

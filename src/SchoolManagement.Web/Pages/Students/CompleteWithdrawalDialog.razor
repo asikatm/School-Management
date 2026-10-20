@@ -1,0 +1,33 @@
+@inherits AppPage
+
+<MudDialog>
+    <DialogContent>
+        <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-3">
+            This issues the transfer certificate for <b>@Withdrawal.StudentName</b>, closes the student's record, deactivates their ID card and frees the seat.
+            It cannot be undone.
+        </MudAlert>
+        <MudTextField @bind-Value="conduct" Label="Conduct" Placeholder="e.g. Good" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-3" />
+        <MudTextField @bind-Value="remarks" Label="Remarks" Lines="2" Variant="Variant.Outlined" Margin="Margin.Dense" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => MudDialog.Cancel())">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Save" Disabled="Busy">Issue TC</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter, EditorRequired] public StudentWithdrawalView Withdrawal { get; set; } = default!;
+
+    private string? conduct = "Good";
+    private string? remarks;
+
+    private async Task Save()
+    {
+        var request = new StudentWithdrawalCompleteRequest(StudentProfileModel.Blank(conduct), StudentProfileModel.Blank(remarks));
+        StudentTransferCertificateView? tc = null;
+        if (await Run(async () => tc = await Api.PostAsync<StudentTransferCertificateView>($"api/students/withdrawals/{Withdrawal.Id}/complete", request),
+                "Transfer certificate issued."))
+            MudDialog.Close(DialogResult.Ok(tc));
+    }
+}

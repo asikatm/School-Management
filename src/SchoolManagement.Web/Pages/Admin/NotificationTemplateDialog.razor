@@ -1,0 +1,166 @@
+@inherits AppPage
+
+@* Edits the English and Bangla versions of one template code + channel. Each save of a language creates a new version. *@
+<MudDialog>
+    <DialogContent>
+        <MudGrid>
+            <MudItem xs="12" sm="6">
+                <MudTextField @bind-Value="code" Label="Code" Variant="Variant.Outlined" ReadOnly="@(Code is not null || ReadOnly)"
+                              HelperText="Event key, e.g. AdmissionOffer" Error="HasError(nameof(MessageTemplateRequest.Code))" ErrorText="@ErrorFor(nameof(MessageTemplateRequest.Code))" />
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudSelect T="NotificationChannel" @bind-Value="channel" Label="Channel" Variant="Variant.Outlined" ReadOnly="@(Code is not null || ReadOnly)">
+                    @foreach (var c in Enum.GetValues<NotificationChannel>())
+                    {
+                        <MudSelectItem T="NotificationChannel" Value="@c">@Format.Enum(c)</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+        </MudGrid>
+
+        <MudText Typo="Typo.caption" Class="d-block mt-3">
+            Use merge fields like <code>{{StudentName}}</code>. Leave a language empty to keep it unchanged.
+        </MudText>
+
+        <MudGrid Class="mt-1">
+            @foreach (var lang in languages)
+            {
+                <MudItem xs="12" md="6">
+                    <MudPaper Outlined="true" Class="pa-3">
+                        <div class="d-flex align-center mb-2">
+                            <MudText Typo="Typo.subtitle1">@lang.Title</MudText>
+                            @if (lang.Version is not null) { <MudChip T="string" Size="Size.Small" Class="ml-2">v@(lang.Version)</MudChip> }
+                            <MudSpacer />
+                            <MudSwitch T="bool" @bind-Value="lang.IsActive" Color="Color.Primary" Label="Active" ReadOnly="ReadOnly" />
+                        </div>
+                        @if (channel is NotificationChannel.Email or NotificationChannel.InApp or NotificationChannel.Push)
+                        {
+                            <MudTextField @bind-Value="lang.Subject" Label="Subject" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-2" ReadOnly="ReadOnly"
+                                          Error="@(lang.Error(nameof(MessageTemplateRequest.Subject)) is not null)" ErrorText="@lang.Error(nameof(MessageTemplateRequest.Subject))" />
+                        }
+                        <MudTextField @bind-Value="lang.Body" Label="Body" Variant="Variant.Outlined" Lines="7" Immediate="true" ReadOnly="ReadOnly"
+                                      HelperText="@BodyHelp(lang.Body)"
+                                      Error="@(lang.Error(nameof(MessageTemplateRequest.Body)) is not null)" ErrorText="@lang.Error(nameof(MessageTemplateRequest.Body))" />
+                        @if (lang.Preview is not null)
+                        {
+                            <MudAlert Severity="Severity.Normal" Dense="true" Class="mt-2" ShowCloseIcon="true" CloseIconClicked="() => lang.Preview = null">
+                                @if (lang.Preview.Subject is not null) { <b>@lang.Preview.Subject</b><br /> }
+                                <span style="white-space:pre-wrap">@lang.Preview.Body</span>
+                                @if (lang.Preview.SmsSegments is not null) { <br /><MudText Typo="Typo.caption">@lang.Preview.SmsSegments SMS segment(s)</MudText> }
+                            </MudAlert>
+                        }
+                        <MudButton Size="Size.Small" Class="mt-2" StartIcon="@Icons.Material.Filled.Preview" OnClick="() => Preview(lang)"
+                                   Disabled="@(Busy || lang.Version is null)" title="Previews the saved version with the sample values below">Preview saved version</MudButton>
+                    </MudPaper>
+                </MudItem>
+            }
+        </MudGrid>
+
+        @if (Fields.Count > 0)
+        {
+            <MudText Typo="Typo.subtitle2" Class="mt-4 mb-1">Merge fields and sample values for preview</MudText>
+            <MudGrid Spacing="2">
+                @foreach (var field in Fields)
+                {
+                    <MudItem xs="12" sm="6" md="3">
+                        <MudTextField T="string" Value="@sample.GetValueOrDefault(field)" ValueChanged="@(v => sample[field] = v)" Label="@field"
+                                      Variant="Variant.Outlined" Margin="Margin.Dense" />
+                    </MudItem>
+                }
+            </MudGrid>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="() => MudDialog.Cancel()">@(ReadOnly ? "Close" : "Cancel")</MudButton>
+        @if (!ReadOnly)
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Save" Disabled="@(Busy || string.IsNullOrWhiteSpace(code))">Save</MudButton>
+        }
+    </DialogActions>
+</MudDialog>
+
+@code {
+    private sealed class LanguageDraft(string language, string title)
+    {
+        public string Language { get; } = language;
+        public string Title { get; } = title;
+        public string? Subject { get; set; }
+        public string? Body { get; set; }
+        public bool IsActive { get; set; } = true;
+        public int? Version { get; set; }
+        public MessageTemplateView? Saved { get; set; }
+        public TemplatePreviewResponse? Preview { get; set; }
+        public IReadOnlyDictionary<string, string[]> Errors { get; set; } = new Dictionary<string, string[]>();
+
+        public string? Error(string field) =>
+            Errors.FirstOrDefault(e => string.Equals(e.Key, field, StringComparison.OrdinalIgnoreCase)).Value?.FirstOrDefault();
+
+        public bool Changed => !string.IsNullOrWhiteSpace(Body) &&
+            (Saved is null || Saved.Body != Body || Saved.Subject != Subject || Saved.IsActive != IsActive);
+    }
+
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public string? Code { get; set; }
+    [Parameter] public NotificationChannel Channel { get; set; }
+    [Parameter] public IReadOnlyList<MessageTemplateView> Existing { get; set; } = [];
+    [Parameter] public bool ReadOnly { get; set; }
+
+    private string code = "";
+    private NotificationChannel channel;
+    private readonly List<LanguageDraft> languages = [new("en", "English"), new("bn", "Bangla (বাংলা)")];
+    private readonly Dictionary<string, string?> sample = [];
+
+    private IReadOnlyList<string> Fields => AdminLookups.MergeFields(languages.SelectMany(l => new[] { l.Subject, l.Body }).ToArray());
+
+    protected override void OnInitialized()
+    {
+        code = Code ?? "";
+        channel = Channel;
+        foreach (var lang in languages)
+        {
+            var t = Existing.FirstOrDefault(x => x.Language == lang.Language);
+            if (t is null) continue;
+            (lang.Subject, lang.Body, lang.IsActive, lang.Version, lang.Saved) = (t.Subject, t.Body, t.IsActive, t.Version, t);
+        }
+    }
+
+    private static string BodyHelp(string? body)
+    {
+        if (string.IsNullOrEmpty(body)) return "";
+        var unicode = body.Any(c => c > 127);
+        return $"{body.Length} characters{(unicode ? " (Unicode: 70 per SMS segment)" : "")}";
+    }
+
+    private async Task Preview(LanguageDraft lang)
+    {
+        var request = new TemplatePreviewRequest(code.Trim(), channel, lang.Language, Fields.ToDictionary(f => f, f => sample.GetValueOrDefault(f)));
+        await Run(async () => lang.Preview = await Api.PostAsync<TemplatePreviewResponse>("api/notifications/templates/preview", request));
+    }
+
+    private async Task Save()
+    {
+        var changed = languages.Where(l => l.Changed).ToList();
+        if (changed.Count == 0)
+        {
+            Snackbar.Add("Nothing to save.", Severity.Info);
+            return;
+        }
+        var allOk = true;
+        foreach (var lang in changed)
+        {
+            var request = new MessageTemplateRequest(code.Trim(), channel, lang.Language, string.IsNullOrWhiteSpace(lang.Subject) ? null : lang.Subject, lang.Body!, lang.IsActive);
+            var ok = await Run(async () =>
+            {
+                var saved = await Api.PutAsync<MessageTemplateView>("api/notifications/templates", request);
+                (lang.Version, lang.Saved) = (saved.Version, saved);
+            });
+            lang.Errors = FieldErrors;
+            allOk &= ok;
+        }
+        if (allOk)
+        {
+            Snackbar.Add("Template saved.", Severity.Success);
+            MudDialog.Close(DialogResult.Ok(true));
+        }
+    }
+}

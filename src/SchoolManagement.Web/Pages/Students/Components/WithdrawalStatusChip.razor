@@ -1,0 +1,21 @@
+﻿<MudChip T="string" Size="Size.Small" Color="ColorFor()" Variant="Variant.Outlined">@Text()</MudChip>
+
+@code {
+    [Parameter] public WithdrawalStatus Status { get; set; }
+    /// <summary>When set and the request is cleared but not yet approved, shows "Awaiting approval".</summary>
+    [Parameter] public Guid? ApprovalRequestId { get; set; }
+
+    private string Text() => Status == WithdrawalStatus.Cleared && ApprovalRequestId is not null
+        ? "Cleared, awaiting approval"
+        : Status == WithdrawalStatus.ClearancePending ? "Dues pending" : Format.Enum(Status);
+
+    private Color ColorFor() => Status switch
+    {
+        WithdrawalStatus.Completed => Color.Success,
+        WithdrawalStatus.Approved => Color.Primary,
+        WithdrawalStatus.Cleared => Color.Info,
+        WithdrawalStatus.ClearancePending => Color.Warning,
+        WithdrawalStatus.Rejected => Color.Error,
+        _ => Color.Default
+    };
+}

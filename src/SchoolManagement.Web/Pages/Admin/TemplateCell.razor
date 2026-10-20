@@ -1,0 +1,15 @@
+@if (Template is null)
+{
+    <MudText Typo="Typo.caption" Color="Color.Warning">Missing</MudText>
+}
+else
+{
+    <MudText Typo="Typo.body2" Style="max-width:380px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="@Template.Body">@Template.Body</MudText>
+    <MudText Typo="Typo.caption">
+        v@(Template.Version)@(Template.IsActive ? "" : " · inactive")
+    </MudText>
+}
+
+@code {
+    [Parameter] public MessageTemplateView? Template { get; set; }
+}

@@ -1,0 +1,143 @@
+@page "/students/import"
+@inherits AppPage
+
+<PageTitle>Import students</PageTitle>
+
+<MudBreadcrumbs Items="breadcrumbs" Class="px-0 pt-0" />
+<MudText Typo="Typo.h4" Class="mb-4">Import students</MudText>
+
+<MudPaper Class="pa-4 mb-4">
+    <MudText Typo="Typo.body2" Class="mb-3">
+        1. Download the Excel template and fill one row per student (columns marked * are required; campus and class are matched by code).
+        2. Upload it to validate every row. 3. When all rows are valid, import them. Nothing is saved unless every row is valid.
+    </MudText>
+    <MudGrid Spacing="2" Class="align-center">
+        <MudItem xs="12" sm="6" md="3">
+            <MudSelect T="Guid?" Label="Academic year" @bind-Value="yearId" Required="true" Variant="Variant.Outlined" Margin="Margin.Dense"
+                       ToStringFunc="@(id => years.FirstOrDefault(y => y.Id == id)?.Name ?? "")">
+                @foreach (var y in years)
+                {
+                    <MudSelectItem T="Guid?" Value="@y.Id">@y.Name@(y.IsCurrent ? " (current)" : "")</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="9" Class="d-flex flex-wrap align-center gap-2">
+            <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Download" OnClick="@(() => Download("api/students/import/template"))" Disabled="Busy">
+                Download template
+            </MudButton>
+            <MudFileUpload T="IBrowserFile" FilesChanged="OnFile" Accept=".xlsx">
+                <ActivatorContent>
+                    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.AttachFile">Choose .xlsx</MudButton>
+                </ActivatorContent>
+            </MudFileUpload>
+            <MudText Typo="Typo.body2">@(file?.Name ?? "No file chosen")</MudText>
+            <MudSpacer />
+            <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="@(() => Submit(dryRun: true))" Disabled="@(Busy || file is null || yearId is null)">
+                Validate
+            </MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => Submit(dryRun: false))"
+                       Disabled="@(Busy || file is null || yearId is null || result is not { DryRun: true } || result.ValidRows != result.TotalRows || result.TotalRows == 0)">
+                Import @(result is { DryRun: true } ? result.TotalRows : 0) students
+            </MudButton>
+        </MudItem>
+    </MudGrid>
+    @if (Busy)
+    {
+        <MudProgressLinear Indeterminate="true" Class="mt-3" />
+    }
+</MudPaper>
+
+@if (result is not null)
+{
+    @if (!result.DryRun)
+    {
+        <MudAlert Severity="Severity.Success" Class="mb-3">Imported @result.ImportedRows of @result.TotalRows students.</MudAlert>
+    }
+    else if (result.ValidRows == result.TotalRows)
+    {
+        <MudAlert Severity="Severity.Success" Class="mb-3">All @result.TotalRows rows are valid. Review the warnings, then import.</MudAlert>
+    }
+    else
+    {
+        <MudAlert Severity="Severity.Error" Class="mb-3">
+            @(result.TotalRows - result.ValidRows) of @result.TotalRows rows have errors. Fix them in the file and validate again.
+        </MudAlert>
+    }
+
+    <div class="d-flex align-center mb-2">
+        <MudSwitch T="bool" @bind-Value="problemsOnly" Label="Show only rows with errors or warnings" Color="Color.Primary" />
+    </div>
+    <MudTable Items="VisibleRows" Dense="true" Hover="true" RowsPerPage="50">
+        <HeaderContent>
+            <MudTh>Row</MudTh>
+            <MudTh>Name</MudTh>
+            <MudTh>Result</MudTh>
+            <MudTh>Errors</MudTh>
+            <MudTh>Warnings</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Row">@context.Row</MudTd>
+            <MudTd DataLabel="Name">@(context.Name ?? "—")</MudTd>
+            <MudTd DataLabel="Result">
+                <MudIcon Icon="@(context.Valid ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.Error)"
+                         Color="@(context.Valid ? Color.Success : Color.Error)" Size="Size.Small" />
+            </MudTd>
+            <MudTd DataLabel="Errors">
+                @foreach (var e in context.Errors)
+                {
+                    <MudText Typo="Typo.body2" Color="Color.Error">@e</MudText>
+                }
+            </MudTd>
+            <MudTd DataLabel="Warnings">
+                @foreach (var w in context.Warnings)
+                {
+                    <MudText Typo="Typo.body2" Color="Color.Warning">@w</MudText>
+                }
+            </MudTd>
+        </RowTemplate>
+        <NoRecordsContent><MudText>No rows to show.</MudText></NoRecordsContent>
+        <PagerContent><MudTablePager /></PagerContent>
+    </MudTable>
+}
+
+@code {
+    private readonly List<BreadcrumbItem> breadcrumbs = [new("Students", "students"), new("Import", null, disabled: true)];
+    private List<StudentAcademicYearOption> years = [];
+    private Guid? yearId;
+    private IBrowserFile? file;
+    private StudentImportResult? result;
+    private bool problemsOnly;
+
+    private IEnumerable<StudentImportRowResult> VisibleRows =>
+        result is null ? [] : problemsOnly ? result.Rows.Where(r => !r.Valid || r.Warnings.Count > 0) : result.Rows;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Run(async () => years = await StudentLookups.YearsAsync(Api));
+        yearId = (years.FirstOrDefault(y => y.IsCurrent) ?? years.FirstOrDefault())?.Id;
+    }
+
+    private void OnFile(IBrowserFile? chosen)
+    {
+        file = chosen;
+        result = null; // a new file must be validated again
+    }
+
+    private async Task Submit(bool dryRun)
+    {
+        if (file!.Size > ApiClient.MaxUploadBytes)
+        {
+            Snackbar.Add("The file is larger than 10 MB; split it into smaller files.", Severity.Warning);
+            return;
+        }
+        if (!dryRun && !await Confirm("Import students", $"Create {result!.TotalRows} student records now?", "Import")) return;
+
+        var url = ApiClient.Query("api/students/import", ("academicYearId", yearId), ("dryRun", dryRun));
+        StudentImportResult? response = null;
+        if (await Run(async () => response = await Api.UploadAsync<StudentImportResult>(url, file, "file"), dryRun ? null : "Import finished."))
+        {
+            result = response;
+            problemsOnly = dryRun && response!.ValidRows != response.TotalRows;
+        }
+    }
+}

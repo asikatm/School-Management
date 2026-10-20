@@ -1,0 +1,142 @@
+@page "/admin/users/{Id:guid}"
+@inherits AppPage
+
+<PageTitle>User</PageTitle>
+
+<MudBreadcrumbs Items="@([new("Users", "admin/users"), new(user?.FullName ?? "User", null, disabled: true)])" Class="px-0" />
+
+@if (user is null)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+    return;
+}
+
+<div class="d-flex align-center flex-wrap gap-2 mb-4">
+    <MudText Typo="Typo.h4">@user.FullName</MudText>
+    <MudChip T="string" Size="Size.Small">@Format.Enum(user.UserType)</MudChip>
+    @if (!user.IsActive) { <MudChip T="string" Size="Size.Small">Inactive</MudChip> }
+    @if (IsLocked) { <MudChip T="string" Size="Size.Small" Color="Color.Warning">Locked until @Format.DateTime(user.LockoutEndUtc)</MudChip> }
+    @if (user.MustChangePassword) { <MudChip T="string" Size="Size.Small" Color="Color.Info">Must change password</MudChip> }
+    <MudSpacer />
+    @if (canManage)
+    {
+        @if (IsLocked)
+        {
+            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.LockOpen" OnClick="Unlock" Disabled="Busy">Unlock</MudButton>
+        }
+        <MudButton Variant="Variant.Outlined" Color="Color.Warning" StartIcon="@Icons.Material.Filled.Password" OnClick="ResetPassword" Disabled="Busy">Reset password</MudButton>
+    }
+</div>
+
+<MudGrid>
+    <MudItem xs="12" md="6">
+        <MudPaper Class="pa-4">
+            <MudText Typo="Typo.h6" Class="mb-3">Profile</MudText>
+            <MudTextField Value="user.UserName" Label="User name" Variant="Variant.Outlined" ReadOnly="true" Class="mb-3" />
+            <MudTextField @bind-Value="fullName" Label="Full name" Variant="Variant.Outlined" ReadOnly="!canManage" Class="mb-3"
+                          Error="HasError(nameof(UpdateUserRequest.FullName))" ErrorText="@ErrorFor(nameof(UpdateUserRequest.FullName))" />
+            <MudTextField @bind-Value="email" Label="Email" Variant="Variant.Outlined" ReadOnly="!canManage" Class="mb-3"
+                          Error="HasError(nameof(UpdateUserRequest.Email))" ErrorText="@ErrorFor(nameof(UpdateUserRequest.Email))" />
+            <MudTextField @bind-Value="phone" Label="Phone" Variant="Variant.Outlined" ReadOnly="!canManage" Class="mb-3"
+                          Error="HasError(nameof(UpdateUserRequest.Phone))" ErrorText="@ErrorFor(nameof(UpdateUserRequest.Phone))" />
+            <MudSelect T="string" @bind-Value="language" Label="Language" Variant="Variant.Outlined" ReadOnly="!canManage" Class="mb-3">
+                <MudSelectItem T="string" Value="@("en")">English</MudSelectItem>
+                <MudSelectItem T="string" Value="@("bn")">Bangla</MudSelectItem>
+            </MudSelect>
+            <MudSwitch T="bool" @bind-Value="isActive" Color="Color.Primary" Label="Active" ReadOnly="!canManage" />
+            <MudText Typo="Typo.caption" Class="d-block mb-3">Deactivating signs the user out everywhere. Last sign-in: @Format.DateTime(user.LastLoginUtc)</MudText>
+            @if (canManage)
+            {
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveProfile" Disabled="@(Busy || string.IsNullOrWhiteSpace(fullName))">Save profile</MudButton>
+            }
+        </MudPaper>
+    </MudItem>
+    <MudItem xs="12" md="6">
+        <MudPaper Class="pa-4">
+            <MudText Typo="Typo.h6" Class="mb-1">Roles</MudText>
+            <MudText Typo="Typo.caption" Class="d-block mb-3">A role on "All campuses" applies everywhere; otherwise only on the chosen campus.</MudText>
+            <RoleAssignmentsEditor Rows="rows" Roles="roles" Campuses="campuses" Disabled="!canManage" />
+            @if (canManage)
+            {
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-3" OnClick="SaveRoles" Disabled="Busy">Save roles</MudButton>
+            }
+        </MudPaper>
+    </MudItem>
+</MudGrid>
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private UserDetail? user;
+    private string fullName = "";
+    private string? email;
+    private string? phone;
+    private string language = "en";
+    private bool isActive;
+    private List<RoleAssignmentsEditor.Row> rows = [];
+    private List<RoleView> roles = [];
+    private List<AdminCampusOption> campuses = [];
+    private bool canManage;
+
+    private bool IsLocked => user?.LockoutEndUtc > DateTime.UtcNow;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        canManage = Session.Has(P.Users.Manage);
+        await Run(async () =>
+        {
+            roles = await Api.GetAsync<List<RoleView>>("api/roles");
+            campuses = await Api.GetAsync<List<AdminCampusOption>>("api/campuses");
+            Show(await Api.GetAsync<UserDetail>($"api/users/{Id}"));
+        });
+    }
+
+    private void Show(UserDetail detail)
+    {
+        user = detail;
+        fullName = detail.FullName;
+        email = detail.Email;
+        phone = detail.Phone;
+        language = detail.Language;
+        isActive = detail.IsActive;
+        rows = RoleAssignmentsEditor.FromView(detail.Roles);
+    }
+
+    private async Task SaveProfile()
+    {
+        if (user!.IsActive && !isActive && !await Confirm("Deactivate user", $"{user.FullName} will be signed out and can no longer sign in.", "Deactivate"))
+            return;
+        var request = new UpdateUserRequest(fullName.Trim(), Blank(email), Blank(phone), language, isActive);
+        await Run(async () => Show(await Api.PutAsync<UserDetail>($"api/users/{Id}", request)), "Profile saved.");
+    }
+
+    private async Task SaveRoles()
+    {
+        var request = RoleAssignmentsEditor.ToRequest(rows);
+        if (await Run(async () => Show(await Api.PutAsync<UserDetail>($"api/users/{Id}/roles", request)), "Roles saved.")
+            && Id == Session.Me?.User.Id)
+            await Session.LoadMeAsync(); // own permissions changed
+    }
+
+    private async Task ResetPassword()
+    {
+        if (!await Confirm("Reset password", $"Generate a new temporary password for {user!.FullName}? Their current password stops working and they are signed out.", "Reset"))
+            return;
+        ResetPasswordResponse? result = null;
+        if (await Run(async () => result = await Api.PostAsync<ResetPasswordResponse>($"api/users/{Id}/reset-password")))
+        {
+            var parameters = new DialogParameters<TemporaryPasswordDialog> { { x => x.UserName, user.UserName }, { x => x.Password, result!.TemporaryPassword } };
+            var dlg = await Dialogs.ShowAsync<TemporaryPasswordDialog>("Temporary password", parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true, BackdropClick = false });
+            await dlg.Result;
+            await Run(async () => Show(await Api.GetAsync<UserDetail>($"api/users/{Id}")));
+        }
+    }
+
+    private async Task Unlock()
+    {
+        if (await Run(() => Api.PostAsync($"api/users/{Id}/unlock"), "Account unlocked."))
+            await Run(async () => Show(await Api.GetAsync<UserDetail>($"api/users/{Id}")));
+    }
+
+    private static string? Blank(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+}

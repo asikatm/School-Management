@@ -1,0 +1,83 @@
+@inherits AppPage
+
+<MudDialog>
+    <DialogContent>
+        @if (loaded)
+        {
+            <MudGrid Spacing="2">
+                <MudItem xs="12" sm="4">
+                    <MudTextField @bind-Value="code" Label="Code" Required="true" MaxLength="8" Disabled="@(Id is not null)"
+                                  HelperText="Letters and digits, up to 8." Error="HasError(nameof(CampusRequest.Code))" ErrorText="@ErrorFor(nameof(CampusRequest.Code))" />
+                </MudItem>
+                <MudItem xs="12" sm="8">
+                    <MudTextField @bind-Value="name" Label="Name" Required="true" Error="HasError(nameof(CampusRequest.Name))" ErrorText="@ErrorFor(nameof(CampusRequest.Name))" />
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudTextField @bind-Value="nameBn" Label="Name (Bangla)" />
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudTextField @bind-Value="headName" Label="Head of campus" />
+                </MudItem>
+                <MudItem xs="12">
+                    <MudTextField @bind-Value="address" Label="Address" Lines="2" />
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudTextField @bind-Value="phone" Label="Phone" />
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudTextField @bind-Value="email" Label="Email" InputType="InputType.Email"
+                                  Error="HasError(nameof(CampusRequest.Email))" ErrorText="@ErrorFor(nameof(CampusRequest.Email))" />
+                </MudItem>
+                <MudItem xs="12">
+                    <MudSwitch @bind-Value="isActive" Label="Active" Color="Color.Primary" />
+                </MudItem>
+            </MudGrid>
+        }
+        else
+        {
+            <MudProgressLinear Indeterminate="true" />
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="() => MudDialog.Cancel()">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Save" Disabled="@(Busy || !loaded)">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+
+    /// <summary>The campus to edit; null creates a new one.</summary>
+    [Parameter] public Guid? Id { get; set; }
+
+    private bool loaded;
+    private string code = "", name = "";
+    private string? nameBn, address, phone, email, headName;
+    private bool isActive = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (Id is null)
+        {
+            loaded = true;
+            return;
+        }
+        // Edit from the latest server copy.
+        await Run(async () =>
+        {
+            var c = await Api.GetAsync<CampusView>($"api/campuses/{Id}");
+            (code, name, nameBn, address, phone, email, headName, isActive) = (c.Code, c.Name, c.NameBn, c.Address, c.Phone, c.Email, c.HeadName, c.IsActive);
+            loaded = true;
+        });
+    }
+
+    private async Task Save()
+    {
+        var request = new CampusRequest(code.Trim(), name.Trim(), nameBn, address, phone, string.IsNullOrWhiteSpace(email) ? null : email.Trim(), headName, isActive);
+        CampusView? saved = null;
+        var ok = await Run(async () => saved = Id is null
+            ? await Api.PostAsync<CampusView>("api/campuses", request)
+            : await Api.PutAsync<CampusView>($"api/campuses/{Id}", request), "Campus saved.");
+        if (ok) MudDialog.Close(DialogResult.Ok(saved));
+    }
+}

@@ -1,0 +1,123 @@
+@page "/academic/grading-schemes"
+@inherits AppPage
+
+<PageTitle>Grading schemes</PageTitle>
+
+<div class="d-flex align-center mb-4">
+    <MudText Typo="Typo.h4">Grading schemes</MudText>
+    <MudSpacer />
+    @if (canManage)
+    {
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="() => Edit(null)" Disabled="Busy">New scheme</MudButton>
+    }
+</div>
+
+@if (loading)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else if (schemes.Count == 0)
+{
+    <MudAlert Severity="Severity.Info">No grading schemes yet.</MudAlert>
+}
+
+<MudGrid>
+    @foreach (var s in schemes)
+    {
+        <MudItem xs="12" lg="6">
+            <MudCard Elevation="1">
+                <MudCardHeader>
+                    <CardHeaderContent>
+                        <MudText Typo="Typo.h6">@s.Name</MudText>
+                        <MudText Typo="Typo.caption">@s.Code · @Format.Enum(s.ScaleType) · @s.Bands.Count band(s)</MudText>
+                    </CardHeaderContent>
+                    <CardHeaderActions>
+                        @if (canManage)
+                        {
+                            <MudIconButton Icon="@Icons.Material.Filled.Edit" title="Edit" OnClick="() => Edit(s)" Disabled="Busy" />
+                        }
+                    </CardHeaderActions>
+                </MudCardHeader>
+                <MudCardContent Class="pt-0">
+                    <MudSimpleTable Dense="true" Hover="true">
+                        <thead>
+                            <tr><th>Grade</th><th>Marks %</th><th>Grade point</th><th>Descriptor</th><th>Pass</th></tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var b in s.Bands)
+                            {
+                                <tr>
+                                    <td><b>@b.Grade</b></td>
+                                    <td>@b.MinPercent.ToString("0.##") – @b.MaxPercent.ToString("0.##")</td>
+                                    <td>@(b.GradePoint?.ToString("0.00") ?? "—")</td>
+                                    <td>@(b.Descriptor ?? "—")@(string.IsNullOrEmpty(b.DescriptorBn) ? "" : $" / {b.DescriptorBn}")</td>
+                                    <td>
+                                        @if (b.IsPass)
+                                        {
+                                            <MudIcon Icon="@Icons.Material.Filled.Check" Color="Color.Success" Size="Size.Small" />
+                                        }
+                                        else
+                                        {
+                                            <MudIcon Icon="@Icons.Material.Filled.Close" Color="Color.Error" Size="Size.Small" />
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+
+                    @* Try the scheme: asks the API which band covers a percentage. *@
+                    <div class="d-flex align-center gap-3 mt-3">
+                        <MudNumericField T="decimal?" Value="TestValue(s.Id)" ValueChanged="v => tests[s.Id] = v" Label="Test a percentage" Min="0" Max="100"
+                                         Margin="Margin.Dense" Variant="Variant.Outlined" Style="max-width:180px" HideSpinButtons="true" />
+                        <MudButton Size="Size.Small" Variant="Variant.Outlined" OnClick="() => Test(s)" Disabled="@(Busy || TestValue(s.Id) is null)">Look up grade</MudButton>
+                        @if (results.TryGetValue(s.Id, out var r))
+                        {
+                            <MudChip T="string" Color="@(r.IsPass ? Color.Success : Color.Error)">
+                                @r.Grade@(r.GradePoint is null ? "" : $" ({r.GradePoint:0.00})")@(r.Descriptor is null ? "" : $" · {r.Descriptor}")
+                            </MudChip>
+                        }
+                    </div>
+                </MudCardContent>
+            </MudCard>
+        </MudItem>
+    }
+</MudGrid>
+
+@code {
+    private List<GradingSchemeView> schemes = [];
+    private readonly Dictionary<Guid, decimal?> tests = [];
+    private readonly Dictionary<Guid, GradeBandView> results = [];
+    private bool loading = true;
+    private bool canManage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        canManage = Session.Has(P.Settings.Manage);
+        await Load();
+    }
+
+    private async Task Load()
+    {
+        loading = true;
+        await Run(async () => schemes = await Api.GetAsync<List<GradingSchemeView>>("api/grading-schemes"));
+        results.Clear();
+        loading = false;
+    }
+
+    private decimal? TestValue(Guid id) => tests.GetValueOrDefault(id);
+
+    private async Task Test(GradingSchemeView s)
+    {
+        results.Remove(s.Id);
+        await Run(async () => results[s.Id] = await Api.GetAsync<GradeBandView>(ApiClient.Query($"api/grading-schemes/{s.Id}/grade", ("percent", TestValue(s.Id)))));
+    }
+
+    private async Task Edit(GradingSchemeView? item)
+    {
+        var dlg = await Dialogs.ShowAsync<GradingSchemeDialog>(item is null ? "New grading scheme" : $"Edit {item.Name}",
+            new DialogParameters<GradingSchemeDialog> { { x => x.Item, item } },
+            new DialogOptions { MaxWidth = MaxWidth.Large, FullWidth = true });
+        if (await dlg.Result is { Canceled: false }) await Load();
+    }
+}

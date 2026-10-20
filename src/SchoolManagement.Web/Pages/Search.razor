@@ -1,0 +1,107 @@
+@page "/search"
+@inherits AppPage
+
+<PageTitle>Search</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-4">Search</MudText>
+
+<MudTextField @bind-Value="text" Placeholder="Name, ID, phone, birth certificate or NID number" Variant="Variant.Outlined" Class="mb-4"
+              Adornment="Adornment.End" AdornmentIcon="@Icons.Material.Filled.Search" OnAdornmentClick="Go" Immediate="true"
+              OnKeyDown="@(e => e.Key == "Enter" ? Go() : Task.CompletedTask)" Style="max-width:640px" />
+
+@if (Busy)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else if (result is not null)
+{
+    @if (result.Results.Count == 0)
+    {
+        <MudAlert Severity="Severity.Info">Nothing found for “@result.Query”. Searches match names partially and IDs, phone numbers and document numbers exactly.</MudAlert>
+    }
+    else
+    {
+        <MudText Typo="Typo.body2" Class="mb-3">@result.Results.Count result(s) for “@result.Query” (up to 10 per type).</MudText>
+        <MudGrid>
+            @foreach (var group in result.Results.GroupBy(r => r.Type).OrderBy(g => Order(g.Key)))
+            {
+                <MudItem xs="12" md="6">
+                    <MudPaper Class="pa-2">
+                        <MudText Typo="Typo.h6" Class="px-2 pt-1">@Heading(group.Key) (@group.Count())</MudText>
+                        <MudList T="string" Dense="true">
+                            @foreach (var hit in group)
+                            {
+                                var href = LinkFor(hit);
+                                <MudListItem T="string" Icon="@IconFor(hit.Type)" Href="@href" Disabled="href is null">
+                                    <MudText Typo="Typo.body1">@hit.Title</MudText>
+                                    @if (hit.Subtitle is not null) { <MudText Typo="Typo.caption">@hit.Subtitle</MudText> }
+                                </MudListItem>
+                            }
+                        </MudList>
+                    </MudPaper>
+                </MudItem>
+            }
+        </MudGrid>
+    }
+}
+
+@code {
+    [SupplyParameterFromQuery(Name = "q")] public string? Q { get; set; }
+
+    private string? text;
+    private GlobalSearchResponse? result;
+
+    private static readonly string[] TypeOrder = ["student", "guardian", "application", "enquiry", "staff"];
+
+    protected override async Task OnParametersSetAsync()
+    {
+        text = Q;
+        result = null;
+        if (string.IsNullOrWhiteSpace(Q)) return;
+        if (Q.Trim().Length < 2)
+        {
+            Snackbar.Add("Type at least 2 characters.", Severity.Info);
+            return;
+        }
+        await Run(async () => result = await Api.GetAsync<GlobalSearchResponse>(ApiClient.Query("api/search", ("q", Q.Trim()))));
+    }
+
+    private Task Go()
+    {
+        if (!string.IsNullOrWhiteSpace(text))
+            Nav.NavigateTo($"search?q={Uri.EscapeDataString(text.Trim())}");
+        return Task.CompletedTask;
+    }
+
+    private static int Order(string type) => Array.IndexOf(TypeOrder, type) is var i and >= 0 ? i : TypeOrder.Length;
+
+    private static string Heading(string type) => type switch
+    {
+        "student" => "Students",
+        "guardian" => "Guardians",
+        "application" => "Applications",
+        "enquiry" => "Enquiries",
+        "staff" => "Staff",
+        _ => type
+    };
+
+    private static string IconFor(string type) => type switch
+    {
+        "student" => Icons.Material.Filled.School,
+        "guardian" => Icons.Material.Filled.FamilyRestroom,
+        "application" => Icons.Material.Filled.Assignment,
+        "enquiry" => Icons.Material.Filled.ContactPhone,
+        "staff" => Icons.Material.Filled.Badge,
+        _ => Icons.Material.Filled.Search
+    };
+
+    // Guardians have no page of their own yet; staff open in user administration when permitted.
+    private string? LinkFor(GlobalSearchHit hit) => hit.Type switch
+    {
+        "student" => $"students/{hit.Id}",
+        "application" => $"admission/applications/{hit.Id}",
+        "enquiry" => $"admission/enquiries/{hit.Id}",
+        "staff" when Session.Has(Permissions.Users.View) => $"admin/users/{hit.Id}",
+        _ => null
+    };
+}

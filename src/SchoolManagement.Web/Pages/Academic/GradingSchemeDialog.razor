@@ -1,0 +1,166 @@
+@inherits AppPage
+
+<MudDialog>
+    <DialogContent>
+        <MudGrid Spacing="2">
+            <MudItem xs="12" sm="3">
+                <MudTextField @bind-Value="code" Label="Code" Required="true" Disabled="@(Item is not null)"
+                              Error="HasError(nameof(GradingSchemeRequest.Code))" ErrorText="@ErrorFor(nameof(GradingSchemeRequest.Code))" />
+            </MudItem>
+            <MudItem xs="12" sm="5">
+                <MudTextField @bind-Value="name" Label="Name" Required="true"
+                              Error="HasError(nameof(GradingSchemeRequest.Name))" ErrorText="@ErrorFor(nameof(GradingSchemeRequest.Name))" />
+            </MudItem>
+            <MudItem xs="12" sm="4">
+                <MudSelect T="GradingScaleType" @bind-Value="scaleType" Label="Scale type">
+                    @foreach (var t in Enum.GetValues<GradingScaleType>())
+                    {
+                        <MudSelectItem T="GradingScaleType" Value="t">@Format.Enum(t)</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+        </MudGrid>
+
+        <div class="d-flex align-center mt-6 mb-2">
+            <MudText Typo="Typo.h6">Bands</MudText>
+            <MudText Typo="Typo.caption" Class="ml-3">Inclusive on both ends; must cover 0–100% without overlaps.</MudText>
+            <MudSpacer />
+            <MudButton Size="Size.Small" StartIcon="@Icons.Material.Filled.Sort" OnClick="SortBands">Sort</MudButton>
+            <MudButton Size="Size.Small" StartIcon="@Icons.Material.Filled.Add" OnClick="AddBand">Add band</MudButton>
+        </div>
+        <MudSimpleTable Dense="true" Outlined="true">
+            <thead>
+                <tr>
+                    <th style="width:90px">Grade</th>
+                    <th style="width:100px">Min %</th>
+                    <th style="width:100px">Max %</th>
+                    <th style="width:100px">Grade point</th>
+                    <th>Descriptor</th>
+                    <th>Descriptor (Bangla)</th>
+                    <th style="width:60px">Pass</th>
+                    <th style="width:48px"></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var b in bands)
+                {
+                    <tr>
+                        <td><MudTextField @bind-Value="b.Grade" Margin="Margin.Dense" MaxLength="16" Error="string.IsNullOrWhiteSpace(b.Grade)" /></td>
+                        <td><MudNumericField @bind-Value="b.MinPercent" Min="0" Max="100" Margin="Margin.Dense" HideSpinButtons="true" /></td>
+                        <td><MudNumericField @bind-Value="b.MaxPercent" Min="0" Max="100" Margin="Margin.Dense" HideSpinButtons="true" Error="@(b.MaxPercent < b.MinPercent)" /></td>
+                        <td><MudNumericField T="decimal?" @bind-Value="b.GradePoint" Min="0" Margin="Margin.Dense" HideSpinButtons="true" Clearable="false" /></td>
+                        <td><MudTextField @bind-Value="b.Descriptor" Margin="Margin.Dense" /></td>
+                        <td><MudTextField @bind-Value="b.DescriptorBn" Margin="Margin.Dense" /></td>
+                        <td><MudCheckBox @bind-Value="b.IsPass" Dense="true" Color="Color.Primary" /></td>
+                        <td><MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" OnClick="() => bands.Remove(b)" title="Remove band" /></td>
+                    </tr>
+                }
+                @if (bands.Count == 0)
+                {
+                    <tr><td colspan="8"><MudText Typo="Typo.body2">No bands. Add at least one.</MudText></td></tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+
+        @{ var problems = Problems().Concat(FieldErrors.Where(e => !e.Key.Equals(nameof(GradingSchemeRequest.Code), StringComparison.OrdinalIgnoreCase)
+                                                                   && !e.Key.Equals(nameof(GradingSchemeRequest.Name), StringComparison.OrdinalIgnoreCase))
+                                                       .SelectMany(e => e.Value)).Distinct().ToList(); }
+        @if (problems.Count > 0)
+        {
+            <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-3">
+                @foreach (var p in problems)
+                {
+                    <div>@p</div>
+                }
+            </MudAlert>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="() => MudDialog.Cancel()">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Save"
+                   Disabled="@(Busy || string.IsNullOrWhiteSpace(code) || string.IsNullOrWhiteSpace(name) || Problems().Any())">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public GradingSchemeView? Item { get; set; }
+
+    private sealed class BandRow
+    {
+        public string Grade { get; set; } = "";
+        public string? Descriptor { get; set; }
+        public string? DescriptorBn { get; set; }
+        public decimal MinPercent { get; set; }
+        public decimal MaxPercent { get; set; }
+        public decimal? GradePoint { get; set; }
+        public bool IsPass { get; set; } = true;
+    }
+
+    private string code = "", name = "";
+    private GradingScaleType scaleType = GradingScaleType.Letter;
+    private List<BandRow> bands = [];
+
+    protected override void OnInitialized()
+    {
+        if (Item is null)
+        {
+            bands.Add(new BandRow { Grade = "A", MinPercent = 0, MaxPercent = 100 });
+            return;
+        }
+        (code, name, scaleType) = (Item.Code, Item.Name, Item.ScaleType);
+        bands = Item.Bands.Select(b => new BandRow
+        {
+            Grade = b.Grade, Descriptor = b.Descriptor, DescriptorBn = b.DescriptorBn,
+            MinPercent = b.MinPercent, MaxPercent = b.MaxPercent, GradePoint = b.GradePoint, IsPass = b.IsPass
+        }).ToList();
+    }
+
+    /// <summary>Same checks as the API's GradeCalculator.Validate, so mistakes show while typing.</summary>
+    private IEnumerable<string> Problems()
+    {
+        if (bands.Count == 0)
+        {
+            yield return "At least one band is required.";
+            yield break;
+        }
+        if (bands.Any(b => string.IsNullOrWhiteSpace(b.Grade))) yield return "Every band needs a grade.";
+        if (bands.Any(b => b.MaxPercent < b.MinPercent)) yield return "A band's max % must not be below its min %.";
+        var ordered = bands.OrderBy(b => b.MinPercent).ToList();
+        if (ordered[0].MinPercent > 0) yield return "Bands must start at 0%.";
+        if (ordered.Max(b => b.MaxPercent) < 100) yield return "Bands must reach 100%.";
+        for (var i = 1; i < ordered.Count; i++)
+        {
+            var (prev, cur) = (ordered[i - 1], ordered[i]);
+            if (cur.MinPercent <= prev.MaxPercent) yield return $"Bands {prev.Grade} and {cur.Grade} overlap.";
+            else if (cur.MinPercent - prev.MaxPercent > 0.01m) yield return $"Gap between {prev.Grade} and {cur.Grade}.";
+        }
+    }
+
+    private void SortBands() => bands = bands.OrderByDescending(b => b.MinPercent).ToList();
+
+    /// <summary>Adds a band below the lowest one, splitting nothing — adjust the ranges afterwards.</summary>
+    private void AddBand()
+    {
+        var lowest = bands.OrderBy(b => b.MinPercent).FirstOrDefault();
+        bands.Add(new BandRow
+        {
+            MinPercent = 0,
+            MaxPercent = lowest is null ? 100 : Math.Max(0, lowest.MinPercent - 0.01m),
+            IsPass = lowest is null
+        });
+    }
+
+    private async Task Save()
+    {
+        var request = new GradingSchemeRequest(code.Trim(), name.Trim(), scaleType,
+            bands.OrderByDescending(b => b.MinPercent)
+                .Select(b => new GradeBandRequest(b.Grade.Trim(), b.Descriptor, b.DescriptorBn, b.MinPercent, b.MaxPercent, b.GradePoint, b.IsPass)).ToList());
+        var ok = await Run(async () =>
+        {
+            if (Item is null) await Api.PostAsync<GradingSchemeView>("api/grading-schemes", request);
+            else await Api.PutAsync<GradingSchemeView>($"api/grading-schemes/{Item.Id}", request);
+        }, "Grading scheme saved.");
+        if (ok) MudDialog.Close(DialogResult.Ok(true));
+    }
+}

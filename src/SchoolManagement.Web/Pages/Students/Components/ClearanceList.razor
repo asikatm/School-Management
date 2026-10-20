@@ -1,0 +1,20 @@
+@if (Items.Count == 0)
+{
+    <MudText Typo="Typo.caption">No clearance checks recorded.</MudText>
+}
+else
+{
+    <MudList T="string" Dense="true" Padding="false">
+        @foreach (var c in Items)
+        {
+            <MudListItem T="string" Icon="@(c.Cleared ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.Cancel)"
+                         IconColor="@(c.Cleared ? Color.Success : Color.Error)">
+                <MudText Typo="Typo.body2"><b>@c.Area</b>: @c.Detail</MudText>
+            </MudListItem>
+        }
+    </MudList>
+}
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<StudentClearanceResult> Items { get; set; } = [];
+}

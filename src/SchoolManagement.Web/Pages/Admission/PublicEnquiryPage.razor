@@ -1,0 +1,122 @@
+@page "/public/enquiry"
+@inherits AppPage
+
+<PageTitle>Admission enquiry · Lighthouse School</PageTitle>
+
+<PublicShell Subtitle="Admission enquiry">
+    @if (reference is not null)
+    {
+        <MudPaper Class="pa-6">
+            <MudAlert Severity="Severity.Success" Class="mb-4">Thank you! We have received your enquiry and will call you soon.</MudAlert>
+            <MudText>Your reference number is <b>@reference</b>.</MudText>
+            <MudText Typo="Typo.body2" Class="mt-2">When you are ready, you can also <MudLink Href="public/apply">apply online</MudLink>.</MudText>
+        </MudPaper>
+    }
+    else if (options is null)
+    {
+        if (Busy)
+        {
+            <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+        }
+    }
+    else
+    {
+        <MudPaper Class="pa-6">
+            <MudText Class="mb-4">Tell us about your child and we will get in touch about admission, campus visits and tests.</MudText>
+            <MudGrid Spacing="2">
+                <MudItem xs="12" sm="4">
+                    <MudSelect T="Guid?" @bind-Value="campusId" Label="Campus" Required="true" Variant="Variant.Outlined"
+                               Error="HasError(nameof(AdmissionPublicEnquiryRequest.CampusId))" ErrorText="@ErrorFor(nameof(AdmissionPublicEnquiryRequest.CampusId))">
+                        @foreach (var c in options.Campuses)
+                        {
+                            <MudSelectItem T="Guid?" Value="c.Id">@Bilingual(c)</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" sm="4">
+                    <MudSelect T="Guid?" @bind-Value="yearId" Label="Academic year" Clearable="true" Variant="Variant.Outlined">
+                        @foreach (var y in options.AcademicYears)
+                        {
+                            <MudSelectItem T="Guid?" Value="y.Id">@y.Name</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" sm="4">
+                    <MudSelect T="Guid?" @bind-Value="classId" Label="Class" Clearable="true" Variant="Variant.Outlined">
+                        @foreach (var c in options.Classes)
+                        {
+                            <MudSelectItem T="Guid?" Value="c.Id">@Bilingual(c)</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" sm="8">
+                    <MudTextField @bind-Value="childName" Label="Child's name" Required="true" Variant="Variant.Outlined" MaxLength="200" Immediate="true"
+                                  Error="HasError(nameof(AdmissionPublicEnquiryRequest.ChildName))" ErrorText="@ErrorFor(nameof(AdmissionPublicEnquiryRequest.ChildName))" />
+                </MudItem>
+                <MudItem xs="12" sm="4">
+                    <MudDatePicker @bind-Date="childDob" Label="Child's date of birth" Variant="Variant.Outlined" DateFormat="dd MMM yyyy" MaxDate="DateTime.Today" OpenTo="OpenTo.Year" />
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudTextField @bind-Value="guardianName" Label="Your name" Required="true" Variant="Variant.Outlined" MaxLength="200" Immediate="true"
+                                  Error="HasError(nameof(AdmissionPublicEnquiryRequest.GuardianName))" ErrorText="@ErrorFor(nameof(AdmissionPublicEnquiryRequest.GuardianName))" />
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudTextField @bind-Value="guardianPhone" Label="Mobile number" Required="true" Variant="Variant.Outlined" Placeholder="01XXXXXXXXX" Immediate="true"
+                                  Error="HasError(nameof(AdmissionPublicEnquiryRequest.GuardianPhone))" ErrorText="@ErrorFor(nameof(AdmissionPublicEnquiryRequest.GuardianPhone))" />
+                </MudItem>
+                <MudItem xs="12">
+                    <MudTextField @bind-Value="guardianEmail" Label="E-mail (optional)" Variant="Variant.Outlined" InputType="InputType.Email"
+                                  Error="HasError(nameof(AdmissionPublicEnquiryRequest.GuardianEmail))" ErrorText="@ErrorFor(nameof(AdmissionPublicEnquiryRequest.GuardianEmail))" />
+                </MudItem>
+                <MudItem xs="12">
+                    <MudTextField @bind-Value="message" Label="Your question or message" Variant="Variant.Outlined" Lines="4" MaxLength="2000" />
+                </MudItem>
+                @* Honeypot: hidden from people, so only bots fill it in. *@
+                <div style="position:absolute;left:-10000px" aria-hidden="true">
+                    <label>Website <input type="text" tabindex="-1" autocomplete="off" @bind="website" /></label>
+                </div>
+            </MudGrid>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Large" Class="mt-4" OnClick="Send"
+                       Disabled="@(Busy || campusId is null || string.IsNullOrWhiteSpace(childName) || string.IsNullOrWhiteSpace(guardianName) || string.IsNullOrWhiteSpace(guardianPhone))">
+                Send enquiry
+            </MudButton>
+        </MudPaper>
+    }
+</PublicShell>
+
+@code {
+    /// <summary>Campaign code from the link, e.g. ?campaign=FB-JAN.</summary>
+    [SupplyParameterFromQuery(Name = "campaign")] public string? Campaign { get; set; }
+
+    private AdmissionPublicOptions? options;
+    private string? reference;
+    private Guid? campusId;
+    private Guid? yearId;
+    private Guid? classId;
+    private string childName = "";
+    private DateTime? childDob;
+    private string guardianName = "";
+    private string guardianPhone = "";
+    private string? guardianEmail;
+    private string? message;
+    private string? website;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Run(async () => options = await Api.GetAsync<AdmissionPublicOptions>("api/public/admission/options"));
+        if (options is not null)
+        {
+            if (options.Campuses.Count == 1) campusId = options.Campuses[0].Id;
+            if (options.AcademicYears.Count == 1) yearId = options.AcademicYears[0].Id;
+        }
+    }
+
+    private static string Bilingual(AdmissionPublicItem i) => string.IsNullOrWhiteSpace(i.NameBn) ? i.Name : $"{i.Name} ({i.NameBn})";
+
+    private async Task Send()
+    {
+        var request = new AdmissionPublicEnquiryRequest(campusId!.Value, yearId, classId, childName.Trim(), AdmissionUi.ToDateOnly(childDob), guardianName.Trim(),
+            guardianPhone.Trim(), ApplicationForm.Blank(guardianEmail), ApplicationForm.Blank(message), ApplicationForm.Blank(Campaign), website);
+        await Run(async () => reference = (await Api.PostAsync<AdmissionPublicEnquiryResponse>("api/public/admission/enquiries", request)).Reference);
+    }
+}

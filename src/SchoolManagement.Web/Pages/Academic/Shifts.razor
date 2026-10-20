@@ -1,0 +1,76 @@
+@page "/academic/shifts"
+@inherits AppPage
+
+<PageTitle>Shifts</PageTitle>
+
+<div class="d-flex align-center mb-4">
+    <MudText Typo="Typo.h4">Shifts</MudText>
+    <MudSpacer />
+    @if (canManage)
+    {
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="Create" Disabled="@(Busy || campuses.Count == 0)">New shift</MudButton>
+    }
+</div>
+
+<MudPaper Class="pa-3 mb-4" Elevation="1" Style="max-width:420px">
+    <MudSelect T="Guid?" Value="campusId" ValueChanged="CampusChanged" Label="Campus" Clearable="true" Placeholder="All campuses" Dense="true">
+        @foreach (var c in campuses)
+        {
+            <MudSelectItem T="Guid?" Value="c.Id">@c.Name</MudSelectItem>
+        }
+    </MudSelect>
+</MudPaper>
+
+<MudTable T="ShiftView" Items="shifts" Loading="loading" Hover="true" Dense="true" Elevation="1">
+    <HeaderContent>
+        <MudTh>Name</MudTh>
+        <MudTh>Campus</MudTh>
+        <MudTh>Starts</MudTh>
+        <MudTh>Ends</MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd DataLabel="Name"><b>@context.Name</b></MudTd>
+        <MudTd DataLabel="Campus">@(campuses.FirstOrDefault(c => c.Id == context.CampusId)?.Name ?? "—")</MudTd>
+        <MudTd DataLabel="Starts">@context.StartTime.ToString("hh:mm tt")</MudTd>
+        <MudTd DataLabel="Ends">@context.EndTime.ToString("hh:mm tt")</MudTd>
+    </RowTemplate>
+    <NoRecordsContent><MudText>No shifts.</MudText></NoRecordsContent>
+</MudTable>
+<MudText Typo="Typo.caption" Class="d-block mt-2">Shifts cannot be edited or deleted once created.</MudText>
+
+@code {
+    private List<CampusView> campuses = [];
+    private List<ShiftView> shifts = [];
+    private Guid? campusId;
+    private bool loading = true;
+    private bool canManage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        canManage = Session.Has(P.Settings.Manage);
+        await Run(async () => campuses = await Api.GetAsync<List<CampusView>>("api/campuses"));
+        await Load();
+    }
+
+    private async Task CampusChanged(Guid? value)
+    {
+        campusId = value;
+        await Load();
+    }
+
+    private async Task Load()
+    {
+        loading = true;
+        await Run(async () => shifts = await Api.GetAsync<List<ShiftView>>(ApiClient.Query("api/structure/shifts", ("campusId", campusId))));
+        loading = false;
+    }
+
+    private async Task Create()
+    {
+        var dlg = await Dialogs.ShowAsync<ShiftDialog>("New shift",
+            new DialogParameters<ShiftDialog> { { x => x.Campuses, campuses }, { x => x.CampusId, campusId ?? (campuses.Count == 1 ? campuses[0].Id : null) } },
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var r = await dlg.Result;
+        if (r is { Canceled: false }) await Load();
+    }
+}

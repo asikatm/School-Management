@@ -1,0 +1,60 @@
+@inherits AppPage
+
+<MudDialog>
+    <DialogContent>
+        <MudAutocomplete T="string" @bind-Value="documentType" Label="Document type" Required="true" CoerceValue="true" Strict="false"
+                         SearchFunc="SearchTypes" MinCharacters="0" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-3"
+                         Error="HasError(nameof(documentType))" ErrorText="@ErrorFor(nameof(documentType))" />
+        <MudDatePicker @bind-Date="expiresOn" Label="Expires on (optional)" HelperText="For passports, visas, vaccination cards" Clearable="true"
+                       DateFormat="dd MMM yyyy" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-3" />
+        @if (Session.Has(P.Students.Documents))
+        {
+            <MudCheckBox T="bool" @bind-Value="confidential" Label="Confidential (visible only to staff with document access)" />
+        }
+        <div class="d-flex align-center gap-2 mt-2">
+            <MudFileUpload T="IBrowserFile" @bind-Files="file">
+                <ActivatorContent>
+                    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.AttachFile">Choose file</MudButton>
+                </ActivatorContent>
+            </MudFileUpload>
+            <MudText Typo="Typo.body2">@(file is null ? "No file chosen (max 10 MB)" : $"{file.Name} ({StudentChoices.Size(file.Size)})")</MudText>
+        </div>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => MudDialog.Cancel())">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Save" Disabled="@(Busy || file is null || string.IsNullOrWhiteSpace(documentType))">Upload</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public Guid StudentId { get; set; }
+
+    private string? documentType;
+    private DateTime? expiresOn;
+    private bool confidential;
+    private IBrowserFile? file;
+
+    private Task<IEnumerable<string>> SearchTypes(string? text, CancellationToken ct) =>
+        Task.FromResult(string.IsNullOrWhiteSpace(text)
+            ? StudentChoices.DocumentTypes.AsEnumerable()
+            : StudentChoices.DocumentTypes.Where(t => t.Contains(text, StringComparison.OrdinalIgnoreCase)));
+
+    private async Task Save()
+    {
+        if (file!.Size > ApiClient.MaxUploadBytes)
+        {
+            Snackbar.Add("The file is larger than 10 MB.", Severity.Warning);
+            return;
+        }
+        // Field names match the API's DocumentUploadForm.
+        var fields = new Dictionary<string, string?>
+        {
+            ["DocumentType"] = documentType!.Trim(),
+            ["ExpiresOn"] = expiresOn is { } d ? d.ToString("yyyy-MM-dd") : null,
+            ["IsConfidential"] = confidential ? "true" : "false"
+        };
+        if (await Run(() => Api.UploadAsync<StudentDocumentView>($"api/students/{StudentId}/documents", file, "File", fields), "Document uploaded."))
+            MudDialog.Close(DialogResult.Ok(true));
+    }
+}

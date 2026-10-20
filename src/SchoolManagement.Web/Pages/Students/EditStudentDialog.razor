@@ -1,0 +1,29 @@
+@inherits AppPage
+
+<MudDialog>
+    <DialogContent>
+        <MudGrid Spacing="2">
+            <StudentProfileFields Model="model" Error="ErrorFor" />
+        </MudGrid>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => MudDialog.Cancel())">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Save" Disabled="Busy">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter, EditorRequired] public StudentDetail Student { get; set; } = default!;
+
+    private StudentProfileModel model = new();
+
+    protected override void OnInitialized() => model = StudentProfileModel.From(Student);
+
+    private async Task Save()
+    {
+        StudentDetail? updated = null;
+        if (await Run(async () => updated = await Api.PutAsync<StudentDetail>($"api/students/{Student.Id}", model.ToRequest()), "Profile saved."))
+            MudDialog.Close(DialogResult.Ok(updated));
+    }
+}

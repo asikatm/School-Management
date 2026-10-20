@@ -1,0 +1,192 @@
+﻿@page "/academic/years/{Id:guid}/rollover"
+@inherits AppPage
+@using System.Text.RegularExpressions
+
+<PageTitle>Roll over academic year</PageTitle>
+
+<MudBreadcrumbs Items="crumbs" Class="px-0 pt-0" />
+<MudText Typo="Typo.h4" Class="mb-1">Roll over @(source?.Name ?? "academic year")</MudText>
+<MudText Typo="Typo.body2" Class="mb-4">
+    Creates the next academic year with its terms and sections, promotes every student still active in this year (final-year students graduate),
+    and can lock this year afterwards. Students already processed on the promotion review screen keep their decision.
+</MudText>
+
+@if (!Session.Has(P.Settings.Manage))
+{
+    <MudAlert Severity="Severity.Warning">You need the settings.manage permission to roll over an academic year.</MudAlert>
+}
+else if (source is null)
+{
+    @if (Busy) { <MudProgressLinear Indeterminate="true" /> }
+}
+else
+{
+    <MudPaper Class="pa-4" Elevation="1">
+        <MudStepper @bind-ActiveIndex="step" NonLinear="false">
+            <ChildContent>
+                <MudStep Title="New year" SecondaryText="Name, dates and options" Completed="@(step > 0)">
+                    <MudGrid Spacing="2">
+                        <MudItem xs="12" sm="4">
+                            <MudTextField @bind-Value="newName" Label="New year name" Required="true"
+                                          Error="HasError(nameof(RolloverRequest.NewYearName))" ErrorText="@ErrorFor(nameof(RolloverRequest.NewYearName))" />
+                        </MudItem>
+                        <MudItem xs="12" sm="4">
+                            <MudDatePicker @bind-Date="start" Label="Start date" DateFormat="dd MMM yyyy" Required="true" />
+                        </MudItem>
+                        <MudItem xs="12" sm="4">
+                            <MudDatePicker @bind-Date="end" Label="End date" DateFormat="dd MMM yyyy" Required="true"
+                                           Error="HasError(nameof(RolloverRequest.EndDate))" ErrorText="@ErrorFor(nameof(RolloverRequest.EndDate))" />
+                        </MudItem>
+                        <MudItem xs="12" sm="6">
+                            <MudSwitch @bind-Value="copySections" Color="Color.Primary" Label="Copy sections to the new year" />
+                        </MudItem>
+                        <MudItem xs="12" sm="6">
+                            <MudSwitch @bind-Value="copySeatCapacities" Color="Color.Primary" Label="Copy admission seat capacities" />
+                        </MudItem>
+                        <MudItem xs="12" sm="6">
+                            <MudSwitch @bind-Value="promoteStudents" Color="Color.Primary" Label="Promote / graduate students" />
+                        </MudItem>
+                        <MudItem xs="12" sm="6">
+                            <MudSwitch @bind-Value="lockSource" Color="Color.Warning" Label="@($"Lock {source.Name} afterwards")" />
+                        </MudItem>
+                        <MudItem xs="12" sm="6">
+                            <MudSwitch @bind-Value="makeCurrent" Color="Color.Primary" Label="Make the new year current" />
+                        </MudItem>
+                    </MudGrid>
+                    @if (source.Terms.Count > 0)
+                    {
+                        <MudText Typo="Typo.caption" Class="d-block mt-2">The new year gets the same terms (@string.Join(", ", source.Terms.Select(t => t.Name))), shifted to the new dates.</MudText>
+                    }
+                </MudStep>
+
+                <MudStep Title="Review" SecondaryText="Check before committing" Completed="@(step > 1)">
+                    @if (preview is null)
+                    {
+                        <MudProgressLinear Indeterminate="true" />
+                    }
+                    else
+                    {
+                        <MudGrid Spacing="2" Class="mb-3">
+                            <MudItem xs="6" md="3"><AcademicStat Label="Sections to copy" Value="@(copySections ? preview.SectionsToCopy : 0)" /></MudItem>
+                            <MudItem xs="6" md="3"><AcademicStat Label="Active students" Value="preview.ActiveStudents" /></MudItem>
+                            <MudItem xs="6" md="3"><AcademicStat Label="To promote" Value="@(promoteStudents ? preview.ToPromote : 0)" /></MudItem>
+                            <MudItem xs="6" md="3"><AcademicStat Label="To graduate" Value="@(promoteStudents ? preview.ToGraduate : 0)" /></MudItem>
+                        </MudGrid>
+                        @foreach (var w in preview.Warnings)
+                        {
+                            <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">@w</MudAlert>
+                        }
+                        <MudList T="string" Dense="true">
+                            <MudListItem Icon="@Icons.Material.Filled.CalendarMonth">New year <b>@newName</b>: @Format.Date(ToDate(start)) â€“ @Format.Date(ToDate(end))</MudListItem>
+                            <MudListItem Icon="@Icons.Material.Filled.Groups">@(copySections ? "Sections will be copied" : "Sections will not be copied")@(copySeatCapacities ? ", with seat capacities" : "")</MudListItem>
+                            <MudListItem Icon="@Icons.Material.Filled.School">@(promoteStudents ? "Students will be promoted or graduated" : "Students will not be promoted")</MudListItem>
+                            <MudListItem Icon="@Icons.Material.Filled.Lock">@(lockSource ? $"{preview.SourceYear} will be locked" : $"{preview.SourceYear} stays as it is")</MudListItem>
+                            <MudListItem Icon="@Icons.Material.Filled.Star">@(makeCurrent ? "The new year becomes current" : "The current year does not change")</MudListItem>
+                        </MudList>
+                        <MudAlert Severity="Severity.Info" Dense="true">The roll-over cannot be undone from this screen.</MudAlert>
+                    }
+                </MudStep>
+
+                <MudStep Title="Done" SecondaryText="Result">
+                    @if (result is not null)
+                    {
+                        <MudAlert Severity="Severity.Success" Class="mb-3">@result.NewYearName has been created.</MudAlert>
+                        <MudSimpleTable Dense="true" Style="max-width:520px">
+                            <tbody>
+                                <tr><td>Terms created</td><td><b>@result.TermsCreated</b></td></tr>
+                                <tr><td>Sections created</td><td><b>@result.SectionsCreated</b></td></tr>
+                                <tr><td>Seat capacities copied</td><td><b>@result.SeatCapacitiesCopied</b></td></tr>
+                                @if (result.Promotion is { } p)
+                                {
+                                    <tr><td>Promoted</td><td><b>@p.Promoted</b></td></tr>
+                                    <tr><td>Conditionally promoted</td><td><b>@p.Conditional</b></td></tr>
+                                    <tr><td>Repeating</td><td><b>@p.Repeated</b></td></tr>
+                                    <tr><td>Graduated</td><td><b>@p.Graduated</b></td></tr>
+                                    <tr><td>Held</td><td><b>@p.Held</b></td></tr>
+                                }
+                                <tr><td>Source year locked</td><td><b>@(result.SourceLocked ? "Yes" : "No")</b></td></tr>
+                            </tbody>
+                        </MudSimpleTable>
+                        @foreach (var n in result.Notes)
+                        {
+                            <MudAlert Severity="Severity.Normal" Dense="true" Class="mt-2">@n</MudAlert>
+                        }
+                    }
+                </MudStep>
+            </ChildContent>
+            <ActionContent Context="stepper">
+                @if (step == 0)
+                {
+                    <MudButton Href="academic/years">Cancel</MudButton>
+                    <MudSpacer />
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ToReview"
+                               Disabled="@(Busy || string.IsNullOrWhiteSpace(newName) || start is null || end is null || end <= start)">Next: review</MudButton>
+                }
+                else if (step == 1)
+                {
+                    <MudButton OnClick="() => step = 0" Disabled="Busy">Back</MudButton>
+                    <MudSpacer />
+                    <MudButton Variant="Variant.Filled" Color="Color.Warning" StartIcon="@Icons.Material.Filled.FastForward" OnClick="Commit"
+                               Disabled="@(Busy || preview is null)">Run roll-over</MudButton>
+                }
+                else
+                {
+                    <MudSpacer />
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="academic/years">Back to academic years</MudButton>
+                }
+            </ActionContent>
+        </MudStepper>
+    </MudPaper>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private readonly List<BreadcrumbItem> crumbs = [new("Academic years", "academic/years"), new("Roll over", null, disabled: true)];
+    private AcademicYearView? source;
+    private RolloverPreview? preview;
+    private RolloverResult? result;
+    private int step;
+
+    private string newName = "";
+    private DateTime? start, end;
+    private bool copySections = true, copySeatCapacities = true, promoteStudents = true, lockSource, makeCurrent;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Run(async () =>
+        {
+            var years = await Api.GetAsync<List<AcademicYearView>>("api/academic-years");
+            source = years.FirstOrDefault(y => y.Id == Id) ?? throw new ApiException(System.Net.HttpStatusCode.NotFound, "Academic year not found.");
+        });
+        if (source is null) return;
+        newName = NextName(source.Name);
+        start = source.EndDate.AddDays(1).ToDateTime(TimeOnly.MinValue);
+        end = source.EndDate.AddYears(1).ToDateTime(TimeOnly.MinValue);
+    }
+
+    /// <summary>"2025â€“26" â†’ "2026â€“27": bumps every number in the name.</summary>
+    private static string NextName(string name) =>
+        Regex.Replace(name, @"\d+", m => (int.Parse(m.Value) + 1).ToString().PadLeft(m.Length, '0'));
+
+    private static DateOnly? ToDate(DateTime? d) => d is null ? null : DateOnly.FromDateTime(d.Value);
+
+    private async Task ToReview()
+    {
+        preview = null;
+        step = 1;
+        if (!await Run(async () => preview = await Api.GetAsync<RolloverPreview>($"api/academic-years/{Id}/rollover/preview")))
+            step = 0;
+    }
+
+    private async Task Commit()
+    {
+        if (!await Confirm("Run roll-over", $"Create {newName} from {source!.Name}{(promoteStudents ? " and promote students" : "")}{(lockSource ? $", then lock {source.Name}" : "")}? This cannot be undone here.", "Run roll-over"))
+            return;
+        var request = new RolloverRequest(newName.Trim(), ToDate(start)!.Value, ToDate(end)!.Value, copySections, copySeatCapacities, promoteStudents, lockSource, makeCurrent);
+        if (await Run(async () => result = await Api.PostAsync<RolloverResult>($"api/academic-years/{Id}/rollover", request), "Roll-over complete."))
+            step = 2;
+        else if (FieldErrors.Count > 0)
+            step = 0; // show validation errors next to the fields
+    }
+}

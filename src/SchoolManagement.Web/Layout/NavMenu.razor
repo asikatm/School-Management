@@ -1,0 +1,35 @@
+@implements IDisposable
+@inject Session Session
+@inject NavigationManager Nav
+
+<MudNavMenu Bordered="true" Class="pt-2">
+    <MudNavLink Href="@NavCatalog.Dashboard.Href" Match="NavLinkMatch.All" Icon="@NavCatalog.Dashboard.Icon">@NavCatalog.Dashboard.Title</MudNavLink>
+    @foreach (var group in NavCatalog.Groups)
+    {
+        var items = group.Items.Where(Visible).ToList();
+        if (items.Count == 0) continue;
+        @* Only the group holding the current page starts expanded, to keep the menu short. *@
+        <MudNavGroup @key="group.Title" Title="@group.Title" Icon="@group.Icon" Expanded="@items.Any(IsCurrent)">
+            @foreach (var item in items)
+            {
+                <MudNavLink Href="@item.Href" Icon="@item.Icon" Match="NavLinkMatch.Prefix">@item.Title</MudNavLink>
+            }
+        </MudNavGroup>
+    }
+</MudNavMenu>
+
+@code {
+    protected override void OnInitialized() => Nav.LocationChanged += OnLocationChanged;
+
+    private bool Visible(NavItem item) => item.AnyOf.Length == 0 || Session.HasAny(item.AnyOf);
+
+    private bool IsCurrent(NavItem item)
+    {
+        var path = Nav.ToBaseRelativePath(Nav.Uri).Split('?', '#')[0];
+        return path.Equals(item.Href, StringComparison.OrdinalIgnoreCase) || path.StartsWith(item.Href + "/", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e) => InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Nav.LocationChanged -= OnLocationChanged;
+}

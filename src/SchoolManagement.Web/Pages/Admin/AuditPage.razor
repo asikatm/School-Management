@@ -1,0 +1,220 @@
+@page "/admin/audit"
+@inherits AppPage
+
+<PageTitle>Audit trail</PageTitle>
+
+<div class="d-flex align-center flex-wrap gap-2 mb-4">
+    <MudText Typo="Typo.h4">Audit trail</MudText>
+    <MudSpacer />
+    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.VerifiedUser" OnClick="Verify" Disabled="verifying">
+        @(verifying ? "Verifying…" : "Verify chain")
+    </MudButton>
+    @if (Session.Has(P.Audit.Export))
+    {
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Download" OnClick="Export" Disabled="Busy">Export CSV</MudButton>
+    }
+</div>
+
+@if (verification is not null)
+{
+    <MudAlert Severity="@(verification.IsIntact ? Severity.Success : Severity.Error)" Class="mb-4" ShowCloseIcon="true" CloseIconClicked="() => verification = null">
+        @if (verification.IsIntact)
+        {
+            <span>The audit chain is intact: @verification.CheckedEvents.ToString("N0") event(s) checked.</span>
+        }
+        else
+        {
+            <span>The audit chain is broken: @verification.CheckedEvents.ToString("N0") event(s) checked.</span>
+        }
+        @if (verification.UnsealedEvents > 0)
+        {
+            <span> @verification.UnsealedEvents.ToString("N0") recent event(s) are not sealed yet.</span>
+        }
+        @if (verification.Problems.Count > 0)
+        {
+            <ul class="mt-2">
+                @foreach (var p in verification.Problems.Take(50)) { <li>@p</li> }
+            </ul>
+            @if (verification.Problems.Count > 50) { <span>…and @(verification.Problems.Count - 50) more.</span> }
+        }
+    </MudAlert>
+}
+
+<MudPaper Class="pa-4 mb-4">
+    <MudGrid>
+        <MudItem xs="12" sm="6" md="3">
+            <MudDateRangePicker @bind-DateRange="range" Label="Date range" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" DateFormat="dd MMM yyyy" />
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            @if (Session.Has(P.Users.View))
+            {
+                <MudAutocomplete T="UserListItem" @bind-Value="user" Label="User" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true"
+                                 SearchFunc="SearchUsers" ToStringFunc="@(u => u is null ? "" : $"{u.FullName} ({u.UserName})")"
+                                 DebounceInterval="300" MinCharacters="2" ResetValueOnEmptyText="true" />
+            }
+            else
+            {
+                <MudTextField @bind-Value="userIdText" Label="User id" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" />
+            }
+        </MudItem>
+        <MudItem xs="12" sm="6" md="2">
+            <MudSelect T="AuditAction?" @bind-Value="action" Label="Action" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
+                @foreach (var a in Enum.GetValues<AuditAction>())
+                {
+                    <MudSelectItem T="AuditAction?" Value="@a">@Format.Enum(a)</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="2">
+            <MudSelect T="Guid" @bind-Value="campusId" Label="Campus" Variant="Variant.Outlined" Margin="Margin.Dense">
+                <MudSelectItem T="Guid" Value="Guid.Empty">Any campus</MudSelectItem>
+                @foreach (var c in campuses)
+                {
+                    <MudSelectItem T="Guid" Value="@c.Id">@c.Name</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="2">
+            <MudTextField @bind-Value="entityType" Label="Entity type" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" HelperText="Exact, e.g. Student" />
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <MudTextField @bind-Value="entityId" Label="Entity id" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" />
+        </MudItem>
+        <MudItem xs="12" sm="6" md="5">
+            <MudTextField @bind-Value="text" Label="Text in description or values" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true"
+                          OnKeyDown="@(e => e.Key == "Enter" ? table.ReloadServerData() : Task.CompletedTask)" />
+        </MudItem>
+        <MudItem xs="12" md="4" Class="d-flex align-center gap-2">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.FilterAlt" OnClick="() => table.ReloadServerData()">Apply</MudButton>
+            <MudButton Variant="Variant.Text" OnClick="Reset">Reset</MudButton>
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+<MudTable T="AuditEventView" @ref="table" ServerData="LoadAsync" Dense="true" Hover="true" RowsPerPage="50">
+    <HeaderContent>
+        <MudTh></MudTh>
+        <MudTh>When</MudTh>
+        <MudTh>User</MudTh>
+        <MudTh>Action</MudTh>
+        <MudTh>Entity</MudTh>
+        <MudTh>Description</MudTh>
+        <MudTh>IP</MudTh>
+        <MudTh>Sealed</MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd>
+            @if (context.OldValues is not null || context.NewValues is not null)
+            {
+                <MudIconButton Size="Size.Small" Icon="@(expanded.Contains(context.Id) ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)"
+                               OnClick="() => Toggle(context.Id)" title="Show changes" />
+            }
+        </MudTd>
+        <MudTd DataLabel="When" Style="white-space:nowrap">@Format.DateTime(context.OccurredAtUtc)</MudTd>
+        <MudTd DataLabel="User">@(context.UserName ?? "system")</MudTd>
+        <MudTd DataLabel="Action">@Format.Enum(context.Action)</MudTd>
+        <MudTd DataLabel="Entity">
+            @context.EntityType
+            @if (context.EntityId is not null) { <MudText Typo="Typo.caption" Class="d-block">@context.EntityId</MudText> }
+        </MudTd>
+        <MudTd DataLabel="Description">@context.Description</MudTd>
+        <MudTd DataLabel="IP">@context.IpAddress</MudTd>
+        <MudTd DataLabel="Sealed">
+            @if (context.IsSealed) { <MudIcon Icon="@Icons.Material.Filled.Lock" Size="Size.Small" Color="Color.Success" title="Sealed in the hash chain" /> }
+            else { <MudIcon Icon="@Icons.Material.Filled.LockOpen" Size="Size.Small" Color="Color.Default" title="Not sealed yet" /> }
+        </MudTd>
+    </RowTemplate>
+    <ChildRowContent>
+        @if (expanded.Contains(context.Id))
+        {
+            <MudTr>
+                <td colspan="8" class="pa-3">
+                    <MudGrid Spacing="2">
+                        <MudItem xs="12" md="6">
+                            <MudText Typo="Typo.subtitle2">Old values</MudText>
+                            <pre style="white-space:pre-wrap;word-break:break-all;font-size:.8rem">@(context.OldValues ?? "—")</pre>
+                        </MudItem>
+                        <MudItem xs="12" md="6">
+                            <MudText Typo="Typo.subtitle2">New values</MudText>
+                            <pre style="white-space:pre-wrap;word-break:break-all;font-size:.8rem">@(context.NewValues ?? "—")</pre>
+                        </MudItem>
+                    </MudGrid>
+                </td>
+            </MudTr>
+        }
+    </ChildRowContent>
+    <NoRecordsContent><MudText>No audit events match.</MudText></NoRecordsContent>
+    <PagerContent><MudTablePager PageSizeOptions="[25, 50, 100, 200]" /></PagerContent>
+</MudTable>
+
+@code {
+    private MudTable<AuditEventView> table = default!;
+    private List<AdminCampusOption> campuses = [];
+    private readonly HashSet<long> expanded = [];
+
+    private DateRange? range;
+    private UserListItem? user;
+    private string? userIdText;
+    private AuditAction? action;
+    private Guid campusId;
+    private string? entityType;
+    private string? entityId;
+    private string? text;
+
+    private AuditVerificationResult? verification;
+    private bool verifying;
+
+    protected override async Task OnInitializedAsync() =>
+        await Run(async () => campuses = await Api.GetAsync<List<AdminCampusOption>>("api/campuses"));
+
+    private Guid? UserId => user?.Id ?? (Guid.TryParse(userIdText, out var id) ? id : null);
+
+    // The filter dates are Dhaka calendar days (UTC+6); the API compares UTC timestamps.
+    private (string, object?)[] Filters() =>
+    [
+        ("entityType", entityType?.Trim()), ("entityId", entityId?.Trim()), ("userId", UserId),
+        ("campusId", campusId == Guid.Empty ? null : campusId), ("action", action),
+        ("fromUtc", range?.Start?.Date.AddHours(-6)), ("toUtc", range?.End?.Date.AddDays(1).AddHours(-6).AddTicks(-1)), ("text", text?.Trim())
+    ];
+
+    private async Task<TableData<AuditEventView>> LoadAsync(TableState state, CancellationToken ct)
+    {
+        PagedResult<AuditEventView>? result = null;
+        expanded.Clear();
+        await Run(async () => result = await Api.GetAsync<PagedResult<AuditEventView>>(
+            ApiClient.Query("api/audit", [.. Filters(), ("page", state.Page + 1), ("pageSize", state.PageSize)])));
+        return new TableData<AuditEventView> { Items = result?.Items ?? [], TotalItems = result?.TotalCount ?? 0 };
+    }
+
+    private void Toggle(long id)
+    {
+        if (!expanded.Remove(id)) expanded.Add(id);
+    }
+
+    private async Task Reset()
+    {
+        (range, user, userIdText, action, campusId, entityType, entityId, text) = (null, null, null, null, Guid.Empty, null, null, null);
+        await table.ReloadServerData();
+    }
+
+    private async Task Export() => await Download(ApiClient.Query("api/audit/export", Filters()));
+
+    private async Task Verify()
+    {
+        verifying = true;
+        await Run(async () => verification = await Api.GetAsync<AuditVerificationResult>("api/audit/verify"));
+        verifying = false;
+    }
+
+    private async Task<IEnumerable<UserListItem>> SearchUsers(string value, CancellationToken ct)
+    {
+        try
+        {
+            return (await Api.GetAsync<PagedResult<UserListItem>>(ApiClient.Query("api/users", ("search", value), ("pageSize", 20)))).Items;
+        }
+        catch (Exception ex) when (ex is ApiException or HttpRequestException)
+        {
+            return [];
+        }
+    }
+}

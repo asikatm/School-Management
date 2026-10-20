@@ -1,0 +1,48 @@
+@inherits AppPage
+
+<MudDialog>
+    <DialogContent>
+        <MudText Typo="Typo.body2" Class="mb-3">
+            A draft application is created with the child's and guardian's details from this enquiry. Complete it on the next screen.
+        </MudText>
+        <MudSelect T="Guid?" @bind-Value="yearId" Label="Academic year" Required="true" Variant="Variant.Outlined" Class="mb-3">
+            @foreach (var y in Lookups.AdmissionYears)
+            {
+                <MudSelectItem T="Guid?" Value="y.Id">@y.Name</MudSelectItem>
+            }
+        </MudSelect>
+        <MudSelect T="Guid?" @bind-Value="classId" Label="Class applied for" Required="true" Variant="Variant.Outlined">
+            @foreach (var c in Lookups.Classes)
+            {
+                <MudSelectItem T="Guid?" Value="c.Id">@c.Name</MudSelectItem>
+            }
+        </MudSelect>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="() => MudDialog.Cancel()">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Save" Disabled="@(Busy || yearId is null || classId is null)">Create application</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] public IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public EnquiryDetail Enquiry { get; set; } = default!;
+    [Parameter] public AdmissionLookups Lookups { get; set; } = AdmissionLookups.Empty;
+
+    private Guid? yearId;
+    private Guid? classId;
+
+    protected override void OnInitialized()
+    {
+        yearId = Enquiry.AcademicYearId ?? Lookups.CurrentYearId;
+        classId = Enquiry.YearGroupId;
+    }
+
+    private async Task Save()
+    {
+        Guid applicationId = default;
+        var ok = await Run(async () => applicationId = await Api.PostAsync<Guid>($"api/admission/enquiries/{Enquiry.Id}/convert",
+            new EnquiryConvertRequest(yearId, classId)), "Draft application created.");
+        if (ok) MudDialog.Close(DialogResult.Ok(applicationId));
+    }
+}

@@ -1,0 +1,110 @@
+@page "/admin/users"
+@inherits AppPage
+
+<PageTitle>Users</PageTitle>
+
+<div class="d-flex align-center mb-4">
+    <MudText Typo="Typo.h4">Users</MudText>
+    <MudSpacer />
+    @if (Session.Has(P.Users.Manage))
+    {
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.PersonAdd" OnClick="Create">New user</MudButton>
+    }
+</div>
+
+<MudPaper Class="pa-4 mb-4">
+    <MudGrid>
+        <MudItem xs="12" sm="6">
+            <MudTextField @bind-Value="search" Label="Search name, user name, email or phone" Variant="Variant.Outlined" Margin="Margin.Dense"
+                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Clearable="true"
+                          OnKeyDown="@(e => e.Key == "Enter" ? table.ReloadServerData() : Task.CompletedTask)" OnClearButtonClick="() => table.ReloadServerData()" />
+        </MudItem>
+        <MudItem xs="12" sm="3">
+            <MudSelect T="UserType?" Value="type" ValueChanged="TypeChanged" Label="Type" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
+                @foreach (var t in Enum.GetValues<UserType>())
+                {
+                    <MudSelectItem T="UserType?" Value="@t">@Format.Enum(t)</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="3" Class="d-flex align-center">
+            <MudButton Variant="Variant.Outlined" OnClick="() => table.ReloadServerData()">Search</MudButton>
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+<MudTable T="UserListItem" @ref="table" ServerData="LoadAsync" Hover="true" Dense="true" RowsPerPage="25"
+          OnRowClick="@(e => Nav.NavigateTo($"admin/users/{e.Item!.Id}"))" RowStyle="cursor:pointer">
+    <HeaderContent>
+        <MudTh>Name</MudTh>
+        <MudTh>User name</MudTh>
+        <MudTh>Email</MudTh>
+        <MudTh>Phone</MudTh>
+        <MudTh>Type</MudTh>
+        <MudTh>Status</MudTh>
+        <MudTh>Last sign-in</MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd DataLabel="Name">@context.FullName</MudTd>
+        <MudTd DataLabel="User name">@context.UserName</MudTd>
+        <MudTd DataLabel="Email">@(context.Email ?? "—")</MudTd>
+        <MudTd DataLabel="Phone">@(context.Phone ?? "—")</MudTd>
+        <MudTd DataLabel="Type">@Format.Enum(context.UserType)</MudTd>
+        <MudTd DataLabel="Status">
+            @if (!context.IsActive)
+            {
+                <MudChip T="string" Size="Size.Small" Color="Color.Default">Inactive</MudChip>
+            }
+            else if (context.LockoutEndUtc > DateTime.UtcNow)
+            {
+                <MudChip T="string" Size="Size.Small" Color="Color.Warning">Locked</MudChip>
+            }
+            else
+            {
+                <MudChip T="string" Size="Size.Small" Color="Color.Success">Active</MudChip>
+            }
+        </MudTd>
+        <MudTd DataLabel="Last sign-in">@Format.DateTime(context.LastLoginUtc)</MudTd>
+    </RowTemplate>
+    <NoRecordsContent><MudText>No users found.</MudText></NoRecordsContent>
+    <PagerContent><MudTablePager /></PagerContent>
+</MudTable>
+
+@code {
+    private MudTable<UserListItem> table = default!;
+    private string? search;
+    private UserType? type;
+
+    private async Task<TableData<UserListItem>> LoadAsync(TableState state, CancellationToken ct)
+    {
+        PagedResult<UserListItem>? result = null;
+        await Run(async () => result = await Api.GetAsync<PagedResult<UserListItem>>(
+            ApiClient.Query("api/users", ("search", search), ("type", type), ("page", state.Page + 1), ("pageSize", state.PageSize))));
+        return new TableData<UserListItem> { Items = result?.Items ?? [], TotalItems = result?.TotalCount ?? 0 };
+    }
+
+    private async Task TypeChanged(UserType? value)
+    {
+        type = value;
+        await table.ReloadServerData();
+    }
+
+    private async Task Create()
+    {
+        var dlg = await Dialogs.ShowAsync<UserCreateDialog>("New user", new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+        var result = await dlg.Result;
+        if (result is { Canceled: false, Data: CreateUserResponse created })
+        {
+            if (created.TemporaryPassword is not null)
+                await ShowPassword(created.User.UserName, created.TemporaryPassword);
+            Nav.NavigateTo($"admin/users/{created.User.Id}");
+        }
+    }
+
+    private async Task ShowPassword(string userName, string password)
+    {
+        var parameters = new DialogParameters<TemporaryPasswordDialog> { { x => x.UserName, userName }, { x => x.Password, password } };
+        var dlg = await Dialogs.ShowAsync<TemporaryPasswordDialog>("Temporary password", parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true, BackdropClick = false });
+        await dlg.Result;
+    }
+}

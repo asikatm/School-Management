@@ -1,0 +1,86 @@
+@page "/login"
+@inject Session Session
+@inject NavigationManager Nav
+
+<PageTitle>Sign in · Lighthouse School</PageTitle>
+
+<div class="login-page">
+    <MudPaper Elevation="4" Class="pa-8 login-card">
+        <div class="d-flex flex-column align-center mb-6">
+            <MudIcon Icon="@Icons.Material.Filled.School" Color="Color.Primary" Style="font-size:3.5rem" />
+            <MudText Typo="Typo.h5" Class="mt-2">Lighthouse International School</MudText>
+            <MudText Typo="Typo.body2" Color="Color.Secondary">School Management System</MudText>
+        </div>
+
+        <EditForm Model="model" OnValidSubmit="Submit">
+            <DataAnnotationsValidator />
+            <MudTextField @bind-Value="model.Login" For="() => model.Login" Label="User name, e-mail or phone"
+                          Variant="Variant.Outlined" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Person"
+                          Class="mb-4" AutoFocus="true" />
+            <MudTextField @bind-Value="model.Password" For="() => model.Password" Label="Password"
+                          InputType="@(showPassword ? InputType.Text : InputType.Password)" Variant="Variant.Outlined"
+                          Adornment="Adornment.End" AdornmentIcon="@(showPassword ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility)"
+                          OnAdornmentClick="() => showPassword = !showPassword" Class="mb-2" />
+
+            @if (error is not null)
+            {
+                <MudAlert Severity="Severity.Error" Dense="true" Class="my-3">@error</MudAlert>
+            }
+
+            <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary" FullWidth="true"
+                       Size="Size.Large" Disabled="busy" Class="mt-4">
+                @if (busy)
+                {
+                    <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                }
+                Sign in
+            </MudButton>
+        </EditForm>
+    </MudPaper>
+</div>
+
+@code {
+    [SupplyParameterFromQuery] public string? ReturnUrl { get; set; }
+
+    private readonly LoginModel model = new();
+    private bool busy;
+    private bool showPassword;
+    private string? error;
+
+    protected override void OnInitialized()
+    {
+        if (Session.IsSignedIn) Nav.NavigateTo(SafeReturnUrl(), replace: true);
+    }
+
+    private async Task Submit()
+    {
+        busy = true;
+        error = null;
+        try
+        {
+            error = await Session.LoginAsync(model.Login.Trim(), model.Password);
+            if (error is null) Nav.NavigateTo(Session.MustChangePassword ? "change-password" : SafeReturnUrl(), replace: true);
+        }
+        catch (HttpRequestException)
+        {
+            error = "The server could not be reached. Check that the API is running.";
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    // Only local paths, so a crafted link cannot send the user to another site after sign-in.
+    private string SafeReturnUrl() =>
+        string.IsNullOrEmpty(ReturnUrl) || ReturnUrl.Contains("//") || ReturnUrl.Contains(':') || ReturnUrl.StartsWith("login") ? "" : ReturnUrl;
+
+    private sealed class LoginModel
+    {
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Enter your user name.")]
+        public string Login { get; set; } = "";
+
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Enter your password.")]
+        public string Password { get; set; } = "";
+    }
+}

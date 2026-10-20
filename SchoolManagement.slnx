@@ -3,6 +3,7 @@
     <Project Path="src/SchoolManagement.Api/SchoolManagement.Api.csproj" />
     <Project Path="src/SchoolManagement.Domain/SchoolManagement.Domain.csproj" />
     <Project Path="src/SchoolManagement.Infrastructure/SchoolManagement.Infrastructure.csproj" />
+    <Project Path="src/SchoolManagement.Web/SchoolManagement.Web.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/SchoolManagement.Tests/SchoolManagement.Tests.csproj" />

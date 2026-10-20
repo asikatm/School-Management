@@ -1,0 +1,190 @@
+@page "/students/{Id:guid}"
+@inherits AppPage
+
+<PageTitle>@(student?.FullName ?? "Student")</PageTitle>
+
+@if (student is null)
+{
+    @if (loadFailed)
+    {
+        <MudAlert Severity="Severity.Error">The student could not be loaded.</MudAlert>
+    }
+    else
+    {
+        <MudProgressLinear Indeterminate="true" />
+    }
+    return;
+}
+
+<MudBreadcrumbs Items="breadcrumbs" Class="px-0 pt-0" />
+
+<MudPaper Class="pa-4 mb-4 d-flex flex-wrap align-center gap-4">
+    @if (photoUrl is not null)
+    {
+        <MudAvatar Style="width:96px;height:96px"><MudImage Src="@photoUrl" Alt="Photo" ObjectFit="ObjectFit.Cover" /></MudAvatar>
+    }
+    else
+    {
+        <MudAvatar Color="Color.Primary" Style="width:96px;height:96px;font-size:2rem">@student.FirstName[..1]</MudAvatar>
+    }
+    <div>
+        <MudText Typo="Typo.h5">@student.FullName</MudText>
+        @if (!string.IsNullOrEmpty(student.NameBn))
+        {
+            <MudText Typo="Typo.body2">@student.NameBn</MudText>
+        }
+        <div class="d-flex flex-wrap align-center gap-2 mt-1">
+            <MudChip T="string" Size="Size.Small" Icon="@Icons.Material.Filled.Badge">@student.AdmissionNo</MudChip>
+            <StudentStatusChip Status="student.Status" />
+            @if (Current is { } e)
+            {
+                <MudText Typo="Typo.body2">@e.AcademicYear · @e.ClassName@(e.Section is null ? "" : $" - {e.Section}")@(e.RollNo is null ? "" : $" · Roll {e.RollNo}")</MudText>
+            }
+            else
+            {
+                <MudText Typo="Typo.body2" Color="Color.Secondary">No active enrolment</MudText>
+            }
+        </div>
+    </div>
+    <MudSpacer />
+    @if (CanEdit)
+    {
+        <MudFileUpload T="IBrowserFile" FilesChanged="UploadPhoto" Accept="image/jpeg,image/png,image/webp">
+            <ActivatorContent>
+                <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.PhotoCamera" Disabled="Busy">
+                    @(student.HasPhoto ? "Change photo" : "Upload photo")
+                </MudButton>
+            </ActivatorContent>
+        </MudFileUpload>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Edit" OnClick="EditProfile">Edit profile</MudButton>
+    }
+    @if (student.Status == StudentStatus.Graduated && Session.Has(P.Students.Approve))
+    {
+        <MudButton Variant="Variant.Outlined" Color="Color.Secondary" StartIcon="@Icons.Material.Filled.School" OnClick="ConvertToAlumni" Disabled="Busy">
+            Convert to alumni
+        </MudButton>
+    }
+</MudPaper>
+
+@* Keyed so the tabs reload when navigating to a sibling's profile. *@
+<MudTabs @key="student.Id" Elevation="1" Rounded="true" PanelClass="pa-4">
+    <MudTabPanel Text="Profile" Icon="@Icons.Material.Filled.Person">
+        <MudGrid Spacing="2">
+            @foreach (var (label, value) in ProfileRows())
+            {
+                <MudItem xs="12" sm="6" md="4">
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">@label</MudText>
+                    <MudText Typo="Typo.body1" Style="white-space:pre-line">@(string.IsNullOrWhiteSpace(value) ? "—" : value)</MudText>
+                </MudItem>
+            }
+        </MudGrid>
+    </MudTabPanel>
+    <MudTabPanel Text="Guardians & siblings" Icon="@Icons.Material.Filled.FamilyRestroom" BadgeData="@student.Guardians.Count" BadgeColor="Color.Primary">
+        <StudentGuardiansTab Student="student" StudentChanged="OnChanged" />
+    </MudTabPanel>
+    <MudTabPanel Text="Documents" Icon="@Icons.Material.Filled.Folder" BadgeData="@(student.Documents.Count == 0 ? null : student.Documents.Count)" BadgeColor="Color.Primary">
+        <StudentDocumentsTab Student="student" Reload="Load" />
+    </MudTabPanel>
+    <MudTabPanel Text="Enrolment & transfers" Icon="@Icons.Material.Filled.SwapHoriz">
+        <StudentEnrolmentTab Student="student" StudentChanged="OnChanged" />
+    </MudTabPanel>
+    <MudTabPanel Text="Withdrawal & TC" Icon="@Icons.Material.Filled.ExitToApp">
+        <StudentWithdrawalTab Student="student" Reload="Load" />
+    </MudTabPanel>
+    <MudTabPanel Text="ID card" Icon="@Icons.Material.Filled.CreditCard">
+        <StudentIdCardTab Student="student" />
+    </MudTabPanel>
+</MudTabs>
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private StudentDetail? student;
+    private string? photoUrl;
+    private bool loadFailed;
+    private List<BreadcrumbItem> breadcrumbs = [];
+
+    private bool CanEdit => Session.Has(P.Students.Edit);
+    private StudentEnrolmentView? Current => student?.Enrolments.FirstOrDefault(e => e.Id == student.CurrentEnrolmentId);
+
+    protected override Task OnParametersSetAsync() => Load();
+
+    private async Task Load()
+    {
+        loadFailed = !await Run(async () => student = await Api.GetAsync<StudentDetail>($"api/students/{Id}"));
+        if (student is null) return;
+        breadcrumbs = [new("Students", "students"), new(student.AdmissionNo, null, disabled: true)];
+        await LoadPhoto();
+    }
+
+    private async Task LoadPhoto()
+    {
+        photoUrl = null;
+        if (student is not { HasPhoto: true }) return;
+        try
+        {
+            var file = await Api.GetFileAsync($"api/students/{Id}/photo");
+            photoUrl = $"data:{file.ContentType};base64,{Convert.ToBase64String(file.Content)}";
+        }
+        catch (ApiException) { /* no photo: keep the initial avatar */ }
+    }
+
+    private async Task OnChanged(StudentDetail updated)
+    {
+        student = updated;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private IEnumerable<(string, string?)> ProfileRows()
+    {
+        var s = student!;
+        yield return ("First name", s.FirstName);
+        yield return ("Last name", s.LastName);
+        yield return ("Name (Bangla)", s.NameBn);
+        yield return ("Date of birth", Format.Date(s.DateOfBirth));
+        yield return ("Gender", s.Gender);
+        yield return ("Blood group", s.BloodGroup);
+        yield return ("Religion", s.Religion);
+        yield return ("Nationality", s.Nationality);
+        yield return ("Birth certificate no", s.BirthCertificateNo);
+        yield return ("National ID", s.NationalId);
+        yield return ("Phone", s.Phone);
+        yield return ("Email", s.Email);
+        yield return ("Present address", s.PresentAddress);
+        yield return ("Permanent address", s.PermanentAddress);
+        yield return ("Previous school", s.PreviousSchool);
+        yield return ("Languages", s.Languages);
+        yield return ("Special needs / medical notes", s.SpecialNeeds);
+        yield return ("RFID no", s.RfidNo);
+        yield return ("Admission date", Format.Date(s.AdmissionDate));
+        yield return ("Left on", s.LeftOn is null ? null : Format.Date(s.LeftOn));
+        yield return ("Came through admission", s.ApplicationId is null ? "No (direct entry)" : "Yes");
+    }
+
+    private async Task EditProfile()
+    {
+        var dlg = await Dialogs.ShowAsync<EditStudentDialog>("Edit profile",
+            new DialogParameters<EditStudentDialog> { { x => x.Student, student! } },
+            new DialogOptions { MaxWidth = MaxWidth.Large, FullWidth = true });
+        if (await dlg.Result is { Canceled: false, Data: StudentDetail updated }) student = updated;
+    }
+
+    private async Task UploadPhoto(IBrowserFile? file)
+    {
+        if (file is null) return;
+        if (file.Size > 6 * 1024 * 1024)
+        {
+            Snackbar.Add("The photo must be smaller than 6 MB.", Severity.Warning);
+            return;
+        }
+        if (await Run(() => Api.UploadAsync($"api/students/{Id}/photo", file, "file"), "Photo updated."))
+            await Load();
+    }
+
+    private async Task ConvertToAlumni()
+    {
+        if (!await Confirm("Convert to alumni", $"Move {student!.FullName} to the alumni records?", "Convert")) return;
+        if (await Run(() => Api.PostAsync($"api/students/{Id}/alumni"), "Converted to alumni."))
+            await Load();
+    }
+}

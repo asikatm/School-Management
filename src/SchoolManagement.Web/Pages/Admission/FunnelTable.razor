@@ -1,0 +1,29 @@
+@* Enquiry → applied → admitted funnel rows for the analytics page. *@
+
+<MudTable T="EnquiryFunnelRow" Items="Rows" Dense="true" Elevation="0">
+    <HeaderContent>
+        <MudTh>@KeyTitle</MudTh>
+        <MudTh Style="text-align:right">Enquiries</MudTh>
+        <MudTh Style="text-align:right">Applied</MudTh>
+        <MudTh Style="text-align:right">Admitted</MudTh>
+        <MudTh Style="text-align:right">Lost</MudTh>
+        <MudTh Style="text-align:right">Conversion</MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd DataLabel="@KeyTitle">@Label(context.Key)</MudTd>
+        <MudTd DataLabel="Enquiries" Style="text-align:right">@context.Enquiries</MudTd>
+        <MudTd DataLabel="Applied" Style="text-align:right">@context.Applied</MudTd>
+        <MudTd DataLabel="Admitted" Style="text-align:right">@context.Admitted</MudTd>
+        <MudTd DataLabel="Lost" Style="text-align:right">@context.Lost</MudTd>
+        <MudTd DataLabel="Conversion" Style="text-align:right"><b>@context.ConversionPercent.ToString("0.#")%</b></MudTd>
+    </RowTemplate>
+    <NoRecordsContent><MudText Class="pa-2">No enquiries in this period.</MudText></NoRecordsContent>
+</MudTable>
+
+@code {
+    [Parameter] public IReadOnlyList<EnquiryFunnelRow> Rows { get; set; } = [];
+    [Parameter] public string KeyTitle { get; set; } = "";
+
+    // Source keys are enum names ("WalkIn"); counsellor keys are names and pass through unchanged.
+    private static string Label(string key) => Enum.TryParse<EnquirySource>(key, out var s) ? Format.Enum(s) : key;
+}

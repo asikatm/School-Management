@@ -1,0 +1,84 @@
+@* Profile inputs shared by the create and edit dialogs. Renders MudItems; place inside a MudGrid. *@
+
+<MudItem xs="12" sm="4">
+    <MudTextField @bind-Value="Model.FirstName" Label="First name" Required="true" Variant="Variant.Outlined" Margin="Margin.Dense"
+                  Error="@(E("FirstName") is not null)" ErrorText="@E("FirstName")" />
+</MudItem>
+<MudItem xs="12" sm="4">
+    <MudTextField @bind-Value="Model.LastName" Label="Last name" Variant="Variant.Outlined" Margin="Margin.Dense"
+                  Error="@(E("LastName") is not null)" ErrorText="@E("LastName")" />
+</MudItem>
+<MudItem xs="12" sm="4">
+    <MudTextField @bind-Value="Model.NameBn" Label="Name (Bangla)" Variant="Variant.Outlined" Margin="Margin.Dense" />
+</MudItem>
+<MudItem xs="12" sm="4">
+    <MudDatePicker @bind-Date="Model.DateOfBirth" Label="Date of birth" Required="true" Variant="Variant.Outlined" Margin="Margin.Dense"
+                   DateFormat="dd MMM yyyy" MaxDate="DateTime.Today" Error="@(E("DateOfBirth") is not null)" ErrorText="@E("DateOfBirth")" />
+</MudItem>
+<MudItem xs="12" sm="4">
+    <MudSelect T="string" @bind-Value="Model.Gender" Label="Gender" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense"
+               Error="@(E("Gender") is not null)" ErrorText="@E("Gender")">
+        <MudSelectItem T="string" Value="@("Male")">Male</MudSelectItem>
+        <MudSelectItem T="string" Value="@("Female")">Female</MudSelectItem>
+    </MudSelect>
+</MudItem>
+<MudItem xs="12" sm="4">
+    <MudSelect T="string" @bind-Value="Model.BloodGroup" Label="Blood group" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense"
+               Error="@(E("BloodGroup") is not null)" ErrorText="@E("BloodGroup")">
+        @foreach (var b in StudentChoices.BloodGroups)
+        {
+            <MudSelectItem T="string" Value="@b">@b</MudSelectItem>
+        }
+    </MudSelect>
+</MudItem>
+<MudItem xs="12" sm="4">
+    <MudSelect T="string" @bind-Value="Model.Religion" Label="Religion" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense">
+        @foreach (var r in StudentChoices.Religions)
+        {
+            <MudSelectItem T="string" Value="@r">@r</MudSelectItem>
+        }
+    </MudSelect>
+</MudItem>
+<MudItem xs="12" sm="4">
+    <MudTextField @bind-Value="Model.Nationality" Label="Nationality" Variant="Variant.Outlined" Margin="Margin.Dense" />
+</MudItem>
+<MudItem xs="12" sm="4">
+    <MudTextField @bind-Value="Model.BirthCertificateNo" Label="Birth certificate no" HelperText="17 digits" Variant="Variant.Outlined" Margin="Margin.Dense"
+                  Error="@(E("BirthCertificateNo") is not null)" ErrorText="@E("BirthCertificateNo")" />
+</MudItem>
+<MudItem xs="12" sm="4">
+    <MudTextField @bind-Value="Model.NationalId" Label="National ID" Variant="Variant.Outlined" Margin="Margin.Dense" />
+</MudItem>
+<MudItem xs="12" sm="4">
+    <MudTextField @bind-Value="Model.Phone" Label="Phone" Variant="Variant.Outlined" Margin="Margin.Dense" />
+</MudItem>
+<MudItem xs="12" sm="4">
+    <MudTextField @bind-Value="Model.Email" Label="Email" Variant="Variant.Outlined" Margin="Margin.Dense"
+                  Error="@(E("Email") is not null)" ErrorText="@E("Email")" />
+</MudItem>
+<MudItem xs="12" sm="6">
+    <MudTextField @bind-Value="Model.PresentAddress" Label="Present address" Lines="2" Variant="Variant.Outlined" Margin="Margin.Dense" />
+</MudItem>
+<MudItem xs="12" sm="6">
+    <MudTextField @bind-Value="Model.PermanentAddress" Label="Permanent address" Lines="2" Variant="Variant.Outlined" Margin="Margin.Dense" />
+</MudItem>
+<MudItem xs="12" sm="4">
+    <MudTextField @bind-Value="Model.PreviousSchool" Label="Previous school" Variant="Variant.Outlined" Margin="Margin.Dense" />
+</MudItem>
+<MudItem xs="12" sm="4">
+    <MudTextField @bind-Value="Model.Languages" Label="Languages" Variant="Variant.Outlined" Margin="Margin.Dense" />
+</MudItem>
+<MudItem xs="12" sm="4">
+    <MudTextField @bind-Value="Model.RfidNo" Label="RFID no" Variant="Variant.Outlined" Margin="Margin.Dense" />
+</MudItem>
+<MudItem xs="12">
+    <MudTextField @bind-Value="Model.SpecialNeeds" Label="Special needs / medical notes" Lines="2" Variant="Variant.Outlined" Margin="Margin.Dense" />
+</MudItem>
+
+@code {
+    [Parameter, EditorRequired] public StudentProfileModel Model { get; set; } = default!;
+    /// <summary>Looks up the validation message for a profile field name (the caller adds any prefix such as "Profile.").</summary>
+    [Parameter] public Func<string, string?> Error { get; set; } = _ => null;
+
+    private string? E(string field) => Error(field);
+}

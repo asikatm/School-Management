@@ -1,0 +1,89 @@
+@page "/admin/approval-workflows"
+@inherits AppPage
+
+<PageTitle>Approval workflows</PageTitle>
+
+<div class="d-flex align-center mb-4">
+    <MudText Typo="Typo.h4">Approval workflows</MudText>
+    <MudSpacer />
+    @if (canConfigure)
+    {
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="() => Edit(null)" Disabled="roles.Count == 0">New workflow</MudButton>
+    }
+</div>
+
+@if (canConfigure && roles.Count == 0 && !Busy)
+{
+    <MudAlert Severity="Severity.Info" Class="mb-4">Configuring workflows needs the role list (permission users.view).</MudAlert>
+}
+
+<MudTable T="ApprovalWorkflowView" Items="workflows" Dense="true" Hover="true" Loading="Busy">
+    <HeaderContent>
+        <MudTh>Name</MudTh>
+        <MudTh>Request type</MudTh>
+        <MudTh>Campus</MudTh>
+        <MudTh>Steps</MudTh>
+        <MudTh>Active</MudTh>
+        <MudTh></MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd DataLabel="Name">@context.Name</MudTd>
+        <MudTd DataLabel="Request type">@AdminLookups.Humanize(context.RequestType)</MudTd>
+        <MudTd DataLabel="Campus">@CampusName(context.CampusId)</MudTd>
+        <MudTd DataLabel="Steps">
+            @foreach (var s in context.Steps)
+            {
+                <div>
+                    <b>@s.Order.</b> @s.Name — @RoleName(s.ApproverRoleId)
+                    @if (s.EscalateAfterHours is not null)
+                    {
+                        <MudText Typo="Typo.caption"> (after @s.EscalateAfterHours h → @RoleName(s.EscalateToRoleId))</MudText>
+                    }
+                </div>
+            }
+        </MudTd>
+        <MudTd DataLabel="Active">
+            @if (context.IsActive) { <MudIcon Icon="@Icons.Material.Filled.Check" Color="Color.Success" Size="Size.Small" /> }
+        </MudTd>
+        <MudTd Style="text-align:right">
+            @if (canConfigure && roles.Count > 0)
+            {
+                <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" title="Edit" OnClick="() => Edit(context)" />
+            }
+        </MudTd>
+    </RowTemplate>
+    <NoRecordsContent><MudText>No workflows configured.</MudText></NoRecordsContent>
+</MudTable>
+
+@code {
+    private List<ApprovalWorkflowView> workflows = [];
+    private List<RoleView> roles = [];
+    private List<AdminCampusOption> campuses = [];
+    private bool canConfigure;
+
+    protected override async Task OnInitializedAsync()
+    {
+        canConfigure = Session.Has(P.Approvals.Configure);
+        await Run(async () => campuses = await Api.GetAsync<List<AdminCampusOption>>("api/campuses"));
+        if (Session.Has(P.Users.View))
+            await Run(async () => roles = await Api.GetAsync<List<RoleView>>("api/roles"));
+        await Load();
+    }
+
+    private async Task Load() =>
+        await Run(async () => workflows = await Api.GetAsync<List<ApprovalWorkflowView>>("api/approvals/workflows"));
+
+    private string CampusName(Guid? id) => id is null ? "All campuses" : campuses.FirstOrDefault(c => c.Id == id)?.Name ?? id.Value.ToString()[..8];
+    private string RoleName(Guid? id) => id is null ? "—" : roles.FirstOrDefault(r => r.Id == id)?.Name ?? id.Value.ToString()[..8];
+
+    private async Task Edit(ApprovalWorkflowView? workflow)
+    {
+        var parameters = new DialogParameters<ApprovalWorkflowDialog>
+        {
+            { x => x.Workflow, workflow }, { x => x.Roles, roles }, { x => x.Campuses, campuses }
+        };
+        var dlg = await Dialogs.ShowAsync<ApprovalWorkflowDialog>(workflow is null ? "New workflow" : workflow.Name, parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Large, FullWidth = true });
+        if (await dlg.Result is { Canceled: false }) await Load();
+    }
+}

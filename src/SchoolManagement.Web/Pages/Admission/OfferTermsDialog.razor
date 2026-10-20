@@ -1,0 +1,89 @@
+@* Offer terms: validity, letter language, fee schedule and the fee lines that become the admission invoice on acceptance. *@
+
+<MudDialog>
+    <DialogContent>
+        @if (Message is not null)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">@Message</MudAlert>
+        }
+        <MudGrid Spacing="2">
+            @if (Batch)
+            {
+                <MudItem xs="12" sm="4">
+                    <MudNumericField T="int?" @bind-Value="maxOffers" Label="Maximum offers" Min="1" Variant="Variant.Outlined" Clearable="true"
+                                     HelperText="Blank = all available seats" />
+                </MudItem>
+            }
+            <MudItem xs="12" sm="4">
+                <MudNumericField T="int?" @bind-Value="expiresInDays" Label="Valid for (days)" Min="1" Max="60" Variant="Variant.Outlined" Clearable="true"
+                                 HelperText="Blank = school default" />
+            </MudItem>
+            <MudItem xs="12" sm="4">
+                <MudSelect T="string" @bind-Value="language" Label="Letter language" Variant="Variant.Outlined">
+                    <MudSelectItem T="string" Value="@("en")">English</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("bn")">Bangla</MudSelectItem>
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12">
+                <MudTextField @bind-Value="feeScheduleText" Label="Fee schedule / instructions" Variant="Variant.Outlined" Lines="3"
+                              HelperText="Printed on the offer letter, e.g. payment deadline and where to pay." />
+            </MudItem>
+        </MudGrid>
+
+        <div class="d-flex align-center mt-4 mb-2">
+            <MudText Typo="Typo.subtitle1">Fee lines</MudText>
+            <MudSpacer />
+            <MudButton Size="Size.Small" StartIcon="@Icons.Material.Filled.Add" OnClick="() => lines.Add(new FeeLineForm())">Add line</MudButton>
+        </div>
+        @if (lines.Count == 0)
+        {
+            <MudText Typo="Typo.body2" Color="Color.Secondary">No fee lines: no admission invoice will be raised when the offer is accepted.</MudText>
+        }
+        @foreach (var line in lines)
+        {
+            <div class="d-flex gap-2 align-center mb-2">
+                <MudTextField @bind-Value="line.Description" Label="Description" Variant="Variant.Outlined" Margin="Margin.Dense" MaxLength="200" Style="flex:2" Immediate="true" />
+                <MudNumericField T="decimal" @bind-Value="line.Amount" Label="Amount (৳)" Min="0" Variant="Variant.Outlined" Margin="Margin.Dense" Style="flex:1" />
+                <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" Size="Size.Small" OnClick="() => lines.Remove(line)" aria-label="Remove line" />
+            </div>
+        }
+        @if (lines.Count > 0)
+        {
+            <MudText Typo="Typo.subtitle2" Align="Align.Right">Total @Format.Money(lines.Sum(l => l.Amount))</MudText>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="() => MudDialog.Cancel()">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Ok" Disabled="@lines.Any(l => string.IsNullOrWhiteSpace(l.Description) || l.Amount < 0)">@ButtonText</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] public IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public bool Batch { get; set; }
+    [Parameter] public string? Message { get; set; }
+    [Parameter] public string ButtonText { get; set; } = "Issue offer";
+
+    private int? maxOffers;
+    private int? expiresInDays;
+    private string language = "en";
+    private string? feeScheduleText;
+    private readonly List<FeeLineForm> lines = [new() { Description = "Admission fee" }, new() { Description = "Session fee" }];
+
+    private void Ok()
+    {
+        var feeLines = lines.Select(l => new AdmissionFeeLine(null, l.Description.Trim(), l.Amount)).ToList();
+        var options = new AdmissionOfferOptions(expiresInDays, ApplicationForm.Blank(feeScheduleText), feeLines.Count == 0 ? null : feeLines, language);
+        MudDialog.Close(DialogResult.Ok(new OfferTerms(Batch ? maxOffers : null, options)));
+    }
+
+    public static async Task<OfferTerms?> AskAsync(IDialogService dialogs, string title, bool batch, string? message = null, string button = "Issue offer")
+    {
+        var dialog = await dialogs.ShowAsync<OfferTermsDialog>(title, new DialogParameters<OfferTermsDialog>
+        {
+            { x => x.Batch, batch }, { x => x.Message, message }, { x => x.ButtonText, button }
+        }, new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+        var result = await dialog.Result;
+        return result is { Canceled: false, Data: OfferTerms terms } ? terms : null;
+    }
+}

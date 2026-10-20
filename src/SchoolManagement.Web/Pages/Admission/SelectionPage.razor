@@ -1,0 +1,292 @@
+@page "/admission/selection"
+@inherits AppPage
+
+<PageTitle>Seats & selection</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-4">Seats &amp; selection</MudText>
+
+<MudPaper Class="pa-4 mb-4">
+    <div class="d-flex flex-wrap gap-3 align-center">
+        <AdmissionScopePicker Lookups="lookups" @bind-CampusId="campusId" @bind-YearId="yearId" @bind-ClassId="classId" AllowAll="false" Changed="ScopeChanged" />
+        <MudText Typo="Typo.caption" Color="Color.Secondary">The class applies to the merit list and waiting list tabs.</MudText>
+    </div>
+</MudPaper>
+
+@if (campusId is null || yearId is null)
+{
+    <MudAlert Severity="Severity.Info">Choose a campus and academic year.</MudAlert>
+}
+else
+{
+    var canApprove = Session.Has(P.Admission.Approve);
+    <MudTabs Elevation="1" Rounded="true" PanelClass="pa-4" @bind-ActivePanelIndex="tab">
+        <MudTabPanel Text="Seat availability" Icon="@Icons.Material.Filled.EventSeat">
+            <MudTable T="AdmissionSeatSummary" Items="seats" Dense="true" Hover="true" Elevation="0" Loading="Busy">
+                <HeaderContent>
+                    <MudTh>Class</MudTh>
+                    <MudTh Style="text-align:right">Seats</MudTh>
+                    <MudTh Style="text-align:right">Enrolled</MudTh>
+                    <MudTh Style="text-align:right">Accepted, not enrolled</MudTh>
+                    <MudTh Style="text-align:right">Offers pending</MudTh>
+                    <MudTh Style="text-align:right">Available</MudTh>
+                    <MudTh Style="text-align:right">Waiting list</MudTh>
+                    <MudTh>Fill</MudTh>
+                    @if (canApprove)
+                    {
+                        <MudTh>Set seats</MudTh>
+                    }
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Class">
+                        <MudLink OnClick="() => OpenClass(context.YearGroupId)">@context.YearGroupName</MudLink>
+                    </MudTd>
+                    <MudTd DataLabel="Seats" Style="text-align:right">@context.TotalSeats</MudTd>
+                    <MudTd DataLabel="Enrolled" Style="text-align:right">@context.Enrolled</MudTd>
+                    <MudTd DataLabel="Accepted" Style="text-align:right">@context.AcceptedAwaitingEnrolment</MudTd>
+                    <MudTd DataLabel="Offers pending" Style="text-align:right">@context.OffersPending</MudTd>
+                    <MudTd DataLabel="Available" Style="text-align:right">
+                        <MudText Typo="Typo.body2" Color="@(context.Available == 0 ? Color.Error : Color.Success)"><b>@context.Available</b></MudText>
+                    </MudTd>
+                    <MudTd DataLabel="Waiting list" Style="text-align:right">@context.Waitlisted</MudTd>
+                    <MudTd DataLabel="Fill" Style="min-width:120px">
+                        @if (context.TotalSeats > 0)
+                        {
+                            <MudProgressLinear Value="@(100.0 * (context.TotalSeats - context.Available) / context.TotalSeats)" Rounded="true"
+                                               Color="@(context.Available == 0 ? Color.Error : Color.Primary)" />
+                        }
+                    </MudTd>
+                    @if (canApprove)
+                    {
+                        <MudTd DataLabel="Set seats">
+                            <div class="d-flex align-center gap-1">
+                                <MudNumericField T="int" Value="SeatEdit(context)" ValueChanged="v => seatEdits[context.YearGroupId] = v" Min="0" Max="2000"
+                                                 Margin="Margin.Dense" Variant="Variant.Outlined" Style="width:90px" HideSpinButtons="true" />
+                                <MudIconButton Icon="@Icons.Material.Filled.Save" Size="Size.Small" Color="Color.Primary" aria-label="Save seats"
+                                               Disabled="@(Busy || SeatEdit(context) == context.TotalSeats)" OnClick="() => SaveSeats(context)" />
+                            </div>
+                        </MudTd>
+                    }
+                </RowTemplate>
+                <NoRecordsContent><MudText Class="pa-4">No classes are set up.</MudText></NoRecordsContent>
+            </MudTable>
+            <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-2 d-block">
+                Without a seat number for a class, the total capacity of its sections is used. Raising the seats offers new places to the waiting list automatically.
+            </MudText>
+        </MudTabPanel>
+
+        <MudTabPanel Text="Merit list" Icon="@Icons.Material.Filled.FormatListNumbered">
+            @if (classId is null)
+            {
+                <MudAlert Severity="Severity.Info">Choose a class above.</MudAlert>
+            }
+            else
+            {
+                <div class="d-flex flex-wrap gap-2 align-center mb-3">
+                    <MudText Typo="Typo.body2" Color="Color.Secondary" Style="flex:1;min-width:260px">
+                        Scores every tested applicant of @lookups.Class(classId): weighted test and interview scores, sibling and staff-ward priority,
+                        and the class's age cut-off. Eligible applicants are ranked and shortlisted.
+                    </MudText>
+                    @if (canApprove)
+                    {
+                        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Calculate" Disabled="Busy" OnClick="ComputeMerit">
+                            @(merit is null ? "Compute merit list" : "Recompute")
+                        </MudButton>
+                        <MudButton Variant="Variant.Filled" Color="Color.Warning" StartIcon="@Icons.Material.Filled.MarkEmailRead" Disabled="Busy" OnClick="OfferFromMerit">
+                            Offer seats from merit list
+                        </MudButton>
+                    }
+                </div>
+                @if (batchResult is not null)
+                {
+                    <MudAlert Severity="Severity.Success" Class="mb-3" ShowCloseIcon="true" CloseIconClicked="() => batchResult = null">
+                        @batchResult.Offered.Count offer(s) issued and @batchResult.Waitlisted.Count applicant(s) placed on the waiting list.
+                    </MudAlert>
+                }
+                @if (merit is null)
+                {
+                    <MudText Typo="Typo.body2">The merit list is calculated on demand. @(canApprove ? "Use Compute merit list to see the ranking." : "Ask an approver to compute it.")</MudText>
+                }
+                else
+                {
+                    <MudTable T="AdmissionMeritEntry" Items="merit" Dense="true" Hover="true" Elevation="0">
+                        <HeaderContent>
+                            <MudTh>Rank</MudTh><MudTh>Application</MudTh><MudTh>Name</MudTh><MudTh>Date of birth</MudTh>
+                            <MudTh Style="text-align:right">Test %</MudTh><MudTh Style="text-align:right">Interview</MudTh><MudTh>Priority</MudTh>
+                            <MudTh Style="text-align:right">Merit score</MudTh><MudTh>Status</MudTh><MudTh>Notes</MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd DataLabel="Rank">
+                                @if (context.Rank is { } r)
+                                {
+                                    <b>#@r</b>
+                                }
+                                else
+                                {
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Error">Ineligible</MudChip>
+                                }
+                            </MudTd>
+                            <MudTd DataLabel="Application"><MudLink Href="@($"admission/applications/{context.ApplicationId}")">@context.ApplicationNo</MudLink></MudTd>
+                            <MudTd DataLabel="Name">@context.Name</MudTd>
+                            <MudTd DataLabel="Date of birth">@Format.Date(context.DateOfBirth)</MudTd>
+                            <MudTd DataLabel="Test %" Style="text-align:right">@(context.TestScore?.ToString("0.##") ?? "—")</MudTd>
+                            <MudTd DataLabel="Interview" Style="text-align:right">@(context.InterviewScore?.ToString("0.##") ?? "—")</MudTd>
+                            <MudTd DataLabel="Priority">
+                                @if (context.Sibling) { <MudChip T="string" Size="Size.Small">Sibling</MudChip> }
+                                @if (context.StaffWard) { <MudChip T="string" Size="Size.Small">Staff ward</MudChip> }
+                            </MudTd>
+                            <MudTd DataLabel="Merit score" Style="text-align:right"><b>@(context.MeritScore?.ToString("0.##") ?? "—")</b></MudTd>
+                            <MudTd DataLabel="Status"><MudChip T="string" Size="Size.Small" Color="AdmissionUi.StatusColor(context.Status)">@Format.Enum(context.Status)</MudChip></MudTd>
+                            <MudTd DataLabel="Notes"><MudText Typo="Typo.caption">@string.Join(" ", context.Notes)</MudText></MudTd>
+                        </RowTemplate>
+                        <NoRecordsContent><MudText Class="pa-4">No tested applicants in this class yet.</MudText></NoRecordsContent>
+                    </MudTable>
+                }
+            }
+        </MudTabPanel>
+
+        <MudTabPanel Text="Waiting list" Icon="@Icons.Material.Filled.HourglassTop">
+            @if (classId is null)
+            {
+                <MudAlert Severity="Severity.Info">Choose a class above.</MudAlert>
+            }
+            else
+            {
+                <div class="d-flex flex-wrap gap-2 align-center mb-3">
+                    <MudText Typo="Typo.body2" Color="Color.Secondary" Style="flex:1;min-width:260px">
+                        When a seat is released (offer declined, expired or revoked, or more seats added), the head of the list is offered it automatically.
+                    </MudText>
+                    @if (canApprove)
+                    {
+                        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Upgrade" Disabled="@(Busy || waitlist.Count == 0)" OnClick="Promote">Offer free seats now</MudButton>
+                    }
+                </div>
+                <MudTable T="AdmissionWaitlistView" Items="waitlist" Dense="true" Hover="true" Elevation="0" Loading="Busy">
+                    <HeaderContent>
+                        <MudTh>Position</MudTh><MudTh>Application</MudTh><MudTh>Name</MudTh><MudTh Style="text-align:right">Merit score</MudTh>
+                        <MudTh Style="text-align:right">Merit rank</MudTh><MudTh>Added</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Position"><b>@context.Position</b></MudTd>
+                        <MudTd DataLabel="Application"><MudLink Href="@($"admission/applications/{context.ApplicationId}")">@context.ApplicationNo</MudLink></MudTd>
+                        <MudTd DataLabel="Name">@context.Name</MudTd>
+                        <MudTd DataLabel="Merit score" Style="text-align:right">@(context.MeritScore?.ToString("0.##") ?? "—")</MudTd>
+                        <MudTd DataLabel="Merit rank" Style="text-align:right">@(context.MeritRank?.ToString() ?? "—")</MudTd>
+                        <MudTd DataLabel="Added">@Format.Date(context.AddedAtUtc)</MudTd>
+                    </RowTemplate>
+                    <NoRecordsContent><MudText Class="pa-4">Nobody is on the waiting list for this class.</MudText></NoRecordsContent>
+                </MudTable>
+            }
+        </MudTabPanel>
+    </MudTabs>
+}
+
+@code {
+    private AdmissionLookups lookups = AdmissionLookups.Empty;
+    private Guid? campusId;
+    private Guid? yearId;
+    private Guid? classId;
+    private int tab;
+
+    private List<AdmissionSeatSummary> seats = [];
+    private readonly Dictionary<Guid, int> seatEdits = [];
+    private List<AdmissionMeritEntry>? merit;
+    private AdmissionBatchOfferResult? batchResult;
+    private List<AdmissionWaitlistView> waitlist = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Run(async () => lookups = await AdmissionLookups.LoadAsync(Api, Session));
+        campusId = lookups.DefaultCampusId;
+        yearId = lookups.CurrentYearId;
+        await LoadSeats();
+    }
+
+    private AdmissionClassKey Key => new(campusId!.Value, yearId!.Value, classId!.Value);
+
+    private int SeatEdit(AdmissionSeatSummary s) => seatEdits.GetValueOrDefault(s.YearGroupId, s.TotalSeats);
+
+    private async Task ScopeChanged()
+    {
+        merit = null;
+        batchResult = null;
+        await LoadSeats();
+        await LoadWaitlist();
+    }
+
+    private async Task LoadSeats()
+    {
+        seatEdits.Clear();
+        if (campusId is null || yearId is null)
+        {
+            seats = [];
+            return;
+        }
+        await Run(async () => seats = await Api.GetAsync<List<AdmissionSeatSummary>>(ApiClient.Query("api/admission/selection/seats",
+            ("campusId", campusId), ("academicYearId", yearId))));
+    }
+
+    private async Task LoadWaitlist()
+    {
+        if (campusId is null || yearId is null || classId is null)
+        {
+            waitlist = [];
+            return;
+        }
+        await Run(async () => waitlist = await Api.GetAsync<List<AdmissionWaitlistView>>(ApiClient.Query("api/admission/selection/waitlist",
+            ("campusId", campusId), ("academicYearId", yearId), ("yearGroupId", classId))));
+    }
+
+    private async Task OpenClass(Guid yearGroupId)
+    {
+        classId = yearGroupId;
+        await ScopeChanged();
+        tab = 1;
+    }
+
+    private async Task SaveSeats(AdmissionSeatSummary s)
+    {
+        AdmissionSeatSummary? updated = null;
+        if (await Run(async () => updated = await Api.PutAsync<AdmissionSeatSummary>("api/admission/selection/seats",
+                new AdmissionSeatRequest(s.CampusId, s.AcademicYearId, s.YearGroupId, SeatEdit(s))), $"Seats for {s.YearGroupName} saved."))
+        {
+            seats[seats.IndexOf(s)] = updated! with { YearGroupName = s.YearGroupName };
+            seatEdits.Remove(s.YearGroupId);
+        }
+    }
+
+    private async Task ComputeMerit()
+    {
+        batchResult = null;
+        await Run(async () => merit = await Api.PostAsync<List<AdmissionMeritEntry>>("api/admission/selection/merit-list", Key), "Merit list computed.");
+    }
+
+    private async Task OfferFromMerit()
+    {
+        var seat = seats.FirstOrDefault(s => s.YearGroupId == classId);
+        var terms = await OfferTermsDialog.AskAsync(Dialogs, $"Offer seats — {lookups.Class(classId)}", batch: true,
+            $"Offers go to shortlisted applicants in merit order, up to the {seat?.Available.ToString() ?? "available"} free seat(s); " +
+            "the remaining shortlisted applicants are placed on the waiting list. Compute the merit list first.", "Issue offers");
+        if (terms is null) return;
+
+        var o = terms.Options;
+        var request = new AdmissionBatchOfferRequest(Key.CampusId, Key.AcademicYearId, Key.YearGroupId, terms.MaxOffers, o.ExpiresInDays, o.FeeScheduleText, o.FeeLines, o.Language);
+        if (await Run(async () => batchResult = await Api.PostAsync<AdmissionBatchOfferResult>("api/admission/selection/merit-list/offers", request)))
+        {
+            merit = null;
+            await LoadSeats();
+            await LoadWaitlist();
+        }
+    }
+
+    private async Task Promote()
+    {
+        var promoted = 0;
+        if (await Run(async () => promoted = await Api.PostAsync<int>("api/admission/selection/waitlist/promote", Key)))
+        {
+            Snackbar.Add(promoted == 0 ? "No free seats: nobody was promoted." : $"{promoted} offer(s) issued from the waiting list.",
+                promoted == 0 ? Severity.Info : Severity.Success);
+            await LoadSeats();
+            await LoadWaitlist();
+        }
+    }
+}

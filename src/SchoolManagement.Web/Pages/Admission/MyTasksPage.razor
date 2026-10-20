@@ -1,0 +1,58 @@
+@page "/admission/tasks"
+@inherits AppPage
+
+<PageTitle>My follow-ups</PageTitle>
+
+<div class="d-flex flex-wrap align-center gap-2 mb-4">
+    <div>
+        <MudText Typo="Typo.h4">My follow-ups</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary">Open enquiry tasks assigned to you, overdue first.</MudText>
+    </div>
+    <MudSpacer />
+    <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Refresh" OnClick="Load" Disabled="Busy">Refresh</MudButton>
+</div>
+
+<MudTable T="EnquiryTaskItem" Items="tasks" Hover="true" Dense="true" Elevation="1" Loading="Busy">
+    <HeaderContent>
+        <MudTh>Due</MudTh>
+        <MudTh>Enquiry</MudTh>
+        <MudTh>Child</MudTh>
+        <MudTh>Phone</MudTh>
+        <MudTh>Task</MudTh>
+        <MudTh></MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd DataLabel="Due">
+            <MudText Typo="Typo.body2" Color="@(context.IsOverdue ? Color.Error : Color.Default)">@Format.DateTime(context.DueAtUtc)</MudText>
+            @if (context.IsOverdue)
+            {
+                <MudChip T="string" Size="Size.Small" Color="Color.Error">Overdue</MudChip>
+            }
+        </MudTd>
+        <MudTd DataLabel="Enquiry"><MudLink Href="@($"admission/enquiries/{context.EnquiryId}")">@context.EnquiryNo</MudLink></MudTd>
+        <MudTd DataLabel="Child">@context.ChildName</MudTd>
+        <MudTd DataLabel="Phone"><MudLink Href="@($"tel:{context.GuardianPhone}")">@context.GuardianPhone</MudLink></MudTd>
+        <MudTd DataLabel="Task" Style="white-space:pre-wrap">@context.Text</MudTd>
+        <MudTd>
+            @if (Session.Has(P.Admission.Edit))
+            {
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Success" Disabled="Busy" OnClick="() => Complete(context)">Mark done</MudButton>
+            }
+        </MudTd>
+    </RowTemplate>
+    <NoRecordsContent><MudText Class="pa-4">You have no open follow-ups.</MudText></NoRecordsContent>
+</MudTable>
+
+@code {
+    private List<EnquiryTaskItem> tasks = [];
+
+    protected override Task OnInitializedAsync() => Load();
+
+    private async Task Load() => await Run(async () => tasks = await Api.GetAsync<List<EnquiryTaskItem>>("api/admission/enquiries/my-tasks"));
+
+    private async Task Complete(EnquiryTaskItem task)
+    {
+        if (await Run(() => Api.PostAsync($"api/admission/enquiries/activities/{task.ActivityId}/complete"), "Task completed."))
+            tasks.Remove(task);
+    }
+}

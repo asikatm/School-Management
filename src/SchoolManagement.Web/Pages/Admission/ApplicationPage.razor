@@ -1,0 +1,416 @@
+@page "/admission/applications/{Id:guid}"
+@inherits AppPage
+
+<PageTitle>@(app?.ApplicationNo ?? "Application")</PageTitle>
+
+<MudBreadcrumbs Items="breadcrumbs" Class="px-0 pt-0" />
+
+@if (app is null)
+{
+    if (Busy)
+    {
+        <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+    }
+    else
+    {
+        <MudAlert Severity="Severity.Warning">The application could not be loaded.</MudAlert>
+    }
+}
+else
+{
+    var a = app;
+    var canEdit = Session.Has(P.Admission.Edit);
+    var canApprove = Session.Has(P.Admission.Approve);
+    <div class="d-flex flex-wrap align-center gap-2 mb-2">
+        <div>
+            <MudText Typo="Typo.h4">@a.FullName</MudText>
+            <MudText Typo="Typo.body2" Color="Color.Secondary">
+                @a.ApplicationNo · @lookups.Class(a.YearGroupId) · @lookups.Campus(a.CampusId) · @lookups.Year(a.AcademicYearId)
+                @if (a.SubmittedAtUtc is not null)
+                {
+                    <span> · submitted @Format.Date(a.SubmittedAtUtc)</span>
+                }
+            </MudText>
+        </div>
+        <MudChip T="string" Color="AdmissionUi.StatusColor(a.Status)" Class="ml-2">@Format.Enum(a.Status)</MudChip>
+        @if (a.IsOnline)
+        {
+            <MudChip T="string" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.Language" Size="Size.Small">Online</MudChip>
+        }
+        @if (a.WaitlistPosition is { } pos)
+        {
+            <MudChip T="string" Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small">Waiting list #@pos</MudChip>
+        }
+    </div>
+
+    <div class="d-flex flex-wrap gap-2 mb-4">
+        @if (canEdit && AdmissionUi.IsEditable(a.Status))
+        {
+            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Edit" Href="@($"admission/applications/{a.Id}/edit")">Edit</MudButton>
+        }
+        @if (canEdit && a.Status == ApplicationStatus.Draft)
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Send" Disabled="Busy" OnClick="Submit">Submit</MudButton>
+        }
+        @if (canEdit && !a.ApplicationFeePaid && !AdmissionUi.IsClosed(a.Status))
+        {
+            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Payments" Disabled="Busy" OnClick="RecordFee">Record application fee</MudButton>
+        }
+        @if (canApprove && AdmissionUi.CanOffer(a.Status) && a.Offers.All(o => o.Status != OfferStatus.Pending))
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Warning" StartIcon="@Icons.Material.Filled.MarkEmailRead" Disabled="Busy" OnClick="MakeOffer">Offer seat</MudButton>
+        }
+        @if (canApprove && a.Status is ApplicationStatus.Tested or ApplicationStatus.Shortlisted or ApplicationStatus.UnderReview or ApplicationStatus.Submitted)
+        {
+            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.HourglassTop" Disabled="Busy" OnClick="Waitlist">Add to waiting list</MudButton>
+        }
+        @if (a.Status == ApplicationStatus.Accepted && Session.Has(P.Students.Create))
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Success" StartIcon="@Icons.Material.Filled.School" Disabled="Busy" OnClick="Enrol">Enrol as student</MudButton>
+        }
+        <MudSpacer />
+        @if (a.EnquiryId is { } enquiryId)
+        {
+            <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.ContactPhone" Href="@($"admission/enquiries/{enquiryId}")">Enquiry</MudButton>
+        }
+        @if (a.StudentId is { } studentId)
+        {
+            <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Person" Href="@($"students/{studentId}")">Student record</MudButton>
+        }
+        @if (canEdit && a.Status is not (ApplicationStatus.Enrolled or ApplicationStatus.Withdrawn))
+        {
+            <MudButton Variant="Variant.Text" Color="Color.Warning" Disabled="Busy" OnClick="Withdraw">Withdraw</MudButton>
+        }
+        @if (canApprove && !AdmissionUi.IsClosed(a.Status) && a.Status != ApplicationStatus.Accepted)
+        {
+            <MudButton Variant="Variant.Text" Color="Color.Error" Disabled="Busy" OnClick="Reject">Reject</MudButton>
+        }
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(a.DecisionNote))
+    {
+        <MudAlert Severity="Severity.Info" Dense="true" Class="mb-4">Decision note: @a.DecisionNote</MudAlert>
+    }
+
+    <MudTabs Elevation="1" Rounded="true" PanelClass="pa-4" @bind-ActivePanelIndex="tab">
+        <MudTabPanel Text="Overview">
+            <MudGrid>
+                <MudItem xs="12" md="7">
+                    <MudSimpleTable Dense="true" Elevation="0">
+                        <tbody>
+                            <tr><td>Name in Bangla</td><td>@(a.NameBn ?? "—")</td></tr>
+                            <tr><td>Date of birth</td><td>@Format.Date(a.DateOfBirth)</td></tr>
+                            <tr><td>Gender</td><td>@(a.Gender ?? "—")</td></tr>
+                            <tr><td>Religion</td><td>@(a.Religion ?? "—")</td></tr>
+                            <tr><td>Nationality</td><td>@(a.Nationality ?? "—")</td></tr>
+                            <tr><td>Blood group</td><td>@(a.BloodGroup ?? "—")</td></tr>
+                            <tr><td>Birth registration no.</td><td>@(a.BirthCertificateNo ?? "—")</td></tr>
+                            <tr><td>Previous school</td><td>@(a.PreviousSchool ?? "—")@(a.PreviousClass is null ? "" : $" ({a.PreviousClass})")</td></tr>
+                            <tr><td>Present address</td><td>@(a.PresentAddress ?? "—")</td></tr>
+                            <tr><td>Permanent address</td><td>@(a.PermanentAddress ?? "—")</td></tr>
+                            <tr><td>Special needs</td><td>@(a.SpecialNeeds ?? "—")</td></tr>
+                            <tr><td>Sibling in school</td><td>@(a.HasSiblingInSchool ? "Yes" : "No")</td></tr>
+                            <tr><td>Staff ward</td><td>@(a.IsStaffWard ? "Yes" : "No")</td></tr>
+                        </tbody>
+                    </MudSimpleTable>
+                </MudItem>
+                <MudItem xs="12" md="5">
+                    <MudPaper Outlined="true" Class="pa-3 mb-3">
+                        <MudText Typo="Typo.subtitle1" Class="mb-2">Application fee</MudText>
+                        @if (a.ApplicationFeePaid)
+                        {
+                            <MudText><MudIcon Icon="@Icons.Material.Filled.CheckCircle" Color="Color.Success" Size="Size.Small" /> Paid @Format.Money(a.ApplicationFee)</MudText>
+                        }
+                        else
+                        {
+                            <MudText Color="Color.Warning">Not paid</MudText>
+                        }
+                    </MudPaper>
+                    <MudPaper Outlined="true" Class="pa-3">
+                        <MudText Typo="Typo.subtitle1" Class="mb-2">Assessment</MudText>
+                        <MudSimpleTable Dense="true" Elevation="0">
+                            <tbody>
+                                <tr><td>Test score</td><td>@(a.TestScore is { } t ? $"{t:0.##}%" : "—")</td></tr>
+                                <tr><td>Interview score</td><td>@(a.InterviewScore?.ToString("0.##") ?? "—")</td></tr>
+                                <tr><td>Merit score</td><td>@(a.MeritScore?.ToString("0.##") ?? "—")</td></tr>
+                                <tr><td>Merit rank</td><td>@(a.MeritRank is { } r ? $"#{r}" : "—")</td></tr>
+                                <tr><td>Waiting list</td><td>@(a.WaitlistPosition is { } w ? $"#{w}" : "—")</td></tr>
+                            </tbody>
+                        </MudSimpleTable>
+                    </MudPaper>
+                </MudItem>
+            </MudGrid>
+        </MudTabPanel>
+
+        <MudTabPanel Text="Guardians" BadgeData="@(a.Guardians.Count)" BadgeColor="Color.Default">
+            <MudTable T="ApplicationGuardianRequest" Items="a.Guardians" Dense="true" Elevation="0">
+                <HeaderContent>
+                    <MudTh>Relationship</MudTh><MudTh>Name</MudTh><MudTh>Mobile</MudTh><MudTh>E-mail</MudTh><MudTh>NID</MudTh>
+                    <MudTh>Occupation</MudTh><MudTh>Income</MudTh><MudTh></MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Relationship">@context.Relationship</MudTd>
+                    <MudTd DataLabel="Name">@context.Name</MudTd>
+                    <MudTd DataLabel="Mobile"><MudLink Href="@($"tel:{context.Phone}")">@context.Phone</MudLink></MudTd>
+                    <MudTd DataLabel="E-mail">@(context.Email ?? "—")</MudTd>
+                    <MudTd DataLabel="NID">@(context.NationalId ?? "—")</MudTd>
+                    <MudTd DataLabel="Occupation">@(context.Occupation ?? "—")@(context.Organisation is null ? "" : $", {context.Organisation}")</MudTd>
+                    <MudTd DataLabel="Income">@(context.IncomeBand ?? "—")</MudTd>
+                    <MudTd>@if (context.IsPrimaryContact) { <MudChip T="string" Size="Size.Small" Color="Color.Primary">Primary</MudChip> }</MudTd>
+                </RowTemplate>
+                <NoRecordsContent><MudText Class="pa-2">No guardians recorded.</MudText></NoRecordsContent>
+            </MudTable>
+        </MudTabPanel>
+
+        <MudTabPanel Text="Documents" BadgeData="@(a.Documents.Count)" BadgeColor="Color.Default">
+            @if (canEdit && AdmissionUi.AcceptsDocuments(a.Status))
+            {
+                <div class="d-flex flex-wrap gap-3 align-center mb-4">
+                    <MudSelect T="string" @bind-Value="documentType" Label="Document type" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Style="min-width:220px">
+                        @foreach (var t in AdmissionUi.DocumentTypes)
+                        {
+                            <MudSelectItem T="string" Value="t">@t</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <MudFileUpload T="IBrowserFile" FilesChanged="Upload" Accept=".pdf,.jpg,.jpeg,.png" Disabled="Busy">
+                        <ActivatorContent>
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.UploadFile" Disabled="Busy">Upload document</MudButton>
+                        </ActivatorContent>
+                    </MudFileUpload>
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">PDF or image, up to 10 MB; at most 15 documents.</MudText>
+                </div>
+            }
+            <MudTable T="ApplicationDocumentView" Items="a.Documents" Dense="true" Elevation="0">
+                <HeaderContent>
+                    <MudTh>Type</MudTh><MudTh>File</MudTh><MudTh>Size</MudTh><MudTh>Uploaded</MudTh><MudTh>Verified</MudTh><MudTh></MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Type">@context.DocumentType</MudTd>
+                    <MudTd DataLabel="File">@context.FileName</MudTd>
+                    <MudTd DataLabel="Size">@AdmissionUi.Size(context.SizeBytes)</MudTd>
+                    <MudTd DataLabel="Uploaded">@Format.DateTime(context.UploadedAtUtc)</MudTd>
+                    <MudTd DataLabel="Verified">
+                        @if (context.IsVerified)
+                        {
+                            <MudChip T="string" Size="Size.Small" Color="Color.Success">Verified</MudChip>
+                        }
+                        else
+                        {
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">Pending</MudChip>
+                        }
+                    </MudTd>
+                    <MudTd Style="text-align:right">
+                        <MudIconButton Icon="@Icons.Material.Filled.OpenInNew" Size="Size.Small" aria-label="Open"
+                                       OnClick="@(() => OpenFile($"api/admission/applications/{a.Id}/documents/{context.Id}"))" />
+                        <MudIconButton Icon="@Icons.Material.Filled.Download" Size="Size.Small" aria-label="Download"
+                                       OnClick="@(() => Download($"api/admission/applications/{a.Id}/documents/{context.Id}"))" />
+                        @if (canEdit)
+                        {
+                            <MudButton Size="Size.Small" Variant="Variant.Text" Disabled="Busy" OnClick="() => Verify(context, !context.IsVerified)">
+                                @(context.IsVerified ? "Unverify" : "Verify")
+                            </MudButton>
+                        }
+                    </MudTd>
+                </RowTemplate>
+                <NoRecordsContent><MudText Class="pa-2">No documents uploaded.</MudText></NoRecordsContent>
+            </MudTable>
+        </MudTabPanel>
+
+        <MudTabPanel Text="Tests & interviews">
+            <MudText Typo="Typo.h6" Class="mb-2">Admission tests</MudText>
+            <MudTable T="ApplicationTestResultView" Items="a.Tests" Dense="true" Elevation="0" Class="mb-6">
+                <HeaderContent>
+                    <MudTh>Session</MudTh><MudTh>Date</MudTh><MudTh>Room</MudTh><MudTh>Admit card</MudTh><MudTh>Seat</MudTh><MudTh>Attended</MudTh><MudTh>Score</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Session"><MudLink Href="@($"admission/tests/{context.TestSessionId}")">@context.SessionName</MudLink></MudTd>
+                    <MudTd DataLabel="Date">@Format.DateTime(context.StartsAtUtc)</MudTd>
+                    <MudTd DataLabel="Room">@(context.Room ?? "—")</MudTd>
+                    <MudTd DataLabel="Admit card">@context.AdmitCardNo</MudTd>
+                    <MudTd DataLabel="Seat">@(context.SeatNo ?? "—")</MudTd>
+                    <MudTd DataLabel="Attended">@(context.Attended switch { true => "Yes", false => "Absent", null => "—" })</MudTd>
+                    <MudTd DataLabel="Score">@(context.Score is { } s ? $"{s:0.##} / {context.MaxScore:0.##}" : "—")</MudTd>
+                </RowTemplate>
+                <NoRecordsContent><MudText Class="pa-2">Not assigned to a test session yet. Assign applicants from the <MudLink Href="admission/tests">Admission tests</MudLink> page.</MudText></NoRecordsContent>
+            </MudTable>
+
+            <div class="d-flex align-center mb-2">
+                <MudText Typo="Typo.h6">Interviews</MudText>
+                <MudSpacer />
+                @if (canEdit && !AdmissionUi.IsClosed(a.Status))
+                {
+                    <MudButton Size="Size.Small" StartIcon="@Icons.Material.Filled.EventAvailable" OnClick="ScheduleInterview">Schedule interview</MudButton>
+                }
+            </div>
+            <MudTable T="ApplicationInterviewView" Items="a.Interviews" Dense="true" Elevation="0">
+                <HeaderContent>
+                    <MudTh>Scheduled</MudTh><MudTh>Location</MudTh><MudTh>Interviewer</MudTh><MudTh>Score</MudTh><MudTh>Notes</MudTh><MudTh></MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Scheduled">@Format.DateTime(context.ScheduledAtUtc)</MudTd>
+                    <MudTd DataLabel="Location">@(context.Location ?? "—")</MudTd>
+                    <MudTd DataLabel="Interviewer">@(context.InterviewerName ?? "—")</MudTd>
+                    <MudTd DataLabel="Score">@(context.IsCompleted ? context.Score?.ToString("0.##") : "Pending")</MudTd>
+                    <MudTd DataLabel="Notes" Style="white-space:pre-wrap">@context.Notes</MudTd>
+                    <MudTd Style="text-align:right">
+                        @if (canEdit)
+                        {
+                            <MudButton Size="Size.Small" Variant="Variant.Outlined" OnClick="() => RecordInterview(context)">@(context.IsCompleted ? "Edit result" : "Record result")</MudButton>
+                        }
+                    </MudTd>
+                </RowTemplate>
+                <NoRecordsContent><MudText Class="pa-2">No interviews scheduled.</MudText></NoRecordsContent>
+            </MudTable>
+        </MudTabPanel>
+
+        <MudTabPanel Text="Offers" BadgeData="@(a.Offers.Count == 0 ? null : a.Offers.Count)" BadgeColor="Color.Warning">
+            <MudTable T="AdmissionOfferView" Items="a.Offers" Dense="true" Elevation="0">
+                <HeaderContent>
+                    <MudTh>Offer no.</MudTh><MudTh>Status</MudTh><MudTh>Issued</MudTh><MudTh>Expires</MudTh><MudTh>Responded</MudTh><MudTh>Fees</MudTh><MudTh></MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Offer no.">@context.OfferNo</MudTd>
+                    <MudTd DataLabel="Status"><MudChip T="string" Size="Size.Small" Color="AdmissionUi.OfferColor(context.Status)">@Format.Enum(context.Status)</MudChip></MudTd>
+                    <MudTd DataLabel="Issued">@Format.DateTime(context.IssuedAtUtc)</MudTd>
+                    <MudTd DataLabel="Expires">@Format.DateTime(context.ExpiresAtUtc)</MudTd>
+                    <MudTd DataLabel="Responded">@Format.DateTime(context.RespondedAtUtc)@(context.ResponseNote is null ? "" : $" — {context.ResponseNote}")</MudTd>
+                    <MudTd DataLabel="Fees">@(context.FeeLines.Count == 0 ? "—" : Format.Money(context.FeeLines.Sum(l => l.Amount)))</MudTd>
+                    <MudTd><OfferActions Offer="context" Changed="_ => Reload()" /></MudTd>
+                </RowTemplate>
+                <NoRecordsContent><MudText Class="pa-2">No offers issued.</MudText></NoRecordsContent>
+            </MudTable>
+        </MudTabPanel>
+
+        <MudTabPanel Text="Invoices" BadgeData="@(a.Invoices.Count(i => i.Status == AdmissionInvoiceStatus.Unpaid) is var n and > 0 ? n : null)" BadgeColor="Color.Error">
+            <MudTable T="AdmissionInvoiceView" Items="a.Invoices" Dense="true" Elevation="0">
+                <HeaderContent>
+                    <MudTh>Invoice no.</MudTh><MudTh>Due</MudTh><MudTh Style="text-align:right">Amount</MudTh><MudTh>Status</MudTh><MudTh>Paid</MudTh><MudTh>Reference</MudTh><MudTh></MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Invoice no.">@context.InvoiceNo</MudTd>
+                    <MudTd DataLabel="Due">@Format.Date(context.DueDate)</MudTd>
+                    <MudTd DataLabel="Amount" Style="text-align:right">@Format.Money(context.Amount)</MudTd>
+                    <MudTd DataLabel="Status"><MudChip T="string" Size="Size.Small" Color="AdmissionUi.InvoiceColor(context.Status)">@Format.Enum(context.Status)</MudChip></MudTd>
+                    <MudTd DataLabel="Paid">@Format.DateTime(context.PaidAtUtc)</MudTd>
+                    <MudTd DataLabel="Reference">@(context.PaymentChannel is null ? "" : context.PaymentChannel + ": ")@context.PaymentReference</MudTd>
+                    <MudTd><InvoiceActions Invoice="context" Changed="_ => Reload()" /></MudTd>
+                </RowTemplate>
+                <NoRecordsContent><MudText Class="pa-2">No admission invoices. One is raised when an offer with fee lines is accepted.</MudText></NoRecordsContent>
+            </MudTable>
+        </MudTabPanel>
+    </MudTabs>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private ApplicationDetail? app;
+    private AdmissionLookups lookups = AdmissionLookups.Empty;
+    private List<BreadcrumbItem> breadcrumbs = [];
+    private string documentType = AdmissionUi.DocumentTypes[0];
+    private int tab;
+
+    private string Url => $"api/admission/applications/{Id}";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await Run(async () =>
+        {
+            lookups = await AdmissionLookups.LoadAsync(Api, Session);
+            app = await Api.GetAsync<ApplicationDetail>(Url);
+        });
+        breadcrumbs = [new("Applications", "admission/applications"), new(app?.ApplicationNo ?? "Application", null, true)];
+    }
+
+    private Task Reload() => Run(async () => app = await Api.GetAsync<ApplicationDetail>(Url));
+
+    private async Task Submit()
+    {
+        if (!await Confirm("Submit application", "Submit this application? It can still be edited by the admission office until it is scheduled for a test.", "Submit")) return;
+        await Run(async () => app = await Api.PostAsync<ApplicationDetail>($"{Url}/submit"), "Application submitted.");
+    }
+
+    private async Task RecordFee()
+    {
+        var payment = await PaymentDialog.AskAsync(Dialogs, "Record application fee", 0, fixedAmount: false, "Fee paid at the counter.");
+        if (payment is null) return;
+        await Run(async () => app = await Api.PostAsync<ApplicationDetail>($"{Url}/application-fee",
+            new ApplicationFeeRequest(payment.Amount, payment.Channel, payment.Reference)), "Application fee recorded.");
+    }
+
+    private async Task MakeOffer()
+    {
+        var terms = await OfferTermsDialog.AskAsync(Dialogs, $"Offer a seat to {app!.FullName}", batch: false,
+            "The guardian receives the offer by SMS and e-mail with a link to accept or decline.");
+        if (terms is null) return;
+        if (await Run(() => Api.PostAsync<AdmissionOfferView>($"{Url}/offer", terms.Options), "Offer issued."))
+        {
+            await Reload();
+            tab = 4;
+        }
+    }
+
+    private async Task Waitlist()
+    {
+        if (!await Confirm("Waiting list", $"Add {app!.FullName} to the waiting list for {lookups.Class(app.YearGroupId)}?", "Add")) return;
+        await Run(async () => app = await Api.PostAsync<ApplicationDetail>($"{Url}/waitlist"), "Added to the waiting list.");
+    }
+
+    private async Task Reject()
+    {
+        var reason = await ReasonDialog.AskAsync(Dialogs, "Reject application", "Reason", "Reject", required: true,
+            message: "Any pending offer is revoked and the applicant leaves the waiting list.", color: Color.Error);
+        if (reason is null) return;
+        await Run(async () => app = await Api.PostAsync<ApplicationDetail>($"{Url}/reject", new AdmissionReasonRequest(reason)), "Application rejected.");
+    }
+
+    private async Task Withdraw()
+    {
+        var reason = await ReasonDialog.AskAsync(Dialogs, "Withdraw application", "Reason", "Withdraw", required: true,
+            message: "Pending offers are revoked, unpaid admission invoices cancelled and the seat released.", color: Color.Warning);
+        if (reason is null) return;
+        await Run(async () => app = await Api.PostAsync<ApplicationDetail>($"{Url}/withdraw", new AdmissionReasonRequest(reason)), "Application withdrawn.");
+    }
+
+    private async Task Enrol()
+    {
+        var dialog = await Dialogs.ShowAsync<EnrolDialog>($"Enrol {app!.FullName}", new DialogParameters<EnrolDialog> { { x => x.Application, app } },
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true, BackdropClick = false });
+        var result = await dialog.Result;
+        if (result is { Canceled: false }) await Reload();
+    }
+
+    private async Task Upload(IBrowserFile? file)
+    {
+        if (file is null) return;
+        if (file.Size > ApiClient.MaxUploadBytes)
+        {
+            Snackbar.Add("The file is larger than 10 MB.", Severity.Warning);
+            return;
+        }
+        if (await Run(() => Api.UploadAsync($"{Url}/documents", file, "file", new Dictionary<string, string?> { ["documentType"] = documentType }), "Document uploaded."))
+            await Reload();
+    }
+
+    private async Task Verify(ApplicationDocumentView doc, bool verified)
+    {
+        if (await Run(() => Api.PostAsync(ApiClient.Query($"{Url}/documents/{doc.Id}/verify", ("verified", verified))), verified ? "Document verified." : "Verification removed."))
+            await Reload();
+    }
+
+    private async Task ScheduleInterview()
+    {
+        var dialog = await Dialogs.ShowAsync<InterviewDialog>("Schedule interview",
+            new DialogParameters<InterviewDialog> { { x => x.ApplicationId, Id }, { x => x.Lookups, lookups } },
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (await dialog.Result is { Canceled: false }) await Reload();
+    }
+
+    private async Task RecordInterview(ApplicationInterviewView interview)
+    {
+        var dialog = await Dialogs.ShowAsync<InterviewDialog>("Interview result",
+            new DialogParameters<InterviewDialog> { { x => x.ApplicationId, Id }, { x => x.Interview, interview } },
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (await dialog.Result is { Canceled: false }) await Reload();
+    }
+}

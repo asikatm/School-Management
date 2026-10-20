@@ -1,0 +1,47 @@
+@* Records a counter payment (application fee or admission invoice). Returns an AdmissionPaymentRequest. *@
+
+<MudDialog>
+    <DialogContent>
+        @if (Message is not null)
+        {
+            <MudText Typo="Typo.body2" Class="mb-3">@Message</MudText>
+        }
+        <MudNumericField T="decimal" @bind-Value="amount" Label="Amount (৳)" Variant="Variant.Outlined" Min="0" Format="N2" Class="mb-3"
+                         ReadOnly="FixedAmount" HelperText="@(FixedAmount ? "Full payment of the invoice total." : null)" />
+        <MudSelect T="string" @bind-Value="channel" Label="Payment channel" Variant="Variant.Outlined" Class="mb-3">
+            @foreach (var c in AdmissionUi.PaymentChannels)
+            {
+                <MudSelectItem T="string" Value="c">@c</MudSelectItem>
+            }
+        </MudSelect>
+        <MudTextField @bind-Value="reference" Label="Receipt / transaction reference" Required="true" Variant="Variant.Outlined" MaxLength="64" Immediate="true" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="() => MudDialog.Cancel()">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(amount <= 0 || string.IsNullOrWhiteSpace(reference))"
+                   OnClick="() => MudDialog.Close(DialogResult.Ok(new AdmissionPaymentRequest(amount, channel, reference.Trim())))">Record payment</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] public IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public decimal Amount { get; set; }
+    [Parameter] public bool FixedAmount { get; set; }
+    [Parameter] public string? Message { get; set; }
+
+    private decimal amount;
+    private string channel = "Cash";
+    private string reference = "";
+
+    protected override void OnInitialized() => amount = Amount;
+
+    public static async Task<AdmissionPaymentRequest?> AskAsync(IDialogService dialogs, string title, decimal amount, bool fixedAmount, string? message = null)
+    {
+        var dialog = await dialogs.ShowAsync<PaymentDialog>(title, new DialogParameters<PaymentDialog>
+        {
+            { x => x.Amount, amount }, { x => x.FixedAmount, fixedAmount }, { x => x.Message, message }
+        }, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var result = await dialog.Result;
+        return result is { Canceled: false, Data: AdmissionPaymentRequest p } ? p : null;
+    }
+}

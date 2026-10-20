@@ -1,0 +1,63 @@
+@inherits AppPage
+
+<MudDialog>
+    <DialogContent>
+        <MudText Typo="Typo.caption" Class="d-block mb-3">
+            If a guardian with this mobile number already exists (for example a sibling's parent), that record is linked instead of creating a duplicate.
+        </MudText>
+        <MudGrid Spacing="2">
+            <MudItem xs="12" sm="6">
+                <MudTextField @bind-Value="model.Name" Label="Name" Required="true" Variant="Variant.Outlined" Margin="Margin.Dense"
+                              Error="HasError(nameof(model.Name))" ErrorText="@ErrorFor(nameof(model.Name))" />
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudSelect T="string" @bind-Value="model.Relationship" Label="Relationship" Variant="Variant.Outlined" Margin="Margin.Dense"
+                           Error="HasError(nameof(model.Relationship))" ErrorText="@ErrorFor(nameof(model.Relationship))">
+                    @foreach (var r in StudentChoices.Relationships)
+                    {
+                        <MudSelectItem T="string" Value="@r">@r</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudTextField @bind-Value="model.Phone" Label="Mobile" Required="true" Placeholder="01XXXXXXXXX" Variant="Variant.Outlined" Margin="Margin.Dense"
+                              Error="HasError(nameof(model.Phone))" ErrorText="@ErrorFor(nameof(model.Phone))" />
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudTextField @bind-Value="model.Email" Label="Email" Variant="Variant.Outlined" Margin="Margin.Dense" />
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudTextField @bind-Value="model.Occupation" Label="Occupation" Variant="Variant.Outlined" Margin="Margin.Dense" />
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudTextField @bind-Value="model.NationalId" Label="National ID" Variant="Variant.Outlined" Margin="Margin.Dense" />
+            </MudItem>
+            <MudItem xs="12" Class="d-flex flex-wrap gap-4">
+                <MudCheckBox T="bool" @bind-Value="model.IsPrimaryContact" Label="Primary contact" Disabled="FirstGuardian" />
+                <MudCheckBox T="bool" @bind-Value="model.IsAuthorisedPickup" Label="Authorised pickup" />
+            </MudItem>
+        </MudGrid>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => MudDialog.Cancel())">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Save" Disabled="Busy">Link</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public Guid StudentId { get; set; }
+    /// <summary>The first guardian always becomes the primary contact.</summary>
+    [Parameter] public bool FirstGuardian { get; set; }
+
+    private readonly StudentGuardianModel model = new();
+
+    protected override void OnInitialized() => model.IsPrimaryContact = FirstGuardian;
+
+    private async Task Save()
+    {
+        StudentDetail? updated = null;
+        if (await Run(async () => updated = await Api.PostAsync<StudentDetail>($"api/students/{StudentId}/guardians", model.ToRequest()), "Guardian linked."))
+            MudDialog.Close(DialogResult.Ok(updated));
+    }
+}

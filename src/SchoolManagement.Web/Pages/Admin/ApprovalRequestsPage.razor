@@ -1,0 +1,67 @@
+@page "/admin/approval-requests"
+@inherits AppPage
+
+<PageTitle>Approval requests</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-4">Approval requests</MudText>
+
+<MudPaper Class="pa-4 mb-4">
+    <MudGrid>
+        <MudItem xs="12" sm="4">
+            <MudSelect T="ApprovalStatus?" Value="status" ValueChanged="StatusChanged" Label="Status" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
+                @foreach (var s in Enum.GetValues<ApprovalStatus>())
+                {
+                    <MudSelectItem T="ApprovalStatus?" Value="@s">@Format.Enum(s)</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="4">
+            <MudSelect T="string" Value="requestType" ValueChanged="TypeChanged" Label="Request type" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
+                @foreach (var t in AdminLookups.ApprovalRequestTypes)
+                {
+                    <MudSelectItem T="string" Value="@t">@AdminLookups.Humanize(t)</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+<ApprovalRequestTable Items="result?.Items" Names="names" Loading="Busy" Empty="No requests match." />
+@if (result is { TotalCount: > 0 })
+{
+    <div class="d-flex align-center justify-end mt-2 gap-4">
+        <MudText Typo="Typo.caption">@result.TotalCount request(s)</MudText>
+        <MudPagination Count="PageCount" Selected="page" SelectedChanged="PageChanged" Size="Size.Small" />
+    </div>
+}
+
+@code {
+    private const int PageSize = 25;
+    private PagedResult<ApprovalRequestView>? result;
+    private AdminUserNames names = default!;
+    private ApprovalStatus? status = ApprovalStatus.Pending;
+    private string? requestType;
+    private int page = 1;
+
+    private int PageCount => result is null ? 1 : Math.Max(1, (int)Math.Ceiling(result.TotalCount / (double)PageSize));
+
+    protected override async Task OnInitializedAsync()
+    {
+        names = new AdminUserNames(Api, Session);
+        await Load();
+    }
+
+    private async Task Load()
+    {
+        await Run(async () =>
+        {
+            result = await Api.GetAsync<PagedResult<ApprovalRequestView>>(
+                ApiClient.Query("api/approvals/requests", ("status", status), ("requestType", requestType), ("page", page), ("pageSize", PageSize)));
+            await names.LoadAsync(result.Items.SelectMany(r => r.Decisions.SelectMany(d => new[] { d.DecidedBy, d.OnBehalfOf }).Append(r.RequestedBy)));
+        });
+    }
+
+    private async Task StatusChanged(ApprovalStatus? value) { status = value; page = 1; await Load(); }
+    private async Task TypeChanged(string? value) { requestType = value; page = 1; await Load(); }
+    private async Task PageChanged(int value) { page = value; await Load(); }
+}

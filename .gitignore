@@ -4,8 +4,8 @@ obj/
 *.user
 *.suo
 TestResults/
-storage/
-backups/
+/storage/
+/backups/
 appsettings.*.local.json
 
 # Client specification (not for the repository)

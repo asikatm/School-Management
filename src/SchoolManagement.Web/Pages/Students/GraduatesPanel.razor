@@ -1,0 +1,74 @@
+@inherits AppPage
+
+<MudText Typo="Typo.body2" Class="mb-3">Graduated students can be moved to the alumni records.</MudText>
+<MudGrid Spacing="2" Class="mb-2">
+    @* Graduates have no current enrolment, so only the campus filter applies. *@
+    <StudentClassPicker @bind-CampusId="campusId" ShowYear="false" ShowClass="false" ShowSection="false" Changed="Reload" />
+    <MudItem xs="12" sm="6" md="9" Class="d-flex align-center justify-end">
+        @if (Session.Has(P.Students.Approve))
+        {
+            <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="ConvertSelected" Disabled="@(Busy || selected.Count == 0)">
+                Convert @selected.Count selected to alumni
+            </MudButton>
+        }
+    </MudItem>
+</MudGrid>
+
+<MudTable @ref="table" T="StudentListItem" ServerData="LoadAsync" Dense="true" Hover="true" RowsPerPage="50"
+          MultiSelection="@Session.Has(P.Students.Approve)" @bind-SelectedItems="selected" SelectOnRowClick="false">
+    <HeaderContent>
+        <MudTh>Admission no</MudTh>
+        <MudTh>Name</MudTh>
+        <MudTh>Guardian phone</MudTh>
+        <MudTh></MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd DataLabel="Admission no"><MudLink Href="@($"students/{context.Id}")">@context.AdmissionNo</MudLink></MudTd>
+        <MudTd DataLabel="Name">@context.Name</MudTd>
+        <MudTd DataLabel="Guardian phone">@(context.GuardianPhone ?? "—")</MudTd>
+        <MudTd Style="text-align:right">
+            @if (Session.Has(P.Students.Approve))
+            {
+                <MudButton Size="Size.Small" OnClick="@(() => Convert([context]))" Disabled="Busy">Convert to alumni</MudButton>
+            }
+        </MudTd>
+    </RowTemplate>
+    <NoRecordsContent><MudText>No graduates waiting.</MudText></NoRecordsContent>
+    <PagerContent><MudTablePager /></PagerContent>
+</MudTable>
+
+@code {
+    private MudTable<StudentListItem> table = default!;
+    private Guid? campusId;
+    private HashSet<StudentListItem> selected = [];
+
+    private async Task<TableData<StudentListItem>> LoadAsync(TableState state, CancellationToken ct)
+    {
+        PagedResult<StudentListItem>? result = null;
+        var url = ApiClient.Query("api/students", ("status", StudentStatus.Graduated), ("campusId", campusId),
+            ("page", state.Page + 1), ("pageSize", state.PageSize));
+        await Run(async () => result = await Api.GetAsync<PagedResult<StudentListItem>>(url));
+        return new TableData<StudentListItem> { Items = result?.Items ?? [], TotalItems = result?.TotalCount ?? 0 };
+    }
+
+    private Task Reload() => table is null ? Task.CompletedTask : table.ReloadServerData();
+
+    private Task ConvertSelected() => Convert(selected.ToList());
+
+    private async Task Convert(List<StudentListItem> students)
+    {
+        if (!await Confirm("Convert to alumni", $"Move {students.Count} graduate(s) to the alumni records?", "Convert")) return;
+        var done = 0;
+        await Run(async () =>
+        {
+            foreach (var s in students)
+            {
+                await Api.PostAsync($"api/students/{s.Id}/alumni");
+                done++;
+            }
+        });
+        if (done > 0) Snackbar.Add($"{done} student(s) converted to alumni.", Severity.Success);
+        selected = [];
+        await Reload();
+    }
+}

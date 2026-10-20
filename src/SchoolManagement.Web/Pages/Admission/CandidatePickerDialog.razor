@@ -1,0 +1,57 @@
+﻿@inherits AppPage
+@* Picks applicants of the session's class who can still sit a test; returns the selected application ids. *@
+
+<MudDialog>
+    <DialogContent>
+        <MudTable T="ApplicationListItem" Items="applications" MultiSelection="true" @bind-SelectedItems="selected" Dense="true" Hover="true" Elevation="0"
+                  Loading="Busy" Height="420px" FixedHeader="true" Filter="Matches">
+            <ToolBarContent>
+                <MudTextField T="string" @bind-Value="filter" Placeholder="Filter" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                              Immediate="true" Margin="Margin.Dense" />
+            </ToolBarContent>
+            <HeaderContent>
+                <MudTh>Application no.</MudTh><MudTh>Name</MudTh><MudTh>Date of birth</MudTh><MudTh>Status</MudTh><MudTh>Submitted</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="Application no.">@context.ApplicationNo</MudTd>
+                <MudTd DataLabel="Name">@context.Name</MudTd>
+                <MudTd DataLabel="Date of birth">@Format.Date(context.DateOfBirth)</MudTd>
+                <MudTd DataLabel="Status">@Format.Enum(context.Status)</MudTd>
+                <MudTd DataLabel="Submitted">@Format.Date(context.SubmittedAtUtc)</MudTd>
+            </RowTemplate>
+            <NoRecordsContent><MudText Class="pa-4">No submitted applicants for this class are waiting for a test.</MudText></NoRecordsContent>
+        </MudTable>
+    </DialogContent>
+    <DialogActions>
+        <MudText Typo="Typo.body2" Class="mr-auto ml-4">@selected.Count selected · @SeatsLeft seat(s) left</MudText>
+        <MudButton OnClick="() => MudDialog.Cancel()">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(selected.Count == 0 || selected.Count > SeatsLeft)"
+                   OnClick="() => MudDialog.Close(DialogResult.Ok(selected.Select(a => a.Id).ToList()))">Assign @selected.Count</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] public IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public AdmissionTestSessionView Sitting { get; set; } = default!;
+    [Parameter] public IReadOnlyCollection<Guid> AlreadyAssigned { get; set; } = [];
+    [Parameter] public int SeatsLeft { get; set; }
+
+    private List<ApplicationListItem> applications = [];
+    private HashSet<ApplicationListItem> selected = [];
+    private string? filter;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Run(async () =>
+        {
+            var result = await Api.GetAsync<PagedResult<ApplicationListItem>>(ApiClient.Query("api/admission/applications",
+                ("campusId", Sitting.CampusId), ("academicYearId", Sitting.AcademicYearId), ("yearGroupId", Sitting.YearGroupId), ("pageSize", 200)));
+            applications = result.Items
+                .Where(a => a.Status is ApplicationStatus.Submitted or ApplicationStatus.UnderReview or ApplicationStatus.TestScheduled && !AlreadyAssigned.Contains(a.Id))
+                .OrderBy(a => a.SubmittedAtUtc).ToList();
+        });
+    }
+
+    private bool Matches(ApplicationListItem a) =>
+        string.IsNullOrWhiteSpace(filter) || a.Name.Contains(filter, StringComparison.OrdinalIgnoreCase) || a.ApplicationNo.Contains(filter, StringComparison.OrdinalIgnoreCase);
+}

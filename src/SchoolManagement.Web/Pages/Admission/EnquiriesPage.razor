@@ -1,0 +1,116 @@
+@page "/admission/enquiries"
+@inherits AppPage
+
+<PageTitle>Enquiries</PageTitle>
+
+<div class="d-flex flex-wrap align-center gap-2 mb-4">
+    <MudText Typo="Typo.h4">Enquiries</MudText>
+    <MudSpacer />
+    <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.TaskAlt" Href="admission/tasks">My tasks</MudButton>
+    <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Insights" Href="admission/analytics">Analytics</MudButton>
+    @if (Session.Has(P.Admission.Create))
+    {
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="Create">New enquiry</MudButton>
+    }
+</div>
+
+<MudPaper Class="pa-4 mb-4">
+    <div class="d-flex flex-wrap gap-3 align-center">
+        <MudTextField T="string" @bind-Value="search" Label="Search" Placeholder="Enquiry no., child, guardian or phone"
+                      Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Variant="Variant.Outlined" Margin="Margin.Dense"
+                      DebounceInterval="400" OnDebounceIntervalElapsed="Reload" Clearable="true" Style="min-width:260px" />
+        <AdmissionScopePicker Lookups="lookups" @bind-CampusId="campusId" ShowYear="false" ShowClass="false" Changed="Reload" />
+        <MudSelect T="EnquiryStage?" Value="stage" ValueChanged="v => { stage = v; return Reload(); }" Label="Stage" Clearable="true" Placeholder="All stages"
+                   Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Style="min-width:160px">
+            @foreach (var s in Enum.GetValues<EnquiryStage>())
+            {
+                <MudSelectItem T="EnquiryStage?" Value="s">@Format.Enum(s)</MudSelectItem>
+            }
+        </MudSelect>
+        <MudSelect T="EnquirySource?" Value="source" ValueChanged="v => { source = v; return Reload(); }" Label="Source" Clearable="true" Placeholder="All sources"
+                   Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Style="min-width:160px">
+            @foreach (var s in Enum.GetValues<EnquirySource>())
+            {
+                <MudSelectItem T="EnquirySource?" Value="s">@Format.Enum(s)</MudSelectItem>
+            }
+        </MudSelect>
+        <MudCheckBox T="bool" Value="unassigned" ValueChanged="v => { unassigned = v; return Reload(); }" Label="Unassigned only" />
+    </div>
+</MudPaper>
+
+<MudTable @ref="table" T="EnquiryListItem" ServerData="LoadAsync" Hover="true" Dense="true" Striped="true" Elevation="1"
+          OnRowClick="@((TableRowClickEventArgs<EnquiryListItem> e) => Nav.NavigateTo($"admission/enquiries/{e.Item!.Id}"))" RowStyle="cursor:pointer">
+    <HeaderContent>
+        <MudTh>Enquiry no.</MudTh>
+        <MudTh>Child</MudTh>
+        <MudTh>Guardian</MudTh>
+        <MudTh>Phone</MudTh>
+        <MudTh>Campus</MudTh>
+        <MudTh>Class</MudTh>
+        <MudTh>Source</MudTh>
+        <MudTh>Stage</MudTh>
+        <MudTh>Counsellor</MudTh>
+        <MudTh>Next task</MudTh>
+        <MudTh>Received</MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd DataLabel="Enquiry no.">@context.EnquiryNo</MudTd>
+        <MudTd DataLabel="Child">@context.ChildName</MudTd>
+        <MudTd DataLabel="Guardian">@context.GuardianName</MudTd>
+        <MudTd DataLabel="Phone">@context.GuardianPhone</MudTd>
+        <MudTd DataLabel="Campus">@lookups.Campus(context.CampusId)</MudTd>
+        <MudTd DataLabel="Class">@lookups.Class(context.YearGroupId)</MudTd>
+        <MudTd DataLabel="Source">@Format.Enum(context.Source)</MudTd>
+        <MudTd DataLabel="Stage"><MudChip T="string" Size="Size.Small" Color="AdmissionUi.StageColor(context.Stage)">@Format.Enum(context.Stage)</MudChip></MudTd>
+        <MudTd DataLabel="Counsellor">@lookups.User(context.AssignedToUserId, Session.Me?.User.Id)</MudTd>
+        <MudTd DataLabel="Next task">
+            @if (context.NextTaskDueUtc is { } due)
+            {
+                <MudText Typo="Typo.body2" Color="@(due < DateTime.UtcNow ? Color.Error : Color.Default)">@Format.DateTime(due)</MudText>
+            }
+            else
+            {
+                <span>—</span>
+            }
+        </MudTd>
+        <MudTd DataLabel="Received">@Format.Date(context.CreatedAtUtc)</MudTd>
+    </RowTemplate>
+    <NoRecordsContent><MudText Class="pa-4">No enquiries match the filters.</MudText></NoRecordsContent>
+    <PagerContent><MudTablePager PageSizeOptions="new[] { 25, 50, 100 }" /></PagerContent>
+</MudTable>
+
+@code {
+    private MudTable<EnquiryListItem>? table;
+    private AdmissionLookups lookups = AdmissionLookups.Empty;
+    private string? search;
+    private Guid? campusId;
+    private EnquiryStage? stage;
+    private EnquirySource? source;
+    private bool unassigned;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Run(async () => lookups = await AdmissionLookups.LoadAsync(Api, Session));
+    }
+
+    private Task Reload() => table?.ReloadServerData() ?? Task.CompletedTask;
+
+    private async Task<TableData<EnquiryListItem>> LoadAsync(TableState state, CancellationToken ct)
+    {
+        PagedResult<EnquiryListItem>? result = null;
+        await Run(async () => result = await Api.GetAsync<PagedResult<EnquiryListItem>>(ApiClient.Query("api/admission/enquiries",
+            ("campusId", campusId), ("stage", stage), ("source", source), ("unassigned", unassigned ? true : null), ("search", search?.Trim()),
+            ("page", state.Page + 1), ("pageSize", state.PageSize))));
+        return new TableData<EnquiryListItem> { Items = result?.Items ?? [], TotalItems = result?.TotalCount ?? 0 };
+    }
+
+    private async Task Create()
+    {
+        var dialog = await Dialogs.ShowAsync<EnquiryDialog>("New enquiry",
+            new DialogParameters<EnquiryDialog> { { x => x.Lookups, lookups } },
+            new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: EnquiryDetail created })
+            Nav.NavigateTo($"admission/enquiries/{created.Id}");
+    }
+}

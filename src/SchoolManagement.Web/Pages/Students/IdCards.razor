@@ -1,0 +1,87 @@
+@page "/students/id-cards"
+@inherits AppPage
+
+<PageTitle>ID cards</PageTitle>
+
+<div class="d-flex flex-wrap align-center gap-2 mb-4">
+    <MudText Typo="Typo.h4">ID cards</MudText>
+    <MudSpacer />
+    @if (Session.Has(P.Students.Edit))
+    {
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Autorenew" OnClick="Reissue" Disabled="Busy">Reissue a lost card</MudButton>
+    }
+</div>
+
+<MudPaper Class="pa-4 mb-4">
+    <MudText Typo="Typo.body2" Class="mb-3">
+        Issue new cards for every active student in a section (previous cards are replaced), then print the section's cards.
+    </MudText>
+    <MudGrid Spacing="2">
+        <StudentClassPicker @bind-CampusId="campusId" @bind-AcademicYearId="yearId" @bind-YearGroupId="yearGroupId" @bind-SectionId="sectionId"
+                            Required="true" SectionRequired="true" Changed="@(() => cards = [])" />
+        <MudItem xs="12" sm="6" md="3">
+            <MudDatePicker @bind-Date="validUntil" Label="Valid until" DateFormat="dd MMM yyyy" Variant="Variant.Outlined" Margin="Margin.Dense" />
+        </MudItem>
+        <MudItem xs="12" sm="6" md="9" Class="d-flex flex-wrap align-center gap-2">
+            @if (Session.Has(P.Students.Edit))
+            {
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Issue" Disabled="@(Busy || sectionId is null || validUntil is null)">
+                    Issue cards for section
+                </MudButton>
+            }
+            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Print" Disabled="@(Busy || sectionId is null)"
+                       OnClick="@(() => OpenFile(ApiClient.Query("api/students/id-cards/print", ("sectionId", sectionId))))">
+                Print section cards
+            </MudButton>
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+@if (cards.Count > 0)
+{
+    <MudText Typo="Typo.h6" Class="mb-2">@cards.Count cards issued</MudText>
+    @if (cards.Count(c => !c.HasPhoto) is var noPhoto and > 0)
+    {
+        <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">@noPhoto students have no photo; upload photos on their profiles before printing.</MudAlert>
+    }
+    <div class="d-flex flex-wrap gap-3">
+        @foreach (var c in cards)
+        {
+            <IdCardPreview @key="c.CardNo" Card="c" />
+        }
+    </div>
+}
+
+@code {
+    private Guid? campusId, yearId, yearGroupId, sectionId;
+    private DateTime? validUntil = new DateTime(DateTime.Today.Year, 12, 31);
+    private List<StudentIdCardData> cards = [];
+
+    private async Task Issue()
+    {
+        if (!await Confirm("Issue cards", "Issue new cards for every active student in this section? Existing cards are replaced.", "Issue")) return;
+        var request = new StudentIssueCardsRequest(null, sectionId, DateOnly.FromDateTime(validUntil!.Value));
+        await Run(async () => cards = await Api.PostAsync<List<StudentIdCardData>>("api/students/id-cards", request), "Cards issued.");
+    }
+
+    private async Task Reissue()
+    {
+        var dlg = await Dialogs.ShowAsync<StudentPickerDialog>("Reissue card",
+            new DialogParameters<StudentPickerDialog> { { x => x.ActionText, "Next" } },
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (await dlg.Result is not { Canceled: false, Data: StudentListItem student }) return;
+
+        var reasonDlg = await Dialogs.ShowAsync<ReasonDialog>($"Reissue card for {student.Name}",
+            new DialogParameters<ReasonDialog>
+            {
+                { x => x.Label, "Reason" }, { x => x.Placeholder, "e.g. Lost" }, { x => x.ActionText, "Reissue" },
+                { x => x.Hint, "The previous card is deactivated and the configured reissue fee is recorded." }
+            },
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (await reasonDlg.Result is not { Canceled: false, Data: string reason }) return;
+
+        StudentIdCardData? card = null;
+        if (await Run(async () => card = await Api.PostAsync<StudentIdCardData>($"api/students/{student.Id}/id-cards/reissue", new StudentReasonBody(reason)), "Card reissued."))
+            cards = [card!];
+    }
+}

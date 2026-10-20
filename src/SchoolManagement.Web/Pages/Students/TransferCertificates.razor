@@ -1,0 +1,60 @@
+@page "/students/transfer-certificates"
+@inherits AppPage
+
+<PageTitle>TC register</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-4">Transfer certificate register</MudText>
+
+<MudPaper Class="pa-4 mb-4">
+    <MudGrid Spacing="2">
+        <StudentClassPicker @bind-CampusId="campusId" ShowYear="false" ShowClass="false" ShowSection="false" Changed="Load" />
+        <MudItem xs="12" sm="6" md="5">
+            <MudTextField @bind-Value="filter" Label="Search" Placeholder="Certificate no, name or verification code" Immediate="true" Clearable="true"
+                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Variant="Variant.Outlined" Margin="Margin.Dense" />
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+<MudTable Items="items" Filter="Matches" Dense="true" Hover="true" Loading="Busy" RowsPerPage="50">
+    <HeaderContent>
+        <MudTh>Certificate no</MudTh>
+        <MudTh>Issued</MudTh>
+        <MudTh>Student</MudTh>
+        <MudTh>Last class</MudTh>
+        <MudTh>Conduct</MudTh>
+        <MudTh>Remarks</MudTh>
+        <MudTh>Verification code</MudTh>
+        <MudTh></MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd DataLabel="Certificate no">@context.CertificateNo</MudTd>
+        <MudTd DataLabel="Issued">@Format.Date(context.IssueDate)</MudTd>
+        <MudTd DataLabel="Student"><MudLink Href="@($"students/{context.StudentId}")">@context.StudentName</MudLink></MudTd>
+        <MudTd DataLabel="Last class">@context.LastClass</MudTd>
+        <MudTd DataLabel="Conduct">@(context.Conduct ?? "—")</MudTd>
+        <MudTd DataLabel="Remarks">@(context.Remarks ?? "")</MudTd>
+        <MudTd DataLabel="Verification code"><code>@context.VerificationCode</code></MudTd>
+        <MudTd Style="text-align:right">
+            <MudButton Size="Size.Small" StartIcon="@Icons.Material.Filled.Print" Disabled="Busy"
+                       OnClick="@(() => OpenFile($"api/students/transfer-certificates/{context.Id}/print"))">Print</MudButton>
+        </MudTd>
+    </RowTemplate>
+    <NoRecordsContent><MudText>No transfer certificates issued.</MudText></NoRecordsContent>
+    <PagerContent><MudTablePager /></PagerContent>
+</MudTable>
+
+@code {
+    private Guid? campusId;
+    private string? filter;
+    private List<StudentTransferCertificateView> items = [];
+
+    protected override Task OnInitializedAsync() => Load();
+
+    private async Task Load() =>
+        await Run(async () => items = await Api.GetAsync<List<StudentTransferCertificateView>>(ApiClient.Query("api/students/transfer-certificates", ("campusId", campusId))));
+
+    private bool Matches(StudentTransferCertificateView t) => string.IsNullOrWhiteSpace(filter)
+        || t.CertificateNo.Contains(filter, StringComparison.OrdinalIgnoreCase)
+        || t.StudentName.Contains(filter, StringComparison.OrdinalIgnoreCase)
+        || t.VerificationCode.Contains(filter, StringComparison.OrdinalIgnoreCase);
+}

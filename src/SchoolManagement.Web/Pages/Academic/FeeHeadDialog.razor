@@ -1,0 +1,61 @@
+@inherits AppPage
+
+<MudDialog>
+    <DialogContent>
+        <MudGrid Spacing="2">
+            <MudItem xs="12" sm="4">
+                <MudTextField @bind-Value="code" Label="Code" Required="true" Disabled="@(Item is not null)" HelperText="@(Item is null ? "Cannot be changed later." : null)"
+                              Error="HasError(nameof(FeeHeadRequest.Code))" ErrorText="@ErrorFor(nameof(FeeHeadRequest.Code))" />
+            </MudItem>
+            <MudItem xs="12" sm="8">
+                <MudTextField @bind-Value="name" Label="Name" Required="true"
+                              Error="HasError(nameof(FeeHeadRequest.Name))" ErrorText="@ErrorFor(nameof(FeeHeadRequest.Name))" />
+            </MudItem>
+            <MudItem xs="12">
+                <MudTextField @bind-Value="nameBn" Label="Name (Bangla)" />
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudSelect T="FeeFrequency" @bind-Value="frequency" Label="Frequency">
+                    @foreach (var f in Enum.GetValues<FeeFrequency>())
+                    {
+                        <MudSelectItem T="FeeFrequency" Value="f">@Format.Enum(f)</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="6" Class="d-flex align-center">
+                <MudSwitch @bind-Value="isRefundable" Color="Color.Primary" Label="Refundable" />
+            </MudItem>
+        </MudGrid>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="() => MudDialog.Cancel()">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Save" Disabled="@(Busy || string.IsNullOrWhiteSpace(code) || string.IsNullOrWhiteSpace(name))">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public FeeHeadView? Item { get; set; }
+
+    private string code = "", name = "";
+    private string? nameBn;
+    private FeeFrequency frequency = FeeFrequency.Monthly;
+    private bool isRefundable;
+
+    protected override void OnInitialized()
+    {
+        if (Item is not null)
+            (code, name, nameBn, frequency, isRefundable) = (Item.Code, Item.Name, Item.NameBn, Item.Frequency, Item.IsRefundable);
+    }
+
+    private async Task Save()
+    {
+        var request = new FeeHeadRequest(code.Trim(), name.Trim(), nameBn, frequency, isRefundable);
+        var ok = await Run(async () =>
+        {
+            if (Item is null) await Api.PostAsync<Guid>("api/master/fee-heads", request);
+            else await Api.PutAsync($"api/master/fee-heads/{Item.Id}", request);
+        }, "Fee head saved.");
+        if (ok) MudDialog.Close(DialogResult.Ok(true));
+    }
+}

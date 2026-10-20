@@ -323,8 +323,10 @@ public sealed class StudentsController(
         var limit = DateOnly.FromDateTime(clock.GetUtcNow().UtcDateTime).AddDays(days);
         return await db.StudentDocuments.AsNoTracking()
             .Where(d => d.ExpiresOn != null && d.ExpiresOn <= limit)
-            .Join(db.Students, d => d.StudentId, s => s.Id, (d, s) => new ExpiringDocument(s.Id, s.AdmissionNo, s.FirstName + " " + (s.LastName ?? ""), d.Id, d.DocumentType, d.ExpiresOn!.Value))
-            .OrderBy(x => x.ExpiresOn).ToListAsync(ct);
+            .Join(db.Students, d => d.StudentId, s => s.Id, (d, s) => new { d, s })
+            .OrderBy(x => x.d.ExpiresOn)
+            .Select(x => new ExpiringDocument(x.s.Id, x.s.AdmissionNo, x.s.FirstName + " " + (x.s.LastName ?? ""), x.d.Id, x.d.DocumentType, x.d.ExpiresOn!.Value))
+            .ToListAsync(ct);
     }
 
     // ---- Transfers (SIS-04)

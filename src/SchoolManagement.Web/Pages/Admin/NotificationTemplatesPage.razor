@@ -1,0 +1,75 @@
+@page "/admin/notifications/templates"
+@inherits AppPage
+
+<PageTitle>Message templates</PageTitle>
+
+<div class="d-flex align-center mb-4 gap-2">
+    <MudText Typo="Typo.h4">Message templates</MudText>
+    <MudSpacer />
+    <MudTextField @bind-Value="filter" Placeholder="Filter by code" Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="true"
+                  Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.FilterList" Style="max-width:260px" />
+    @if (canManage)
+    {
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="() => Edit(null, NotificationChannel.Sms)">New template</MudButton>
+    }
+</div>
+
+<MudTable T="TemplateGroup" Items="Groups" Dense="true" Hover="true" Loading="loading">
+    <HeaderContent>
+        <MudTh>Code</MudTh>
+        <MudTh>Channel</MudTh>
+        <MudTh>English</MudTh>
+        <MudTh>Bangla</MudTh>
+        <MudTh></MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd DataLabel="Code"><b>@context.Code</b></MudTd>
+        <MudTd DataLabel="Channel">@Format.Enum(context.Channel)</MudTd>
+        <MudTd DataLabel="English"><TemplateCell Template="context.En" /></MudTd>
+        <MudTd DataLabel="Bangla"><TemplateCell Template="context.Bn" /></MudTd>
+        <MudTd Style="text-align:right">
+            <MudIconButton Icon="@(canManage ? Icons.Material.Filled.Edit : Icons.Material.Filled.Visibility)" Size="Size.Small"
+                           title="@(canManage ? "Edit" : "View")" OnClick="() => Edit(context.Code, context.Channel)" />
+        </MudTd>
+    </RowTemplate>
+    <NoRecordsContent><MudText>No templates.</MudText></NoRecordsContent>
+</MudTable>
+
+@code {
+    private sealed record TemplateGroup(string Code, NotificationChannel Channel, MessageTemplateView? En, MessageTemplateView? Bn);
+
+    private List<MessageTemplateView> templates = [];
+    private string? filter;
+    private bool loading = true;
+    private bool canManage;
+
+    private IEnumerable<TemplateGroup> Groups => templates
+        .Where(t => string.IsNullOrWhiteSpace(filter) || t.Code.Contains(filter.Trim(), StringComparison.OrdinalIgnoreCase))
+        .GroupBy(t => (t.Code, t.Channel))
+        .Select(g => new TemplateGroup(g.Key.Code, g.Key.Channel, g.FirstOrDefault(t => t.Language == "en"), g.FirstOrDefault(t => t.Language == "bn")));
+
+    protected override async Task OnInitializedAsync()
+    {
+        canManage = Session.Has(P.Notifications.ManageTemplates);
+        await Load();
+    }
+
+    private async Task Load()
+    {
+        loading = true;
+        await Run(async () => templates = await Api.GetAsync<List<MessageTemplateView>>("api/notifications/templates"));
+        loading = false;
+    }
+
+    private async Task Edit(string? code, NotificationChannel channel)
+    {
+        List<MessageTemplateView> existing = code is null ? [] : templates.Where(t => t.Code == code && t.Channel == channel).ToList();
+        var parameters = new DialogParameters<NotificationTemplateDialog>
+        {
+            { x => x.Code, code }, { x => x.Channel, channel }, { x => x.Existing, existing }, { x => x.ReadOnly, !canManage }
+        };
+        var dlg = await Dialogs.ShowAsync<NotificationTemplateDialog>(code is null ? "New template" : $"{code} · {Format.Enum(channel)}", parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Large, FullWidth = true });
+        if (await dlg.Result is { Canceled: false }) await Load();
+    }
+}

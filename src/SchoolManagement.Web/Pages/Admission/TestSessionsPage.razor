@@ -1,0 +1,82 @@
+@page "/admission/tests"
+@inherits AppPage
+
+<PageTitle>Admission tests</PageTitle>
+
+<div class="d-flex flex-wrap align-center gap-2 mb-4">
+    <MudText Typo="Typo.h4">Admission tests</MudText>
+    <MudSpacer />
+    @if (Session.Has(P.Admission.Create))
+    {
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="Create">New test session</MudButton>
+    }
+</div>
+
+<MudPaper Class="pa-4 mb-4">
+    <div class="d-flex flex-wrap gap-3 align-center">
+        <AdmissionScopePicker Lookups="lookups" @bind-CampusId="campusId" @bind-YearId="yearId" @bind-ClassId="classId" Changed="Load" />
+    </div>
+</MudPaper>
+
+<MudTable T="AdmissionTestSessionView" Items="sessions" Hover="true" Dense="true" Elevation="1" Loading="Busy"
+          OnRowClick="@((TableRowClickEventArgs<AdmissionTestSessionView> e) => Nav.NavigateTo($"admission/tests/{e.Item!.Id}"))" RowStyle="cursor:pointer">
+    <HeaderContent>
+        <MudTh>Session</MudTh>
+        <MudTh>Class</MudTh>
+        <MudTh>Campus</MudTh>
+        <MudTh>Starts</MudTh>
+        <MudTh>Duration</MudTh>
+        <MudTh>Room</MudTh>
+        <MudTh>Invigilator</MudTh>
+        <MudTh>Candidates</MudTh>
+        <MudTh>Scored</MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd DataLabel="Session">@context.Name</MudTd>
+        <MudTd DataLabel="Class">@lookups.Class(context.YearGroupId)</MudTd>
+        <MudTd DataLabel="Campus">@lookups.Campus(context.CampusId)</MudTd>
+        <MudTd DataLabel="Starts">@Format.DateTime(context.StartsAtUtc)</MudTd>
+        <MudTd DataLabel="Duration">@context.DurationMinutes min</MudTd>
+        <MudTd DataLabel="Room">@(context.Room ?? "—")</MudTd>
+        <MudTd DataLabel="Invigilator">@(context.InvigilatorName ?? "—")</MudTd>
+        <MudTd DataLabel="Candidates">@context.Candidates / @context.Capacity</MudTd>
+        <MudTd DataLabel="Scored">
+            @if (context.Candidates > 0)
+            {
+                <MudProgressLinear Value="@(100.0 * context.Scored / context.Candidates)" Color="Color.Success" Rounded="true" Style="min-width:80px" />
+                <MudText Typo="Typo.caption">@context.Scored of @context.Candidates</MudText>
+            }
+            else
+            {
+                <span>—</span>
+            }
+        </MudTd>
+    </RowTemplate>
+    <NoRecordsContent><MudText Class="pa-4">No test sessions match the filters.</MudText></NoRecordsContent>
+</MudTable>
+
+@code {
+    private AdmissionLookups lookups = AdmissionLookups.Empty;
+    private List<AdmissionTestSessionView> sessions = [];
+    private Guid? campusId;
+    private Guid? yearId;
+    private Guid? classId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Run(async () => lookups = await AdmissionLookups.LoadAsync(Api, Session));
+        yearId = lookups.CurrentYearId;
+        await Load();
+    }
+
+    private Task Load() => Run(async () => sessions = await Api.GetAsync<List<AdmissionTestSessionView>>(ApiClient.Query("api/admission/test-sessions",
+        ("campusId", campusId), ("academicYearId", yearId), ("yearGroupId", classId))));
+
+    private async Task Create()
+    {
+        var dialog = await Dialogs.ShowAsync<TestSessionDialog>("New test session",
+            new DialogParameters<TestSessionDialog> { { x => x.Lookups, lookups }, { x => x.CampusId, campusId }, { x => x.YearId, yearId }, { x => x.ClassId, classId } },
+            new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+        if (await dialog.Result is { Canceled: false, Data: Guid id }) Nav.NavigateTo($"admission/tests/{id}");
+    }
+}

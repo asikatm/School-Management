@@ -1,0 +1,55 @@
+@inherits AppPage
+
+<div class="d-flex align-center mb-2">
+    <MudText Typo="Typo.h6">Enrolment history</MudText>
+    <MudSpacer />
+    @if (Session.Has(P.Students.Edit) && Current is { Status: EnrolmentStatus.Active })
+    {
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.SwapHoriz" OnClick="Transfer">Transfer section / campus</MudButton>
+    }
+</div>
+
+<MudTable Items="Student.Enrolments" Dense="true" Hover="true" Elevation="0" Outlined="true">
+    <HeaderContent>
+        <MudTh>Academic year</MudTh>
+        <MudTh>Class</MudTh>
+        <MudTh>Section</MudTh>
+        <MudTh>Roll</MudTh>
+        <MudTh>From</MudTh>
+        <MudTh>To</MudTh>
+        <MudTh>Status</MudTh>
+        <MudTh>Note</MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd DataLabel="Academic year">
+            @context.AcademicYear
+            @if (context.Id == Student.CurrentEnrolmentId)
+            {
+                <MudChip T="string" Size="Size.Small" Color="Color.Primary">Current</MudChip>
+            }
+        </MudTd>
+        <MudTd DataLabel="Class">@context.ClassName</MudTd>
+        <MudTd DataLabel="Section">@(context.Section ?? "—")</MudTd>
+        <MudTd DataLabel="Roll">@(context.RollNo?.ToString() ?? "—")</MudTd>
+        <MudTd DataLabel="From">@Format.Date(context.StartDate)</MudTd>
+        <MudTd DataLabel="To">@Format.Date(context.EndDate)</MudTd>
+        <MudTd DataLabel="Status">@Format.Enum(context.Status)</MudTd>
+        <MudTd DataLabel="Note">@(context.Note ?? "")</MudTd>
+    </RowTemplate>
+    <NoRecordsContent><MudText>No enrolments.</MudText></NoRecordsContent>
+</MudTable>
+
+@code {
+    [Parameter, EditorRequired] public StudentDetail Student { get; set; } = default!;
+    [Parameter] public EventCallback<StudentDetail> StudentChanged { get; set; }
+
+    private StudentEnrolmentView? Current => Student.Enrolments.FirstOrDefault(e => e.Id == Student.CurrentEnrolmentId);
+
+    private async Task Transfer()
+    {
+        var dlg = await Dialogs.ShowAsync<TransferDialog>("Transfer student",
+            new DialogParameters<TransferDialog> { { x => x.StudentId, Student.Id }, { x => x.Current, Current! } },
+            new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+        if (await dlg.Result is { Canceled: false, Data: StudentDetail updated }) await StudentChanged.InvokeAsync(updated);
+    }
+}

@@ -1,0 +1,89 @@
+@page "/admin/backups"
+@inherits AppPage
+
+<PageTitle>Backups</PageTitle>
+
+<div class="d-flex align-center mb-4 gap-2">
+    <MudText Typo="Typo.h4">Backups</MudText>
+    <MudSpacer />
+    <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Refresh" OnClick="Load" Disabled="Busy">Refresh</MudButton>
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Backup" OnClick="RunNow" Disabled="Busy">
+        @(running ? "Backing up…" : "Run backup now")
+    </MudButton>
+</div>
+
+@if (running)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" Class="mb-2" />
+}
+
+<MudTable T="BackupRecordView" Items="backups" Dense="true" Hover="true">
+    <HeaderContent>
+        <MudTh>Started</MudTh>
+        <MudTh>Completed</MudTh>
+        <MudTh>Trigger</MudTh>
+        <MudTh>Status</MudTh>
+        <MudTh>Size</MudTh>
+        <MudTh>File / checksum</MudTh>
+        <MudTh></MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd DataLabel="Started" Style="white-space:nowrap">@Format.DateTime(context.StartedAtUtc)</MudTd>
+        <MudTd DataLabel="Completed" Style="white-space:nowrap">@Format.DateTime(context.CompletedAtUtc)</MudTd>
+        <MudTd DataLabel="Trigger">@context.Trigger</MudTd>
+        <MudTd DataLabel="Status">
+            <MudChip T="string" Size="Size.Small" Color="@(context.Status switch { BackupStatus.Succeeded => Color.Success, BackupStatus.Failed => Color.Error, _ => Color.Info })">
+                @Format.Enum(context.Status)
+            </MudChip>
+            @if (context.Error is not null) { <MudText Typo="Typo.caption" Color="Color.Error" Class="d-block">@context.Error</MudText> }
+        </MudTd>
+        <MudTd DataLabel="Size">@AdminLookups.FileSize(context.SizeBytes)</MudTd>
+        <MudTd DataLabel="File / checksum">
+            <MudText Typo="Typo.caption" Class="d-block" Style="word-break:break-all">@context.FilePath</MudText>
+            @if (context.Sha256 is not null)
+            {
+                <MudText Typo="Typo.caption" Style="font-family:monospace" title="@context.Sha256">SHA-256 @context.Sha256[..Math.Min(16, context.Sha256.Length)]…</MudText>
+            }
+            @if (results.TryGetValue(context.Id, out var v))
+            {
+                <MudAlert Severity="@(v.Ok ? Severity.Success : Severity.Error)" Dense="true" Class="mt-1">@v.Message</MudAlert>
+            }
+        </MudTd>
+        <MudTd Style="text-align:right">
+            @if (context.Status == BackupStatus.Succeeded)
+            {
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.VerifiedUser" OnClick="() => Verify(context)" Disabled="Busy">Verify</MudButton>
+            }
+        </MudTd>
+    </RowTemplate>
+    <NoRecordsContent><MudText>No backups yet.</MudText></NoRecordsContent>
+</MudTable>
+<MudText Typo="Typo.caption" Class="mt-2 d-block">The latest 100 backups are shown. Verify checks that a backup can be restored (SQL Server) or that its file checksum still matches.</MudText>
+
+@code {
+    private List<BackupRecordView> backups = [];
+    private readonly Dictionary<Guid, BackupVerification> results = [];
+    private bool running;
+
+    protected override Task OnInitializedAsync() => Load();
+
+    private async Task Load() =>
+        await Run(async () => backups = await Api.GetAsync<List<BackupRecordView>>("api/backups"));
+
+    private async Task RunNow()
+    {
+        if (!await Confirm("Run backup", "Start a full database backup now? It can take a few minutes.", "Back up")) return;
+        running = true;
+        BackupRecordView? record = null;
+        if (await Run(async () => record = await Api.PostAsync<BackupRecordView>("api/backups")))
+            Snackbar.Add(record!.Status == BackupStatus.Failed ? $"Backup failed: {record.Error}" : "Backup completed.",
+                record.Status == BackupStatus.Failed ? Severity.Error : Severity.Success);
+        running = false;
+        await Load();
+    }
+
+    private async Task Verify(BackupRecordView backup)
+    {
+        await Run(async () => results[backup.Id] = await Api.PostAsync<BackupVerification>($"api/backups/{backup.Id}/verify"));
+    }
+}

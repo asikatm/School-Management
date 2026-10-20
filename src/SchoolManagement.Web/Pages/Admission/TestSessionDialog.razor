@@ -1,0 +1,120 @@
+@inherits AppPage
+
+<MudDialog>
+    <DialogContent>
+        <MudGrid Spacing="2">
+            <MudItem xs="12" sm="4">
+                <MudSelect T="Guid?" @bind-Value="campusId" Label="Campus" Required="true" Variant="Variant.Outlined">
+                    @foreach (var c in Lookups.Campuses)
+                    {
+                        <MudSelectItem T="Guid?" Value="c.Id">@c.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="4">
+                <MudSelect T="Guid?" @bind-Value="yearId" Label="Academic year" Required="true" Variant="Variant.Outlined">
+                    @foreach (var y in Lookups.AdmissionYears)
+                    {
+                        <MudSelectItem T="Guid?" Value="y.Id">@y.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="4">
+                <MudSelect T="Guid?" @bind-Value="classId" Label="Class" Required="true" Variant="Variant.Outlined">
+                    @foreach (var c in Lookups.Classes)
+                    {
+                        <MudSelectItem T="Guid?" Value="c.Id">@c.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12">
+                <MudTextField @bind-Value="name" Label="Session name" Required="true" Variant="Variant.Outlined" MaxLength="200" Immediate="true"
+                              Placeholder="e.g. Class One written test — morning"
+                              Error="HasError(nameof(AdmissionTestSessionRequest.Name))" ErrorText="@ErrorFor(nameof(AdmissionTestSessionRequest.Name))" />
+            </MudItem>
+            <MudItem xs="12" sm="4">
+                <MudDatePicker @bind-Date="date" Label="Date" Required="true" Variant="Variant.Outlined" DateFormat="dd MMM yyyy" />
+            </MudItem>
+            <MudItem xs="12" sm="4">
+                <MudTimePicker @bind-Time="time" Label="Start time" Required="true" Variant="Variant.Outlined" AmPm="true" />
+            </MudItem>
+            <MudItem xs="12" sm="4">
+                <MudNumericField T="int" @bind-Value="duration" Label="Duration (minutes)" Min="10" Max="480" Variant="Variant.Outlined"
+                                 Error="HasError(nameof(AdmissionTestSessionRequest.DurationMinutes))" ErrorText="@ErrorFor(nameof(AdmissionTestSessionRequest.DurationMinutes))" />
+            </MudItem>
+            <MudItem xs="12" sm="4">
+                <MudTextField @bind-Value="room" Label="Room" Variant="Variant.Outlined" />
+            </MudItem>
+            <MudItem xs="12" sm="4">
+                <MudNumericField T="int" @bind-Value="capacity" Label="Capacity" Min="1" Max="1000" Variant="Variant.Outlined"
+                                 Error="HasError(nameof(AdmissionTestSessionRequest.Capacity))" ErrorText="@ErrorFor(nameof(AdmissionTestSessionRequest.Capacity))" />
+            </MudItem>
+            <MudItem xs="12" sm="4">
+                <MudNumericField T="decimal" @bind-Value="maxScore" Label="Maximum score" Min="1" Variant="Variant.Outlined"
+                                 Error="HasError(nameof(AdmissionTestSessionRequest.MaxScore))" ErrorText="@ErrorFor(nameof(AdmissionTestSessionRequest.MaxScore))" />
+            </MudItem>
+            @if (Lookups.Users.Count > 0)
+            {
+                <MudItem xs="12" sm="6">
+                    <MudSelect T="Guid?" Value="invigilatorId" ValueChanged="PickInvigilator" Label="Invigilator (staff user)" Clearable="true" Variant="Variant.Outlined">
+                        @foreach (var u in Lookups.Users)
+                        {
+                            <MudSelectItem T="Guid?" Value="u.Id">@u.FullName</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+            }
+            <MudItem xs="12" sm="6">
+                <MudTextField @bind-Value="invigilator" Label="Invigilator name" Variant="Variant.Outlined" />
+            </MudItem>
+        </MudGrid>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="() => MudDialog.Cancel()">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Save"
+                   Disabled="@(Busy || campusId is null || yearId is null || classId is null || date is null || string.IsNullOrWhiteSpace(name))">Create</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] public IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public AdmissionLookups Lookups { get; set; } = AdmissionLookups.Empty;
+    [Parameter] public Guid? CampusId { get; set; }
+    [Parameter] public Guid? YearId { get; set; }
+    [Parameter] public Guid? ClassId { get; set; }
+
+    private Guid? campusId;
+    private Guid? yearId;
+    private Guid? classId;
+    private string name = "";
+    private DateTime? date = AdmissionUi.TodayDhaka.AddDays(7);
+    private TimeSpan? time = new(10, 0, 0);
+    private int duration = 60;
+    private string? room;
+    private int capacity = 40;
+    private decimal maxScore = 100;
+    private string? invigilator;
+    private Guid? invigilatorId;
+
+    protected override void OnInitialized()
+    {
+        campusId = CampusId ?? (Lookups.Campuses.Count == 1 ? Lookups.Campuses[0].Id : null);
+        yearId = YearId ?? Lookups.CurrentYearId;
+        classId = ClassId;
+    }
+
+    private void PickInvigilator(Guid? id)
+    {
+        invigilatorId = id;
+        if (id is not null) invigilator = Lookups.Users.FirstOrDefault(u => u.Id == id)?.FullName;
+    }
+
+    private async Task Save()
+    {
+        var request = new AdmissionTestSessionRequest(campusId!.Value, yearId!.Value, classId!.Value, name.Trim(), AdmissionUi.ToUtc(date, time)!.Value,
+            duration, ApplicationForm.Blank(room), ApplicationForm.Blank(invigilator), invigilatorId, capacity, maxScore);
+        Guid id = default;
+        if (await Run(async () => id = await Api.PostAsync<Guid>("api/admission/test-sessions", request), "Test session created."))
+            MudDialog.Close(DialogResult.Ok(id));
+    }
+}

@@ -1,0 +1,124 @@
+@page "/students"
+@inherits AppPage
+
+<PageTitle>Students</PageTitle>
+
+<div class="d-flex flex-wrap align-center gap-2 mb-4">
+    <MudText Typo="Typo.h4">Students</MudText>
+    <MudSpacer />
+    @if (Session.Has(P.Students.Create))
+    {
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.UploadFile" Href="students/import">Import</MudButton>
+    }
+    @if (Session.Has(P.Students.Export))
+    {
+        <MudMenu Label="Export" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Download" Disabled="Busy">
+            <MudMenuItem OnClick="@(() => Export("xlsx"))">Excel (.xlsx)</MudMenuItem>
+            <MudMenuItem OnClick="@(() => Export("csv"))">CSV</MudMenuItem>
+        </MudMenu>
+    }
+    @if (Session.Has(P.Students.Create))
+    {
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.PersonAdd" OnClick="Create">New student</MudButton>
+    }
+</div>
+
+<MudPaper Class="pa-4 mb-4">
+    <MudGrid Spacing="2">
+        <StudentClassPicker @bind-CampusId="campusId" @bind-YearGroupId="yearGroupId" @bind-SectionId="sectionId" ShowYear="false" Changed="Reload" />
+        <MudItem xs="12" sm="6" md="3">
+            <MudSelect T="StudentStatus?" Label="Status" Value="status" ValueChanged="OnStatus" Clearable="true" Placeholder="Active"
+                       Variant="Variant.Outlined" Margin="Margin.Dense" ToStringFunc="@(s => s is { } v ? Format.Enum(v) : "")">
+                @foreach (var s in Enum.GetValues<StudentStatus>())
+                {
+                    <MudSelectItem T="StudentStatus?" Value="@s">@Format.Enum(s)</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <MudSelect T="string" Label="Gender" Value="gender" ValueChanged="OnGender" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense">
+                <MudSelectItem T="string" Value="@("Male")">Male</MudSelectItem>
+                <MudSelectItem T="string" Value="@("Female")">Female</MudSelectItem>
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" md="6">
+            <MudTextField T="string" @bind-Value="search" Label="Search" Placeholder="Admission no, name or guardian phone" Clearable="true"
+                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Variant="Variant.Outlined" Margin="Margin.Dense"
+                          DebounceInterval="400" OnDebounceIntervalElapsed="@(_ => Reload())" />
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+<MudTable @ref="table" T="StudentListItem" ServerData="LoadAsync" Hover="true" Dense="true" RowsPerPage="25"
+          OnRowClick="@(e => Nav.NavigateTo($"students/{e.Item!.Id}"))" RowStyle="cursor:pointer">
+    <HeaderContent>
+        <MudTh>Admission no</MudTh>
+        <MudTh>Name</MudTh>
+        <MudTh>Class</MudTh>
+        <MudTh>Section</MudTh>
+        <MudTh>Roll</MudTh>
+        <MudTh>Gender</MudTh>
+        <MudTh>Date of birth</MudTh>
+        <MudTh>Guardian phone</MudTh>
+        <MudTh>Status</MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd DataLabel="Admission no">@context.AdmissionNo</MudTd>
+        <MudTd DataLabel="Name">
+            @context.Name
+            @if (!string.IsNullOrEmpty(context.NameBn))
+            {
+                <MudText Typo="Typo.caption" Class="d-block">@context.NameBn</MudText>
+            }
+        </MudTd>
+        <MudTd DataLabel="Class">@(context.ClassName ?? "—")</MudTd>
+        <MudTd DataLabel="Section">@(context.Section ?? "—")</MudTd>
+        <MudTd DataLabel="Roll">@(context.RollNo?.ToString() ?? "—")</MudTd>
+        <MudTd DataLabel="Gender">@(context.Gender ?? "—")</MudTd>
+        <MudTd DataLabel="Date of birth">@Format.Date(context.DateOfBirth)</MudTd>
+        <MudTd DataLabel="Guardian phone">@(context.GuardianPhone ?? "—")</MudTd>
+        <MudTd DataLabel="Status"><StudentStatusChip Status="context.Status" /></MudTd>
+    </RowTemplate>
+    <NoRecordsContent><MudText>No students match the filters.</MudText></NoRecordsContent>
+    <PagerContent><MudTablePager PageSizeOptions="new[] { 25, 50, 100, 200 }" /></PagerContent>
+</MudTable>
+
+@code {
+    [SupplyParameterFromQuery(Name = "search")] public string? InitialSearch { get; set; }
+
+    private MudTable<StudentListItem> table = default!;
+    private Guid? campusId, yearGroupId, sectionId;
+    private StudentStatus? status;
+    private string? gender;
+    private string? search;
+
+    protected override void OnInitialized() => search = InitialSearch;
+
+    private (string, object?)[] Filters() =>
+    [
+        ("campusId", campusId), ("yearGroupId", yearGroupId), ("sectionId", sectionId),
+        ("status", status), ("gender", gender), ("search", search?.Trim())
+    ];
+
+    private async Task<TableData<StudentListItem>> LoadAsync(TableState state, CancellationToken ct)
+    {
+        PagedResult<StudentListItem>? result = null;
+        var query = ApiClient.Query("api/students", [.. Filters(), ("page", state.Page + 1), ("pageSize", state.PageSize)]);
+        await Run(async () => result = await Api.GetAsync<PagedResult<StudentListItem>>(query));
+        return new TableData<StudentListItem> { Items = result?.Items ?? [], TotalItems = result?.TotalCount ?? 0 };
+    }
+
+    private Task Reload() => table is null ? Task.CompletedTask : table.ReloadServerData();
+
+    private Task OnStatus(StudentStatus? value) { status = value; return Reload(); }
+    private Task OnGender(string? value) { gender = value; return Reload(); }
+
+    private Task Export(string format) => Download(ApiClient.Query("api/students/export", [.. Filters(), ("format", format)]));
+
+    private async Task Create()
+    {
+        var dlg = await Dialogs.ShowAsync<CreateStudentDialog>("New student", new DialogOptions { MaxWidth = MaxWidth.Large, FullWidth = true });
+        if (await dlg.Result is { Canceled: false, Data: StudentDetail created })
+            Nav.NavigateTo($"students/{created.Id}");
+    }
+}

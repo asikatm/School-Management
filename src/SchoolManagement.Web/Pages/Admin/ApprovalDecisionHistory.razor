@@ -1,0 +1,30 @@
+@* The decision trail of one approval request. *@
+
+@if (Request.Decisions.Count == 0)
+{
+    <MudText Typo="Typo.body2">No decisions yet.</MudText>
+}
+else
+{
+    <MudTimeline TimelineOrientation="TimelineOrientation.Vertical" TimelinePosition="TimelinePosition.Start" Class="py-0">
+        @foreach (var d in Request.Decisions)
+        {
+            <MudTimelineItem Size="Size.Small" Color="@(d.Decision switch { ApprovalDecisionType.Approve => Color.Success, ApprovalDecisionType.Reject => Color.Error, _ => Color.Warning })">
+                <MudText Typo="Typo.body2">
+                    <b>Step @d.StepOrder: @Format.Enum(d.Decision)</b> by @Names[d.DecidedBy]
+                    @if (d.OnBehalfOf is not null) { <span> on behalf of @Names[d.OnBehalfOf]</span> }
+                    · @Format.DateTime(d.DecidedAtUtc)
+                </MudText>
+                @if (!string.IsNullOrWhiteSpace(d.Comment))
+                {
+                    <MudText Typo="Typo.caption">“@d.Comment”</MudText>
+                }
+            </MudTimelineItem>
+        }
+    </MudTimeline>
+}
+
+@code {
+    [Parameter, EditorRequired] public ApprovalRequestView Request { get; set; } = default!;
+    [Parameter, EditorRequired] public AdminUserNames Names { get; set; } = default!;
+}

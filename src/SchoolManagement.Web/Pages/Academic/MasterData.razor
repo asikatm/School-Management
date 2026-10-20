@@ -1,0 +1,164 @@
+@page "/academic/master-data"
+@inherits AppPage
+
+<PageTitle>Subjects, houses & fee heads</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-4">Subjects, houses & fee heads</MudText>
+
+<MudTabs Elevation="1" Rounded="true" PanelClass="pa-4" @bind-ActivePanelIndex="tab">
+    <MudTabPanel Text="Subjects" Icon="@Icons.Material.Filled.MenuBook">
+        @if (canManage)
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" Class="mb-3" OnClick="() => EditSubject(null)" Disabled="Busy">New subject</MudButton>
+        }
+        <MudTable T="SubjectView" Items="subjects" Loading="loading" Hover="true" Dense="true" Elevation="0" Filter="s => Match(s.Code, s.Name, s.NameBn, s.ExternalCode)">
+            <ToolBarContent>
+                <MudSpacer />
+                <MudTextField @bind-Value="search" Placeholder="Search" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Immediate="true" Margin="Margin.Dense" Style="max-width:280px" />
+            </ToolBarContent>
+            <HeaderContent>
+                <MudTh><MudTableSortLabel T="SubjectView" SortBy="s => s.Code">Code</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel T="SubjectView" SortBy="s => s.Name">Name</MudTableSortLabel></MudTh>
+                <MudTh>Name (Bangla)</MudTh>
+                <MudTh><MudTableSortLabel T="SubjectView" SortBy="s => s.Type">Type</MudTableSortLabel></MudTh>
+                <MudTh>Board / external code</MudTh>
+                <MudTh></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="Code"><b>@context.Code</b></MudTd>
+                <MudTd DataLabel="Name">@context.Name</MudTd>
+                <MudTd DataLabel="Name (Bangla)">@(context.NameBn ?? "—")</MudTd>
+                <MudTd DataLabel="Type">@Format.Enum(context.Type)</MudTd>
+                <MudTd DataLabel="External code">@(context.ExternalCode ?? "—")</MudTd>
+                <MudTd Style="text-align:right">
+                    @if (canManage)
+                    {
+                        <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" title="Edit" OnClick="() => EditSubject(context)" Disabled="Busy" />
+                    }
+                </MudTd>
+            </RowTemplate>
+            <NoRecordsContent><MudText>No subjects.</MudText></NoRecordsContent>
+        </MudTable>
+    </MudTabPanel>
+
+    <MudTabPanel Text="Houses" Icon="@Icons.Material.Filled.Flag">
+        @if (canManage)
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" Class="mb-3" OnClick="() => EditHouse(null)" Disabled="Busy">New house</MudButton>
+        }
+        <MudTable T="HouseView" Items="houses" Loading="loading" Hover="true" Dense="true" Elevation="0">
+            <HeaderContent>
+                <MudTh>Colour</MudTh>
+                <MudTh>Name</MudTh>
+                <MudTh>Name (Bangla)</MudTh>
+                <MudTh></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="Colour">
+                    @if (!string.IsNullOrEmpty(context.Colour))
+                    {
+                        <span style="display:inline-block;width:18px;height:18px;border-radius:50%;vertical-align:middle;background:@context.Colour;border:1px solid var(--mud-palette-lines-default)"></span>
+                        <span class="ml-2">@context.Colour</span>
+                    }
+                    else
+                    {
+                        <span>—</span>
+                    }
+                </MudTd>
+                <MudTd DataLabel="Name"><b>@context.Name</b></MudTd>
+                <MudTd DataLabel="Name (Bangla)">@(context.NameBn ?? "—")</MudTd>
+                <MudTd Style="text-align:right">
+                    @if (canManage)
+                    {
+                        <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" title="Edit" OnClick="() => EditHouse(context)" Disabled="Busy" />
+                    }
+                </MudTd>
+            </RowTemplate>
+            <NoRecordsContent><MudText>No houses.</MudText></NoRecordsContent>
+        </MudTable>
+    </MudTabPanel>
+
+    <MudTabPanel Text="Fee heads" Icon="@Icons.Material.Filled.Payments">
+        @if (canManage)
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" Class="mb-3" OnClick="() => EditFeeHead(null)" Disabled="Busy">New fee head</MudButton>
+        }
+        <MudTable T="FeeHeadView" Items="feeHeads" Loading="loading" Hover="true" Dense="true" Elevation="0">
+            <HeaderContent>
+                <MudTh>Code</MudTh>
+                <MudTh>Name</MudTh>
+                <MudTh>Name (Bangla)</MudTh>
+                <MudTh>Frequency</MudTh>
+                <MudTh>Refundable</MudTh>
+                <MudTh></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="Code"><b>@context.Code</b></MudTd>
+                <MudTd DataLabel="Name">@context.Name</MudTd>
+                <MudTd DataLabel="Name (Bangla)">@(context.NameBn ?? "—")</MudTd>
+                <MudTd DataLabel="Frequency">@Format.Enum(context.Frequency)</MudTd>
+                <MudTd DataLabel="Refundable">@(context.IsRefundable ? "Yes" : "No")</MudTd>
+                <MudTd Style="text-align:right">
+                    @if (canManage)
+                    {
+                        <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" title="Edit" OnClick="() => EditFeeHead(context)" Disabled="Busy" />
+                    }
+                </MudTd>
+            </RowTemplate>
+            <NoRecordsContent><MudText>No fee heads.</MudText></NoRecordsContent>
+        </MudTable>
+        <MudText Typo="Typo.caption" Class="d-block mt-2">Amounts and fee plans are configured in the Fees module.</MudText>
+    </MudTabPanel>
+</MudTabs>
+
+@code {
+    private List<SubjectView> subjects = [];
+    private List<HouseView> houses = [];
+    private List<FeeHeadView> feeHeads = [];
+    private string? search;
+    private int tab;
+    private bool loading = true;
+    private bool canManage;
+
+    private static readonly DialogOptions Options = new() { MaxWidth = MaxWidth.Small, FullWidth = true };
+
+    protected override async Task OnInitializedAsync()
+    {
+        canManage = Session.Has(P.Settings.Manage);
+        await Run(async () =>
+        {
+            var s = Api.GetAsync<List<SubjectView>>("api/master/subjects");
+            var h = Api.GetAsync<List<HouseView>>("api/master/houses");
+            var f = Api.GetAsync<List<FeeHeadView>>("api/master/fee-heads");
+            (subjects, houses, feeHeads) = (await s, await h, await f);
+        });
+        loading = false;
+    }
+
+    private bool Match(params string?[] values) =>
+        string.IsNullOrWhiteSpace(search) || values.Any(v => v?.Contains(search.Trim(), StringComparison.OrdinalIgnoreCase) == true);
+
+    private async Task EditSubject(SubjectView? item)
+    {
+        var dlg = await Dialogs.ShowAsync<SubjectDialog>(item is null ? "New subject" : $"Edit {item.Name}",
+            new DialogParameters<SubjectDialog> { { x => x.Item, item } }, Options);
+        if (await dlg.Result is { Canceled: false })
+            await Run(async () => subjects = await Api.GetAsync<List<SubjectView>>("api/master/subjects"));
+    }
+
+    private async Task EditHouse(HouseView? item)
+    {
+        var dlg = await Dialogs.ShowAsync<HouseDialog>(item is null ? "New house" : $"Edit {item.Name}",
+            new DialogParameters<HouseDialog> { { x => x.Item, item } }, Options);
+        if (await dlg.Result is { Canceled: false })
+            await Run(async () => houses = await Api.GetAsync<List<HouseView>>("api/master/houses"));
+    }
+
+    private async Task EditFeeHead(FeeHeadView? item)
+    {
+        var dlg = await Dialogs.ShowAsync<FeeHeadDialog>(item is null ? "New fee head" : $"Edit {item.Name}",
+            new DialogParameters<FeeHeadDialog> { { x => x.Item, item } }, Options);
+        if (await dlg.Result is { Canceled: false })
+            await Run(async () => feeHeads = await Api.GetAsync<List<FeeHeadView>>("api/master/fee-heads"));
+    }
+}

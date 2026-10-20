@@ -1,0 +1,144 @@
+@inherits AppPage
+
+<MudDialog>
+    <DialogContent>
+        @if (Workflow is not null)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">A workflow with pending requests cannot be changed; create a new workflow instead.</MudAlert>
+        }
+        <MudGrid>
+            <MudItem xs="12" sm="6">
+                <MudTextField @bind-Value="name" Label="Name" Variant="Variant.Outlined"
+                              Error="HasError(nameof(ApprovalWorkflowRequest.Name))" ErrorText="@ErrorFor(nameof(ApprovalWorkflowRequest.Name))" />
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudSelect T="string" @bind-Value="requestType" Label="Request type" Variant="Variant.Outlined"
+                           Error="HasError(nameof(ApprovalWorkflowRequest.RequestType))" ErrorText="@ErrorFor(nameof(ApprovalWorkflowRequest.RequestType))">
+                    @foreach (var t in requestTypes)
+                    {
+                        <MudSelectItem T="string" Value="@t">@AdminLookups.Humanize(t)</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudSelect T="Guid" @bind-Value="campusId" Label="Campus" Variant="Variant.Outlined">
+                    <MudSelectItem T="Guid" Value="Guid.Empty">All campuses</MudSelectItem>
+                    @foreach (var c in Campuses)
+                    {
+                        <MudSelectItem T="Guid" Value="@c.Id">@c.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="6" Class="d-flex align-center">
+                <MudSwitch T="bool" @bind-Value="isActive" Color="Color.Primary" Label="Active" />
+            </MudItem>
+        </MudGrid>
+
+        <MudText Typo="Typo.subtitle1" Class="mt-4 mb-2">Steps (in order)</MudText>
+        @if (HasError(nameof(ApprovalWorkflowRequest.Steps)))
+        {
+            <MudText Color="Color.Error" Typo="Typo.caption">@ErrorFor(nameof(ApprovalWorkflowRequest.Steps))</MudText>
+        }
+        @for (var i = 0; i < steps.Count; i++)
+        {
+            var index = i;
+            var step = steps[i];
+            <MudPaper Outlined="true" Class="pa-3 mb-2">
+                <div class="d-flex align-center flex-wrap gap-2">
+                    <MudText Typo="Typo.h6" Style="width:2rem">@(index + 1).</MudText>
+                    <MudTextField @bind-Value="step.Name" Label="Step name" Variant="Variant.Outlined" Margin="Margin.Dense" Style="min-width:180px"
+                                  Error="@(StepError(index, nameof(StepRow.Name)) is not null)" ErrorText="@StepError(index, nameof(StepRow.Name))" />
+                    <MudSelect T="Guid" @bind-Value="step.ApproverRoleId" Label="Approver role" Variant="Variant.Outlined" Margin="Margin.Dense" Style="min-width:180px">
+                        @foreach (var r in Roles)
+                        {
+                            <MudSelectItem T="Guid" Value="@r.Id">@r.Name</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <MudNumericField T="int?" @bind-Value="step.EscalateAfterHours" Label="Escalate after (hours)" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                     Min="1" Clearable="true" Style="max-width:170px"
+                                     Error="@(StepError(index, nameof(StepRow.EscalateAfterHours)) is not null)" ErrorText="@StepError(index, nameof(StepRow.EscalateAfterHours))" />
+                    <MudSelect T="Guid" @bind-Value="step.EscalateToRoleId" Label="Escalate to" Variant="Variant.Outlined" Margin="Margin.Dense" Style="min-width:160px"
+                               Disabled="step.EscalateAfterHours is null"
+                               Error="@(StepError(index, nameof(StepRow.EscalateToRoleId)) is not null)" ErrorText="@StepError(index, nameof(StepRow.EscalateToRoleId))">
+                        <MudSelectItem T="Guid" Value="Guid.Empty">—</MudSelectItem>
+                        @foreach (var r in Roles)
+                        {
+                            <MudSelectItem T="Guid" Value="@r.Id">@r.Name</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <MudSpacer />
+                    <MudIconButton Icon="@Icons.Material.Filled.ArrowUpward" Size="Size.Small" Disabled="index == 0" OnClick="() => Move(index, -1)" title="Move up" />
+                    <MudIconButton Icon="@Icons.Material.Filled.ArrowDownward" Size="Size.Small" Disabled="index == steps.Count - 1" OnClick="() => Move(index, 1)" title="Move down" />
+                    <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" OnClick="() => steps.RemoveAt(index)" title="Remove" />
+                </div>
+            </MudPaper>
+        }
+        <MudButton Size="Size.Small" StartIcon="@Icons.Material.Filled.Add" OnClick="AddStep">Add step</MudButton>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="() => MudDialog.Cancel()">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Save"
+                   Disabled="@(Busy || string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(requestType) || steps.Count == 0)">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    private sealed class StepRow
+    {
+        public string Name { get; set; } = "";
+        public Guid ApproverRoleId { get; set; }
+        public int? EscalateAfterHours { get; set; }
+        public Guid EscalateToRoleId { get; set; }
+    }
+
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public ApprovalWorkflowView? Workflow { get; set; }
+    [Parameter] public IReadOnlyList<RoleView> Roles { get; set; } = [];
+    [Parameter] public IReadOnlyList<AdminCampusOption> Campuses { get; set; } = [];
+
+    private string name = "";
+    private string requestType = "";
+    private Guid campusId;
+    private bool isActive = true;
+    private List<StepRow> steps = [];
+    private List<string> requestTypes = [];
+
+    protected override void OnInitialized()
+    {
+        requestTypes = [.. AdminLookups.ApprovalRequestTypes];
+        if (Workflow is null)
+        {
+            AddStep();
+            return;
+        }
+        name = Workflow.Name;
+        requestType = Workflow.RequestType;
+        if (!requestTypes.Contains(requestType)) requestTypes.Add(requestType);
+        campusId = Workflow.CampusId ?? Guid.Empty;
+        isActive = Workflow.IsActive;
+        steps = Workflow.Steps.Select(s => new StepRow
+        {
+            Name = s.Name, ApproverRoleId = s.ApproverRoleId, EscalateAfterHours = s.EscalateAfterHours, EscalateToRoleId = s.EscalateToRoleId ?? Guid.Empty
+        }).ToList();
+    }
+
+    private string? StepError(int index, string field) => ErrorFor($"Steps[{index}].{field}");
+
+    private void AddStep() => steps.Add(new StepRow { Name = $"Step {steps.Count + 1}", ApproverRoleId = Roles.FirstOrDefault()?.Id ?? Guid.Empty });
+
+    private void Move(int index, int delta)
+    {
+        (steps[index], steps[index + delta]) = (steps[index + delta], steps[index]);
+    }
+
+    private async Task Save()
+    {
+        var request = new ApprovalWorkflowRequest(requestType, campusId == Guid.Empty ? null : campusId, name.Trim(), isActive,
+            steps.Select(s => new ApprovalWorkflowStepRequest(s.Name.Trim(), s.ApproverRoleId, s.EscalateAfterHours,
+                s.EscalateAfterHours is null || s.EscalateToRoleId == Guid.Empty ? null : s.EscalateToRoleId)).ToList());
+        var ok = await Run(() => Workflow is null
+            ? Api.PostAsync("api/approvals/workflows", request)
+            : Api.PutAsync($"api/approvals/workflows/{Workflow.Id}", request), "Workflow saved.");
+        if (ok) MudDialog.Close(DialogResult.Ok(true));
+    }
+}

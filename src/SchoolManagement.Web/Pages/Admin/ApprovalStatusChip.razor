@@ -1,0 +1,11 @@
+<MudChip T="string" Size="Size.Small" Color="@(Status switch
+{
+    ApprovalStatus.Approved => Color.Success,
+    ApprovalStatus.Rejected => Color.Error,
+    ApprovalStatus.Pending => Color.Info,
+    _ => Color.Default
+})">@Format.Enum(Status)</MudChip>
+
+@code {
+    [Parameter] public ApprovalStatus Status { get; set; }
+}

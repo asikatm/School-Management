@@ -1,0 +1,133 @@
+@page "/admin/notifications/outbox"
+@inherits AppPage
+
+<PageTitle>Message outbox</PageTitle>
+
+<div class="d-flex align-center flex-wrap gap-2 mb-4">
+    <MudText Typo="Typo.h4">Message outbox</MudText>
+    <MudSpacer />
+    @if (canSend)
+    {
+        <MudButton Variant="Variant.Outlined" Color="Color.Warning" StartIcon="@Icons.Material.Filled.Replay" OnClick="RetrySelected"
+                   Disabled="@(Busy || !selected.Any(m => m.Status == MessageStatus.Failed))">Retry selected (@selected.Count(m => m.Status == MessageStatus.Failed))</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Send" OnClick="Compose">Send message</MudButton>
+    }
+</div>
+
+<MudPaper Class="pa-4 mb-4">
+    <MudGrid>
+        <MudItem xs="12" sm="4">
+            <MudSelect T="MessageStatus?" Value="status" ValueChanged="StatusChanged" Label="Status" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
+                @foreach (var s in Enum.GetValues<MessageStatus>())
+                {
+                    <MudSelectItem T="MessageStatus?" Value="@s">@Format.Enum(s)</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="4">
+            <MudSelect T="NotificationChannel?" Value="channel" ValueChanged="ChannelChanged" Label="Channel" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
+                @foreach (var c in Enum.GetValues<NotificationChannel>())
+                {
+                    <MudSelectItem T="NotificationChannel?" Value="@c">@Format.Enum(c)</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="4">
+            <MudTextField @bind-Value="recipient" Label="Recipient contains" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true"
+                          OnKeyDown="@(e => e.Key == "Enter" ? table.ReloadServerData() : Task.CompletedTask)" OnClearButtonClick="() => table.ReloadServerData()" />
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+<MudTable T="OutboxMessageView" @ref="table" ServerData="LoadAsync" Dense="true" Hover="true" RowsPerPage="25"
+          MultiSelection="canSend" @bind-SelectedItems="selected">
+    <HeaderContent>
+        <MudTh>Created</MudTh>
+        <MudTh>Channel</MudTh>
+        <MudTh>Recipient</MudTh>
+        <MudTh>Message</MudTh>
+        <MudTh>Status</MudTh>
+        <MudTh>Attempts</MudTh>
+        <MudTh>Sent</MudTh>
+        <MudTh></MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd DataLabel="Created" Style="white-space:nowrap">@Format.DateTime(context.CreatedAtUtc)</MudTd>
+        <MudTd DataLabel="Channel">
+            @Format.Enum(context.Channel)
+            @if (context.Priority != MessagePriority.Normal)
+            {
+                <MudChip T="string" Size="Size.Small" Color="@(context.Priority == MessagePriority.Emergency ? Color.Error : Color.Warning)">@Format.Enum(context.Priority)</MudChip>
+            }
+        </MudTd>
+        <MudTd DataLabel="Recipient">@context.Recipient</MudTd>
+        <MudTd DataLabel="Message">
+            @if (context.TemplateCode is not null) { <MudText Typo="Typo.caption" Class="d-block">@context.TemplateCode</MudText> }
+            @if (context.Subject is not null) { <b>@context.Subject</b> }
+            <div style="max-width:420px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="@context.Body">@context.Body</div>
+        </MudTd>
+        <MudTd DataLabel="Status">
+            <MudChip T="string" Size="Size.Small" Color="@StatusColor(context.Status)">@Format.Enum(context.Status)</MudChip>
+            @if (context.LastError is not null) { <MudText Typo="Typo.caption" Color="Color.Error" Class="d-block">@context.LastError</MudText> }
+        </MudTd>
+        <MudTd DataLabel="Attempts">@context.Attempts</MudTd>
+        <MudTd DataLabel="Sent">@Format.DateTime(context.SentAtUtc)</MudTd>
+        <MudTd Style="text-align:right">
+            @if (canSend && context.Status == MessageStatus.Failed)
+            {
+                <MudIconButton Icon="@Icons.Material.Filled.Replay" Size="Size.Small" title="Retry" OnClick="() => Retry([context.Id])" Disabled="Busy" />
+            }
+        </MudTd>
+    </RowTemplate>
+    <NoRecordsContent><MudText>No messages.</MudText></NoRecordsContent>
+    <PagerContent><MudTablePager /></PagerContent>
+</MudTable>
+
+@code {
+    private MudTable<OutboxMessageView> table = default!;
+    private HashSet<OutboxMessageView> selected = [];
+    private MessageStatus? status;
+    private NotificationChannel? channel;
+    private string? recipient;
+    private bool canSend;
+
+    protected override void OnInitialized() => canSend = Session.Has(P.Notifications.Send);
+
+    private async Task<TableData<OutboxMessageView>> LoadAsync(TableState state, CancellationToken ct)
+    {
+        PagedResult<OutboxMessageView>? result = null;
+        selected.Clear();
+        await Run(async () => result = await Api.GetAsync<PagedResult<OutboxMessageView>>(ApiClient.Query("api/notifications/outbox",
+            ("status", status), ("channel", channel), ("recipient", recipient), ("page", state.Page + 1), ("pageSize", state.PageSize))));
+        return new TableData<OutboxMessageView> { Items = result?.Items ?? [], TotalItems = result?.TotalCount ?? 0 };
+    }
+
+    private static Color StatusColor(MessageStatus s) => s switch
+    {
+        MessageStatus.Sent or MessageStatus.Delivered => Color.Success,
+        MessageStatus.Failed => Color.Error,
+        MessageStatus.Queued or MessageStatus.Sending => Color.Info,
+        _ => Color.Default
+    };
+
+    private async Task StatusChanged(MessageStatus? value) { status = value; await table.ReloadServerData(); }
+    private async Task ChannelChanged(NotificationChannel? value) { channel = value; await table.ReloadServerData(); }
+
+    private Task RetrySelected() => Retry(selected.Where(m => m.Status == MessageStatus.Failed).Select(m => m.Id).ToList());
+
+    private async Task Retry(List<Guid> ids)
+    {
+        var count = 0;
+        if (await Run(async () => count = await Api.PostAsync<int>("api/notifications/outbox/retry", ids)))
+        {
+            Snackbar.Add($"{count} message(s) queued again.", Severity.Success);
+            await table.ReloadServerData();
+        }
+    }
+
+    private async Task Compose()
+    {
+        var dlg = await Dialogs.ShowAsync<SendMessageDialog>("Send message", new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+        if (await dlg.Result is { Canceled: false }) await table.ReloadServerData();
+    }
+}

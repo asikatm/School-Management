@@ -1,0 +1,74 @@
+@* Campus / academic year / class drop-downs used as filters across the admission screens. *@
+
+@if (ShowCampus)
+{
+    <MudSelect T="Guid?" Value="CampusId" ValueChanged="SetCampus" Label="Campus" Clearable="AllowAll" Placeholder="@(AllowAll ? "All campuses" : null)"
+               Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Style="min-width:200px">
+        @foreach (var c in Lookups.Campuses)
+        {
+            <MudSelectItem T="Guid?" Value="c.Id">@c.Name</MudSelectItem>
+        }
+    </MudSelect>
+}
+@if (ShowYear)
+{
+    <MudSelect T="Guid?" Value="YearId" ValueChanged="SetYear" Label="Academic year" Clearable="AllowAll" Placeholder="@(AllowAll ? "All years" : null)"
+               Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Style="min-width:160px">
+        @foreach (var y in Lookups.Years)
+        {
+            <MudSelectItem T="Guid?" Value="y.Id">@y.Name@(y.IsCurrent ? " (current)" : "")</MudSelectItem>
+        }
+    </MudSelect>
+}
+@if (ShowClass)
+{
+    <MudSelect T="Guid?" Value="ClassId" ValueChanged="SetClass" Label="Class" Clearable="AllowAll || AllowAllClasses" Placeholder="@(AllowAll || AllowAllClasses ? "All classes" : null)"
+               Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Style="min-width:160px">
+        @foreach (var c in Lookups.Classes)
+        {
+            <MudSelectItem T="Guid?" Value="c.Id">@c.Name</MudSelectItem>
+        }
+    </MudSelect>
+}
+
+@code {
+    [Parameter] public AdmissionLookups Lookups { get; set; } = AdmissionLookups.Empty;
+    [Parameter] public Guid? CampusId { get; set; }
+    [Parameter] public EventCallback<Guid?> CampusIdChanged { get; set; }
+    [Parameter] public Guid? YearId { get; set; }
+    [Parameter] public EventCallback<Guid?> YearIdChanged { get; set; }
+    [Parameter] public Guid? ClassId { get; set; }
+    [Parameter] public EventCallback<Guid?> ClassIdChanged { get; set; }
+
+    /// <summary>Raised after any of the three values changed, e.g. to reload a table.</summary>
+    [Parameter] public EventCallback Changed { get; set; }
+
+    [Parameter] public bool ShowCampus { get; set; } = true;
+    [Parameter] public bool ShowYear { get; set; } = true;
+    [Parameter] public bool ShowClass { get; set; } = true;
+
+    /// <summary>Filters may be cleared ("All"); selectors that must have a value may not.</summary>
+    [Parameter] public bool AllowAll { get; set; } = true;
+    [Parameter] public bool AllowAllClasses { get; set; }
+
+    private async Task SetCampus(Guid? value)
+    {
+        CampusId = value;
+        await CampusIdChanged.InvokeAsync(value);
+        await Changed.InvokeAsync();
+    }
+
+    private async Task SetYear(Guid? value)
+    {
+        YearId = value;
+        await YearIdChanged.InvokeAsync(value);
+        await Changed.InvokeAsync();
+    }
+
+    private async Task SetClass(Guid? value)
+    {
+        ClassId = value;
+        await ClassIdChanged.InvokeAsync(value);
+        await Changed.InvokeAsync();
+    }
+}

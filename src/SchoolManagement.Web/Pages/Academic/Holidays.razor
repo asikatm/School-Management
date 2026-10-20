@@ -1,0 +1,139 @@
+@page "/academic/holidays"
+@inherits AppPage
+
+<PageTitle>Holidays</PageTitle>
+
+<div class="d-flex align-center mb-4">
+    <MudText Typo="Typo.h4">Holidays</MudText>
+    <MudSpacer />
+    @if (canManage)
+    {
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="Create" Disabled="@(Busy || years.Count == 0)">New holiday</MudButton>
+    }
+</div>
+
+<MudPaper Class="pa-3 mb-4" Elevation="1">
+    <MudGrid Spacing="2">
+        <MudItem xs="12" sm="6" md="4">
+            <MudSelect T="Guid?" Value="yearId" ValueChanged="v => SetFilter(() => yearId = v)" Label="Academic year" Dense="true">
+                @foreach (var y in years)
+                {
+                    <MudSelectItem T="Guid?" Value="y.Id">@y.Name@(y.IsCurrent ? " (current)" : "")</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="4">
+            <MudSelect T="Guid?" Value="campusId" ValueChanged="v => SetFilter(() => campusId = v)" Label="Campus" Clearable="true" Placeholder="All campuses" Dense="true"
+                       HelperText="A campus shows its own and organisation-wide holidays.">
+                @foreach (var c in campuses)
+                {
+                    <MudSelectItem T="Guid?" Value="c.Id">@c.Name</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" md="4" Class="d-flex align-center">
+            <MudText Typo="Typo.body2">@holidays.Count holiday(s), @holidays.Sum(Days) day(s) in total</MudText>
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+<MudTable T="HolidayView" Items="holidays" Loading="loading" Hover="true" Dense="true" Elevation="1">
+    <HeaderContent>
+        <MudTh>Dates</MudTh>
+        <MudTh>Days</MudTh>
+        <MudTh>Name</MudTh>
+        <MudTh>Type</MudTh>
+        <MudTh>Campus</MudTh>
+        <MudTh></MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd DataLabel="Dates" Style="white-space:nowrap">
+            @Format.Date(context.StartDate)@(context.EndDate != context.StartDate ? $" – {Format.Date(context.EndDate)}" : "")
+        </MudTd>
+        <MudTd DataLabel="Days">@Days(context)</MudTd>
+        <MudTd DataLabel="Name">
+            <b>@context.Name</b>
+            @if (!string.IsNullOrEmpty(context.NameBn))
+            {
+                <MudText Typo="Typo.caption" Class="d-block">@context.NameBn</MudText>
+            }
+        </MudTd>
+        <MudTd DataLabel="Type">
+            <MudChip T="string" Size="Size.Small" Color="TypeColor(context.Type)">@Format.Enum(context.Type)</MudChip>
+        </MudTd>
+        <MudTd DataLabel="Campus">@(context.CampusId is null ? "All campuses" : campuses.FirstOrDefault(c => c.Id == context.CampusId)?.Name ?? "—")</MudTd>
+        <MudTd Style="text-align:right">
+            @if (canManage)
+            {
+                <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" title="Delete" OnClick="() => Delete(context)" Disabled="Busy" />
+            }
+        </MudTd>
+    </RowTemplate>
+    <NoRecordsContent><MudText>No holidays for this year.</MudText></NoRecordsContent>
+</MudTable>
+<MudText Typo="Typo.caption" Class="d-block mt-2">To change a holiday, delete it and add it again.</MudText>
+
+@code {
+    private List<AcademicYearView> years = [];
+    private List<CampusView> campuses = [];
+    private List<HolidayView> holidays = [];
+    private Guid? yearId, campusId;
+    private bool loading = true;
+    private bool canManage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        canManage = Session.Has(P.Settings.Manage);
+        await Run(async () =>
+        {
+            var y = Api.GetAsync<List<AcademicYearView>>("api/academic-years");
+            var c = Api.GetAsync<List<CampusView>>("api/campuses");
+            (years, campuses) = (await y, await c);
+        });
+        yearId = years.FirstOrDefault(y => y.IsCurrent)?.Id ?? years.FirstOrDefault()?.Id;
+        await Load();
+    }
+
+    private async Task SetFilter(Action set)
+    {
+        set();
+        await Load();
+    }
+
+    private async Task Load()
+    {
+        loading = true;
+        await Run(async () => holidays = await Api.GetAsync<List<HolidayView>>(ApiClient.Query("api/master/holidays", ("academicYearId", yearId), ("campusId", campusId))));
+        loading = false;
+    }
+
+    private static int Days(HolidayView h) => h.EndDate.DayNumber - h.StartDate.DayNumber + 1;
+
+    private static Color TypeColor(HolidayType t) => t switch
+    {
+        HolidayType.National => Color.Primary,
+        HolidayType.Islamic => Color.Success,
+        _ => Color.Info
+    };
+
+    private async Task Create()
+    {
+        var dlg = await Dialogs.ShowAsync<HolidayDialog>("New holiday",
+            new DialogParameters<HolidayDialog>
+            {
+                { x => x.Years, years },
+                { x => x.Campuses, campuses },
+                { x => x.YearId, yearId },
+                { x => x.CampusId, campusId }
+            },
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (await dlg.Result is { Canceled: false }) await Load();
+    }
+
+    private async Task Delete(HolidayView h)
+    {
+        if (!await Confirm("Delete holiday", $"Delete {h.Name} ({Format.Date(h.StartDate)})?", "Delete")) return;
+        if (await Run(() => Api.DeleteAsync($"api/master/holidays/{h.Id}"), "Holiday deleted."))
+            await Load();
+    }
+}

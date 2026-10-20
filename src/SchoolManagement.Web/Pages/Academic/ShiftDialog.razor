@@ -1,0 +1,51 @@
+@inherits AppPage
+
+<MudDialog>
+    <DialogContent>
+        <MudGrid Spacing="2">
+            <MudItem xs="12">
+                <MudSelect T="Guid?" @bind-Value="campusId" Label="Campus" Required="true">
+                    @foreach (var c in Campuses)
+                    {
+                        <MudSelectItem T="Guid?" Value="c.Id">@c.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12">
+                <MudTextField @bind-Value="name" Label="Name" Required="true" Placeholder="e.g. Morning"
+                              Error="HasError(nameof(ShiftRequest.Name))" ErrorText="@ErrorFor(nameof(ShiftRequest.Name))" />
+            </MudItem>
+            <MudItem xs="6">
+                <MudTimePicker @bind-Time="start" Label="Starts" AmPm="true" Required="true" />
+            </MudItem>
+            <MudItem xs="6">
+                <MudTimePicker @bind-Time="end" Label="Ends" AmPm="true" Required="true"
+                               Error="@(start is not null && end is not null && end <= start)" ErrorText="Must end after it starts." />
+            </MudItem>
+        </MudGrid>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="() => MudDialog.Cancel()">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Save"
+                   Disabled="@(Busy || campusId is null || string.IsNullOrWhiteSpace(name) || start is null || end is null || end <= start)">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public IReadOnlyList<CampusView> Campuses { get; set; } = [];
+    [Parameter] public Guid? CampusId { get; set; }
+
+    private Guid? campusId;
+    private string name = "";
+    private TimeSpan? start = new(8, 0, 0), end = new(13, 0, 0);
+
+    protected override void OnInitialized() => campusId = CampusId;
+
+    private async Task Save()
+    {
+        var request = new ShiftRequest(campusId!.Value, name.Trim(), TimeOnly.FromTimeSpan(start!.Value), TimeOnly.FromTimeSpan(end!.Value));
+        if (await Run(() => Api.PostAsync<Guid>("api/structure/shifts", request), "Shift created."))
+            MudDialog.Close(DialogResult.Ok(true));
+    }
+}

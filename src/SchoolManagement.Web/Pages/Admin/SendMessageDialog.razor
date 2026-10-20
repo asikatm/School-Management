@@ -1,0 +1,164 @@
+@inherits AppPage
+
+<MudDialog>
+    <DialogContent>
+        <MudGrid>
+            <MudItem xs="12" sm="4">
+                <MudSelect T="NotificationChannel" Value="channel" ValueChanged="ChannelChanged" Label="Channel" Variant="Variant.Outlined">
+                    @foreach (var c in Channels)
+                    {
+                        <MudSelectItem T="NotificationChannel" Value="@c">@Format.Enum(c)</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="4">
+                <MudSelect T="MessagePriority" @bind-Value="priority" Label="Priority" Variant="Variant.Outlined">
+                    @foreach (var p in Enum.GetValues<MessagePriority>())
+                    {
+                        <MudSelectItem T="MessagePriority" Value="@p">@Format.Enum(p)</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="4">
+                <MudSelect T="Guid" @bind-Value="campusId" Label="Campus" Variant="Variant.Outlined">
+                    <MudSelectItem T="Guid" Value="Guid.Empty">Organisation-wide</MudSelectItem>
+                    @foreach (var c in campuses)
+                    {
+                        <MudSelectItem T="Guid" Value="@c.Id">@c.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12">
+                <MudTextField @bind-Value="recipients" Label="Recipients" Variant="Variant.Outlined" Lines="3" Immediate="true"
+                              HelperText="@($"{RecipientHint} One per line, or separated by commas. {RecipientList.Count} recipient(s).")"
+                              Error="HasError(nameof(SendMessageRequest.Recipients))" ErrorText="@ErrorFor(nameof(SendMessageRequest.Recipients))" />
+            </MudItem>
+            <MudItem xs="12">
+                <MudRadioGroup T="bool" @bind-Value="useTemplate">
+                    <MudRadio T="bool" Value="false" Color="Color.Primary">Write a message</MudRadio>
+                    <MudRadio T="bool" Value="true" Color="Color.Primary">Use a template</MudRadio>
+                </MudRadioGroup>
+            </MudItem>
+            @if (useTemplate)
+            {
+                <MudItem xs="12" sm="8">
+                    <MudSelect T="string" @bind-Value="templateCode" Label="Template" Variant="Variant.Outlined">
+                        @foreach (var templateKey in templates.Where(t => t.Channel == channel && t.IsActive).Select(t => t.Code).Distinct())
+                        {
+                            <MudSelectItem T="string" Value="@templateKey">@templateKey</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" sm="4">
+                    <MudSelect T="string" @bind-Value="language" Label="Language" Variant="Variant.Outlined">
+                        <MudSelectItem T="string" Value="@("en")">English</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("bn")">Bangla</MudSelectItem>
+                    </MudSelect>
+                </MudItem>
+                @if (Template is { } t)
+                {
+                    <MudItem xs="12">
+                        <MudText Typo="Typo.caption" Style="white-space:pre-wrap">@t.Body</MudText>
+                    </MudItem>
+                    @foreach (var field in AdminLookups.MergeFields(t.Subject, t.Body))
+                    {
+                        <MudItem xs="12" sm="6">
+                            <MudTextField T="string" Value="@data.GetValueOrDefault(field)" ValueChanged="@(v => data[field] = v)" Label="@field"
+                                          Variant="Variant.Outlined" Margin="Margin.Dense" HelperText="Same value for every recipient" />
+                        </MudItem>
+                    }
+                }
+                else if (templateCode is not null)
+                {
+                    <MudItem xs="12"><MudAlert Severity="Severity.Warning" Dense="true">No active @(language == "bn" ? "Bangla" : "English") version of this template.</MudAlert></MudItem>
+                }
+            }
+            else
+            {
+                @if (channel is NotificationChannel.Email or NotificationChannel.Push)
+                {
+                    <MudItem xs="12">
+                        <MudTextField @bind-Value="subject" Label="Subject" Variant="Variant.Outlined" />
+                    </MudItem>
+                }
+                <MudItem xs="12">
+                    <MudTextField @bind-Value="body" Label="Message" Variant="Variant.Outlined" Lines="5" Immediate="true"
+                                  HelperText="@($"{body?.Length ?? 0} characters")"
+                                  Error="HasError(nameof(SendMessageRequest.Body))" ErrorText="@ErrorFor(nameof(SendMessageRequest.Body))" />
+                </MudItem>
+            }
+        </MudGrid>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="() => MudDialog.Cancel()">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Send" OnClick="Send"
+                   Disabled="@(Busy || RecipientList.Count == 0 || (useTemplate ? Template is null : string.IsNullOrWhiteSpace(body)))">Send</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    // In-app messages need a user id the send endpoint does not take, so that channel is left out here.
+    private static readonly NotificationChannel[] Channels = [NotificationChannel.Sms, NotificationChannel.Email, NotificationChannel.WhatsApp, NotificationChannel.Push];
+
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+
+    private NotificationChannel channel = NotificationChannel.Sms;
+    private MessagePriority priority = MessagePriority.Normal;
+    private Guid campusId;
+    private string? recipients;
+    private bool useTemplate;
+    private string? templateCode;
+    private string language = "en";
+    private string? subject;
+    private string? body;
+    private readonly Dictionary<string, string?> data = [];
+    private List<MessageTemplateView> templates = [];
+    private List<AdminCampusOption> campuses = [];
+
+    private MessageTemplateView? Template =>
+        templates.FirstOrDefault(t => t.Code == templateCode && t.Channel == channel && t.Language == language && t.IsActive);
+
+    private List<string> RecipientList =>
+        (recipients ?? "").Split(['\n', '\r', ',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Distinct().ToList();
+
+    private string RecipientHint => channel switch
+    {
+        NotificationChannel.Email => "Email addresses.",
+        NotificationChannel.Push => "Device tokens.",
+        _ => "Phone numbers, e.g. 8801712345678."
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Run(async () =>
+        {
+            campuses = await Api.GetAsync<List<AdminCampusOption>>("api/campuses");
+            if (Session.Has(P.Notifications.View))
+                templates = await Api.GetAsync<List<MessageTemplateView>>("api/notifications/templates");
+        });
+    }
+
+    private void ChannelChanged(NotificationChannel value)
+    {
+        channel = value;
+        templateCode = null;
+    }
+
+    private async Task Send()
+    {
+        var list = RecipientList;
+        if (list.Count > 50 && !await Confirm("Send message", $"Send to {list.Count} recipients?", "Send")) return;
+
+        var request = useTemplate
+            ? new SendMessageRequest(channel, list, templateCode, AdminLookups.MergeFields(Template!.Subject, Template.Body).ToDictionary(f => f, f => data.GetValueOrDefault(f)),
+                language, null, null, priority, campusId == Guid.Empty ? null : campusId)
+            : new SendMessageRequest(channel, list, null, null, null, string.IsNullOrWhiteSpace(subject) ? null : subject, body, priority,
+                campusId == Guid.Empty ? null : campusId);
+        SendMessageResponse? result = null;
+        if (await Run(async () => result = await Api.PostAsync<SendMessageResponse>("api/notifications/send", request)))
+        {
+            Snackbar.Add($"{result!.Queued} message(s) queued.", Severity.Success);
+            MudDialog.Close(DialogResult.Ok(result));
+        }
+    }
+}

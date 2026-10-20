@@ -1,0 +1,27 @@
+@* Asks for a short reason; closes with the trimmed text. *@
+
+<MudDialog>
+    <DialogContent>
+        @if (Hint is not null)
+        {
+            <MudText Typo="Typo.body2" Class="mb-3">@Hint</MudText>
+        }
+        <MudTextField @bind-Value="text" Label="@Label" Placeholder="@Placeholder" Required="true" MaxLength="200" Immediate="true" AutoFocus="true"
+                      Variant="Variant.Outlined" Margin="Margin.Dense" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => MudDialog.Cancel())">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@string.IsNullOrWhiteSpace(text)"
+                   OnClick="@(() => MudDialog.Close(DialogResult.Ok(text.Trim())))">@ActionText</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public string Label { get; set; } = "Reason";
+    [Parameter] public string? Placeholder { get; set; }
+    [Parameter] public string? Hint { get; set; }
+    [Parameter] public string ActionText { get; set; } = "OK";
+
+    private string text = "";
+}

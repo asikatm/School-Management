@@ -1,0 +1,39 @@
+@* Asks for a reason or note; returns the text (empty string when optional and left blank). *@
+
+<MudDialog>
+    <DialogContent>
+        @if (Message is not null)
+        {
+            <MudText Typo="Typo.body2" Class="mb-3">@Message</MudText>
+        }
+        <MudTextField @bind-Value="text" Label="@Label" Required="Required" Variant="Variant.Outlined" Lines="3" MaxLength="500" Immediate="true" AutoFocus="true" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="() => MudDialog.Cancel()">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color" OnClick="() => MudDialog.Close(DialogResult.Ok(text.Trim()))"
+                   Disabled="@(Required && string.IsNullOrWhiteSpace(text))">@ButtonText</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] public IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public string? Message { get; set; }
+    [Parameter] public string Label { get; set; } = "Reason";
+    [Parameter] public bool Required { get; set; } = true;
+    [Parameter] public string ButtonText { get; set; } = "OK";
+    [Parameter] public Color Color { get; set; } = Color.Primary;
+
+    private string text = "";
+
+    /// <summary>Shows the dialog; returns null when cancelled.</summary>
+    public static async Task<string?> AskAsync(IDialogService dialogs, string title, string label, string button, bool required = true,
+        string? message = null, Color color = Color.Primary)
+    {
+        var dialog = await dialogs.ShowAsync<ReasonDialog>(title, new DialogParameters<ReasonDialog>
+        {
+            { x => x.Label, label }, { x => x.ButtonText, button }, { x => x.Required, required }, { x => x.Message, message }, { x => x.Color, color }
+        }, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var result = await dialog.Result;
+        return result is { Canceled: false, Data: string s } ? s : null;
+    }
+}

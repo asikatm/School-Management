@@ -1,0 +1,96 @@
+@page "/admission/analytics"
+@inherits AppPage
+
+<PageTitle>Enquiry analytics</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-4">Enquiry analytics</MudText>
+
+<MudPaper Class="pa-4 mb-4">
+    <div class="d-flex flex-wrap gap-3 align-center">
+        <AdmissionScopePicker Lookups="lookups" @bind-CampusId="campusId" ShowYear="false" ShowClass="false" Changed="Load" />
+        <MudDatePicker Date="from" DateChanged="d => { from = d; return Load(); }" Label="From" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense" DateFormat="dd MMM yyyy" Style="max-width:180px" />
+        <MudDatePicker Date="to" DateChanged="d => { to = d; return Load(); }" Label="To" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense" DateFormat="dd MMM yyyy" Style="max-width:180px" />
+    </div>
+</MudPaper>
+
+@if (data is null)
+{
+    if (Busy)
+    {
+        <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+    }
+}
+else
+{
+    <MudGrid Class="mb-4">
+        @foreach (var (label, value, color) in Tiles(data.Total))
+        {
+            <MudItem xs="6" sm="4" md="2">
+                <MudPaper Class="pa-4" Style="height:100%">
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">@label</MudText>
+                    <MudText Typo="Typo.h5" Color="color">@value</MudText>
+                </MudPaper>
+            </MudItem>
+        }
+    </MudGrid>
+
+    <MudGrid>
+        <MudItem xs="12" md="4">
+            <MudPaper Class="pa-4">
+                <MudText Typo="Typo.h6" Class="mb-3">Pipeline by stage</MudText>
+                @foreach (var s in Enum.GetValues<EnquiryStage>())
+                {
+                    var count = data.ByStage.GetValueOrDefault(s.ToString());
+                    var pct = data.Total.Enquiries == 0 ? 0 : 100.0 * count / data.Total.Enquiries;
+                    <div class="mb-2">
+                        <div class="d-flex"><MudText Typo="Typo.body2">@Format.Enum(s)</MudText><MudSpacer /><MudText Typo="Typo.body2"><b>@count</b></MudText></div>
+                        <MudProgressLinear Value="pct" Color="AdmissionUi.StageColor(s)" Rounded="true" Size="Size.Medium" />
+                    </div>
+                }
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" md="8">
+            <MudPaper Class="pa-4 mb-4">
+                <MudText Typo="Typo.h6" Class="mb-2">Conversion by source</MudText>
+                <FunnelTable Rows="data.BySource" KeyTitle="Source" />
+            </MudPaper>
+            <MudPaper Class="pa-4">
+                <MudText Typo="Typo.h6" Class="mb-2">Conversion by counsellor</MudText>
+                <FunnelTable Rows="data.ByCounsellor" KeyTitle="Counsellor" />
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    private AdmissionLookups lookups = AdmissionLookups.Empty;
+    private EnquiryAnalyticsResult? data;
+    private Guid? campusId;
+    private DateTime? from;
+    private DateTime? to;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Run(async () => lookups = await AdmissionLookups.LoadAsync(Api, Session));
+        await Load();
+    }
+
+    private async Task Load()
+    {
+        // Dates are picked in Dhaka time; the API filters on UTC creation time.
+        var fromUtc = AdmissionUi.ToUtc(from, TimeSpan.Zero);
+        var toUtc = AdmissionUi.ToUtc(to, new TimeSpan(23, 59, 59));
+        await Run(async () => data = await Api.GetAsync<EnquiryAnalyticsResult>(ApiClient.Query("api/admission/enquiries/analytics",
+            ("campusId", campusId), ("fromUtc", fromUtc), ("toUtc", toUtc))));
+    }
+
+    private static IEnumerable<(string Label, string Value, Color Color)> Tiles(EnquiryFunnelRow t) =>
+    [
+        ("Enquiries", t.Enquiries.ToString("N0"), Color.Default),
+        ("Applied", t.Applied.ToString("N0"), Color.Primary),
+        ("Admitted", t.Admitted.ToString("N0"), Color.Success),
+        ("Lost", t.Lost.ToString("N0"), Color.Error),
+        ("Open", (t.Enquiries - t.Admitted - t.Lost).ToString("N0"), Color.Info),
+        ("Conversion", $"{t.ConversionPercent:0.#}%", Color.Secondary)
+    ];
+}

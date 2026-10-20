@@ -1,0 +1,128 @@
+@inherits AppPage
+
+<MudDialog>
+    <DialogContent>
+        <MudGrid Spacing="2">
+            <MudItem xs="12" sm="6">
+                <MudSelect T="Guid?" @bind-Value="campusId" Label="Campus" Required="true" Variant="Variant.Outlined"
+                           Error="HasError(nameof(EnquiryRequest.CampusId))" ErrorText="@ErrorFor(nameof(EnquiryRequest.CampusId))">
+                    @foreach (var c in Lookups.Campuses)
+                    {
+                        <MudSelectItem T="Guid?" Value="c.Id">@c.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="3">
+                <MudSelect T="EnquirySource" @bind-Value="source" Label="Source" Variant="Variant.Outlined">
+                    @foreach (var s in Enum.GetValues<EnquirySource>())
+                    {
+                        <MudSelectItem T="EnquirySource" Value="s">@Format.Enum(s)</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="3">
+                <MudTextField @bind-Value="campaignCode" Label="Campaign code" Variant="Variant.Outlined" />
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudSelect T="Guid?" @bind-Value="yearId" Label="Academic year" Clearable="true" Variant="Variant.Outlined">
+                    @foreach (var y in Lookups.Years)
+                    {
+                        <MudSelectItem T="Guid?" Value="y.Id">@y.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudSelect T="Guid?" @bind-Value="classId" Label="Class of interest" Clearable="true" Variant="Variant.Outlined">
+                    @foreach (var c in Lookups.Classes)
+                    {
+                        <MudSelectItem T="Guid?" Value="c.Id">@c.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="8">
+                <MudTextField @bind-Value="childName" Label="Child's name" Required="true" Variant="Variant.Outlined" MaxLength="200"
+                              Error="HasError(nameof(EnquiryRequest.ChildName))" ErrorText="@ErrorFor(nameof(EnquiryRequest.ChildName))" />
+            </MudItem>
+            <MudItem xs="12" sm="4">
+                <MudDatePicker @bind-Date="childDob" Label="Date of birth" Variant="Variant.Outlined" DateFormat="dd MMM yyyy" MaxDate="DateTime.Today" />
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudTextField @bind-Value="guardianName" Label="Guardian's name" Required="true" Variant="Variant.Outlined" MaxLength="200"
+                              Error="HasError(nameof(EnquiryRequest.GuardianName))" ErrorText="@ErrorFor(nameof(EnquiryRequest.GuardianName))" />
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudTextField @bind-Value="guardianPhone" Label="Guardian's mobile" Required="true" Variant="Variant.Outlined" Placeholder="01XXXXXXXXX"
+                              Error="HasError(nameof(EnquiryRequest.GuardianPhone))" ErrorText="@ErrorFor(nameof(EnquiryRequest.GuardianPhone))" />
+            </MudItem>
+            <MudItem xs="12">
+                <MudTextField @bind-Value="guardianEmail" Label="Guardian's e-mail" Variant="Variant.Outlined" InputType="InputType.Email"
+                              Error="HasError(nameof(EnquiryRequest.GuardianEmail))" ErrorText="@ErrorFor(nameof(EnquiryRequest.GuardianEmail))" />
+            </MudItem>
+            <MudItem xs="12">
+                <MudTextField @bind-Value="message" Label="Message / notes" Variant="Variant.Outlined" Lines="3" MaxLength="2000"
+                              Error="HasError(nameof(EnquiryRequest.Message))" ErrorText="@ErrorFor(nameof(EnquiryRequest.Message))" />
+            </MudItem>
+        </MudGrid>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="() => MudDialog.Cancel()">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Save"
+                   Disabled="@(Busy || campusId is null || string.IsNullOrWhiteSpace(childName) || string.IsNullOrWhiteSpace(guardianName) || string.IsNullOrWhiteSpace(guardianPhone))">
+            Save
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] public IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public AdmissionLookups Lookups { get; set; } = AdmissionLookups.Empty;
+
+    /// <summary>The enquiry to edit; null creates a new one.</summary>
+    [Parameter] public EnquiryDetail? Item { get; set; }
+
+    private Guid? campusId;
+    private EnquirySource source = EnquirySource.Phone;
+    private string? campaignCode;
+    private Guid? yearId;
+    private Guid? classId;
+    private string childName = "";
+    private DateTime? childDob;
+    private string guardianName = "";
+    private string guardianPhone = "";
+    private string? guardianEmail;
+    private string? message;
+
+    protected override void OnInitialized()
+    {
+        if (Item is { } e)
+        {
+            campusId = e.CampusId;
+            source = e.Source;
+            campaignCode = e.CampaignCode;
+            yearId = e.AcademicYearId;
+            classId = e.YearGroupId;
+            childName = e.ChildName;
+            childDob = AdmissionUi.ToDate(e.ChildDateOfBirth);
+            guardianName = e.GuardianName;
+            guardianPhone = e.GuardianPhone;
+            guardianEmail = e.GuardianEmail;
+            message = e.Message;
+        }
+        else
+        {
+            campusId = Lookups.Campuses.Count == 1 ? Lookups.Campuses[0].Id : null;
+            yearId = Lookups.CurrentYearId;
+        }
+    }
+
+    private async Task Save()
+    {
+        var request = new EnquiryRequest(campusId!.Value, source, ApplicationForm.Blank(campaignCode), yearId, classId, childName.Trim(),
+            AdmissionUi.ToDateOnly(childDob), guardianName.Trim(), guardianPhone.Trim(), ApplicationForm.Blank(guardianEmail), ApplicationForm.Blank(message));
+        EnquiryDetail? saved = null;
+        var ok = await Run(async () => saved = Item is null
+            ? await Api.PostAsync<EnquiryDetail>("api/admission/enquiries", request)
+            : await Api.PutAsync<EnquiryDetail>($"api/admission/enquiries/{Item.Id}", request), "Enquiry saved.");
+        if (ok) MudDialog.Close(DialogResult.Ok(saved));
+    }
+}

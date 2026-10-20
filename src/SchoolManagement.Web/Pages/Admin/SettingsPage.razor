@@ -1,0 +1,166 @@
+@page "/admin/settings"
+@inherits AppPage
+
+<PageTitle>Settings</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-4">Settings</MudText>
+
+<MudTabs Elevation="1" Rounded="true" ApplyEffectsToContainer="true" PanelClass="pa-4">
+    <MudTabPanel Text="School settings" Icon="@Icons.Material.Filled.Settings">
+        <div class="d-flex align-center gap-2 mb-3">
+            <MudSelect T="Guid" Value="scope" ValueChanged="ScopeChanged" Label="Applies to" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:320px">
+                <MudSelectItem T="Guid" Value="Guid.Empty">Organisation-wide</MudSelectItem>
+                @foreach (var c in campuses)
+                {
+                    <MudSelectItem T="Guid" Value="@c.Id">@c.Name (campus override)</MudSelectItem>
+                }
+            </MudSelect>
+            <MudSpacer />
+            @if (canManage)
+            {
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="() => EditSetting(null)">Add setting</MudButton>
+            }
+        </div>
+        @if (scope != Guid.Empty)
+        {
+            <MudText Typo="Typo.caption" Class="d-block mb-2">Values set here override the organisation-wide value for this campus only.</MudText>
+        }
+        <MudTable T="SystemSettingView" Items="settings" Dense="true" Hover="true" Loading="loadingSettings">
+            <HeaderContent>
+                <MudTh>Key</MudTh>
+                <MudTh>Value</MudTh>
+                <MudTh>Description</MudTh>
+                <MudTh></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="Key"><code>@context.Key</code></MudTd>
+                <MudTd DataLabel="Value" Style="word-break:break-word">@(context.Value ?? "—")</MudTd>
+                <MudTd DataLabel="Description">@context.Description</MudTd>
+                <MudTd Style="text-align:right">
+                    @if (canManage)
+                    {
+                        <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" title="Edit" OnClick="() => EditSetting(context)" />
+                    }
+                </MudTd>
+            </RowTemplate>
+            <NoRecordsContent><MudText>No settings for this scope.</MudText></NoRecordsContent>
+        </MudTable>
+    </MudTabPanel>
+
+    <MudTabPanel Text="Numbering formats" Icon="@Icons.Material.Filled.Pin">
+        <MudText Typo="Typo.body2" Class="mb-3">
+            Tokens: <code>{PREFIX}</code> <code>{CAMPUS}</code> <code>{YEAR}</code> <code>{YY}</code> <code>{SEQ:n}</code> (sequence padded to n digits).
+            The next value can only move forward, so numbers are never reused.
+        </MudText>
+        <MudTable T="NumberSequenceView" Items="numbering" Dense="true" Hover="true">
+            <HeaderContent>
+                <MudTh>Sequence</MudTh>
+                <MudTh>Campus</MudTh>
+                <MudTh>Prefix</MudTh>
+                <MudTh>Pattern</MudTh>
+                <MudTh>Next value</MudTh>
+                <MudTh></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="Sequence">
+                    @AdminLookups.Humanize(context.Key)
+                    @if (context.AcademicYearId is not null) { <MudText Typo="Typo.caption" Class="d-block">Per academic year</MudText> }
+                </MudTd>
+                <MudTd DataLabel="Campus">@(context.CampusId is null ? "All campuses" : Campus(context.CampusId)?.Name ?? "—")</MudTd>
+                <MudTd DataLabel="Prefix"><code>@context.Prefix</code></MudTd>
+                <MudTd DataLabel="Pattern"><code>@context.Pattern</code></MudTd>
+                <MudTd DataLabel="Next value">@context.NextValue.ToString("N0")</MudTd>
+                <MudTd Style="text-align:right">
+                    @if (canManage)
+                    {
+                        <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" title="Edit" OnClick="() => EditNumbering(context)" />
+                    }
+                </MudTd>
+            </RowTemplate>
+            <NoRecordsContent><MudText>No number sequences yet; they are created on first use.</MudText></NoRecordsContent>
+        </MudTable>
+    </MudTabPanel>
+
+    <MudTabPanel Text="Calendar & formats" Icon="@Icons.Material.Filled.Translate">
+        @if (today is not null)
+        {
+            <MudSimpleTable Dense="true" Style="max-width:560px">
+                <tbody>
+                    <tr><td>Today (Dhaka)</td><td>@today.DhakaTime</td></tr>
+                    <tr><td>Bangla digits</td><td>@today.DateBangla</td></tr>
+                    <tr><td>Hijri</td><td>@today.Hijri</td></tr>
+                    <tr><td>Amount (lakh/crore)</td><td>@today.AmountSample</td></tr>
+                    <tr><td>Amount in Bangla digits</td><td>@today.AmountSampleBangla</td></tr>
+                </tbody>
+            </MudSimpleTable>
+        }
+        <div class="d-flex align-center gap-2 mt-4" style="max-width:560px">
+            <MudNumericField T="int" @bind-Value="hijriAdjust" Label="Hijri adjustment (days)" Variant="Variant.Outlined" Margin="Margin.Dense" Min="-2" Max="2" />
+            <MudNumericField T="decimal?" @bind-Value="sampleAmount" Label="Sample amount" Variant="Variant.Outlined" Margin="Margin.Dense" Min="0" />
+            <MudButton Variant="Variant.Outlined" OnClick="LoadToday" Disabled="Busy">Show</MudButton>
+        </div>
+    </MudTabPanel>
+</MudTabs>
+
+@code {
+    private List<AdminCampusOption> campuses = [];
+    private List<SystemSettingView> settings = [];
+    private List<NumberSequenceView> numbering = [];
+    private LocalizationToday? today;
+    private Guid scope;
+    private bool loadingSettings = true;
+    private bool canManage;
+    private int hijriAdjust;
+    private decimal? sampleAmount;
+
+    protected override async Task OnInitializedAsync()
+    {
+        canManage = Session.Has(P.Settings.Manage);
+        await Run(async () => campuses = await Api.GetAsync<List<AdminCampusOption>>("api/campuses"));
+        await LoadSettings();
+        await LoadNumbering();
+        await LoadToday();
+    }
+
+    private AdminCampusOption? Campus(Guid? id) => campuses.FirstOrDefault(c => c.Id == id);
+
+    private async Task LoadSettings()
+    {
+        loadingSettings = true;
+        await Run(async () => settings = await Api.GetAsync<List<SystemSettingView>>(
+            ApiClient.Query("api/settings", ("campusId", scope == Guid.Empty ? null : scope))));
+        loadingSettings = false;
+    }
+
+    private async Task LoadNumbering() =>
+        await Run(async () => numbering = await Api.GetAsync<List<NumberSequenceView>>("api/settings/numbering"));
+
+    private async Task LoadToday() =>
+        await Run(async () => today = await Api.GetAsync<LocalizationToday>(
+            ApiClient.Query("api/localization/today", ("hijriAdjustDays", hijriAdjust), ("amount", sampleAmount))));
+
+    private async Task ScopeChanged(Guid value)
+    {
+        scope = value;
+        await LoadSettings();
+    }
+
+    private async Task EditSetting(SystemSettingView? setting)
+    {
+        var parameters = new DialogParameters<SystemSettingDialog>
+        {
+            { x => x.Setting, setting }, { x => x.CampusId, scope == Guid.Empty ? null : scope }, { x => x.CampusName, Campus(scope)?.Name }
+        };
+        var dlg = await Dialogs.ShowAsync<SystemSettingDialog>(setting is null ? "Add setting" : setting.Key, parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (await dlg.Result is { Canceled: false }) await LoadSettings();
+    }
+
+    private async Task EditNumbering(NumberSequenceView sequence)
+    {
+        var parameters = new DialogParameters<NumberSequenceDialog> { { x => x.Sequence, sequence }, { x => x.CampusCode, Campus(sequence.CampusId)?.Code } };
+        var dlg = await Dialogs.ShowAsync<NumberSequenceDialog>(AdminLookups.Humanize(sequence.Key), parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (await dlg.Result is { Canceled: false }) await LoadNumbering();
+    }
+}

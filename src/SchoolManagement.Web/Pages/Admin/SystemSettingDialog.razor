@@ -1,0 +1,35 @@
+@inherits AppPage
+
+<MudDialog>
+    <DialogContent>
+        <MudText Typo="Typo.caption" Class="d-block mb-3">Applies to: @(CampusName ?? "the whole organisation")</MudText>
+        <MudTextField @bind-Value="key" Label="Key" Variant="Variant.Outlined" Class="mb-3" ReadOnly="Setting is not null"
+                      HelperText="e.g. Sms.SenderId" Error="HasError(nameof(SystemSettingRequest.Key))" ErrorText="@ErrorFor(nameof(SystemSettingRequest.Key))" />
+        <MudTextField @bind-Value="value" Label="Value" Variant="Variant.Outlined" Lines="3" Class="mb-3" />
+        <MudTextField @bind-Value="description" Label="Description" Variant="Variant.Outlined" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="() => MudDialog.Cancel()">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Save" Disabled="@(Busy || string.IsNullOrWhiteSpace(key))">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public SystemSettingView? Setting { get; set; }
+    [Parameter] public Guid? CampusId { get; set; }
+    [Parameter] public string? CampusName { get; set; }
+
+    private string key = "";
+    private string? value;
+    private string? description;
+
+    protected override void OnInitialized() => (key, value, description) = (Setting?.Key ?? "", Setting?.Value, Setting?.Description);
+
+    private async Task Save()
+    {
+        var request = new SystemSettingRequest(key.Trim(), CampusId, value, string.IsNullOrWhiteSpace(description) ? null : description.Trim());
+        if (await Run(() => Api.PutAsync("api/settings", request), "Setting saved."))
+            MudDialog.Close(DialogResult.Ok(true));
+    }
+}

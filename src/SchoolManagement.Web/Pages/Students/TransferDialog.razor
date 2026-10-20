@@ -1,0 +1,52 @@
+@inherits AppPage
+
+<MudDialog>
+    <DialogContent>
+        <MudText Typo="Typo.body2" Class="mb-3">
+            Currently in <b>@Current.ClassName@(Current.Section is null ? "" : $" - {Current.Section}")</b> (@Current.AcademicYear).
+            The current enrolment is closed and a new one opened, so history is kept. A new roll number is assigned in the target section.
+            Use promotion for year changes.
+        </MudText>
+        <MudGrid Spacing="2">
+            <StudentClassPicker @bind-CampusId="campusId" AcademicYearId="Current.AcademicYearId" @bind-YearGroupId="yearGroupId" @bind-SectionId="sectionId"
+                                ShowYear="false" SectionRequired="true" Md="4" />
+            <MudItem xs="12" sm="6">
+                <MudDatePicker @bind-Date="effective" Label="Effective date" Required="true" DateFormat="dd MMM yyyy" Variant="Variant.Outlined" Margin="Margin.Dense"
+                               Error="HasError(nameof(StudentTransferRequest.EffectiveDate))" ErrorText="@ErrorFor(nameof(StudentTransferRequest.EffectiveDate))" />
+            </MudItem>
+            <MudItem xs="12">
+                <MudTextField @bind-Value="reason" Label="Reason" Required="true" Variant="Variant.Outlined" Margin="Margin.Dense"
+                              Error="HasError(nameof(StudentTransferRequest.Reason))" ErrorText="@ErrorFor(nameof(StudentTransferRequest.Reason))" />
+            </MudItem>
+        </MudGrid>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => MudDialog.Cancel())">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Save"
+                   Disabled="@(Busy || sectionId is null || effective is null || string.IsNullOrWhiteSpace(reason))">Transfer</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public Guid StudentId { get; set; }
+    [Parameter, EditorRequired] public StudentEnrolmentView Current { get; set; } = default!;
+
+    private Guid? campusId, yearGroupId, sectionId;
+    private DateTime? effective = DateTime.Today;
+    private string reason = "";
+
+    protected override void OnInitialized()
+    {
+        campusId = Current.CampusId;
+        yearGroupId = Current.YearGroupId;
+    }
+
+    private async Task Save()
+    {
+        var request = new StudentTransferRequest(sectionId!.Value, DateOnly.FromDateTime(effective!.Value), reason.Trim());
+        StudentDetail? updated = null;
+        if (await Run(async () => updated = await Api.PostAsync<StudentDetail>($"api/students/{StudentId}/transfer", request), "Student transferred."))
+            MudDialog.Close(DialogResult.Ok(updated));
+    }
+}

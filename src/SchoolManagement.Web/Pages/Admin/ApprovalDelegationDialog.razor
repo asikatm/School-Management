@@ -1,0 +1,80 @@
+@inherits AppPage
+
+<MudDialog>
+    <DialogContent>
+        @if (canSearchUsers)
+        {
+            <MudAutocomplete T="UserListItem" @bind-Value="toUser" Label="Delegate to" Variant="Variant.Outlined" Class="mb-3"
+                             SearchFunc="SearchUsers" ToStringFunc="@(u => u is null ? "" : $"{u.FullName} ({u.UserName})")"
+                             DebounceInterval="300" MinCharacters="2" ResetValueOnEmptyText="true"
+                             Error="HasError(nameof(ApprovalDelegationRequest.ToUserId))" ErrorText="@ErrorFor(nameof(ApprovalDelegationRequest.ToUserId))" />
+        }
+        else
+        {
+            <MudTextField @bind-Value="toUserIdText" Label="Delegate to (user id)" Variant="Variant.Outlined" Class="mb-3"
+                          HelperText="Ask an administrator for your colleague's user id."
+                          Error="HasError(nameof(ApprovalDelegationRequest.ToUserId))" ErrorText="@ErrorFor(nameof(ApprovalDelegationRequest.ToUserId))" />
+        }
+        <MudGrid>
+            <MudItem xs="6">
+                <MudDatePicker @bind-Date="starts" Label="From" Variant="Variant.Outlined" DateFormat="dd MMM yyyy" />
+            </MudItem>
+            <MudItem xs="6">
+                <MudDatePicker @bind-Date="ends" Label="Until (inclusive)" Variant="Variant.Outlined" DateFormat="dd MMM yyyy" MinDate="starts"
+                               Error="HasError(nameof(ApprovalDelegationRequest.EndsAtUtc))" ErrorText="@ErrorFor(nameof(ApprovalDelegationRequest.EndsAtUtc))" />
+            </MudItem>
+        </MudGrid>
+        <MudSelect T="string" @bind-Value="requestType" Label="Request type" Variant="Variant.Outlined" Class="mt-3">
+            <MudSelectItem T="string" Value="@All">All request types</MudSelectItem>
+            @foreach (var t in AdminLookups.ApprovalRequestTypes)
+            {
+                <MudSelectItem T="string" Value="@t">@AdminLookups.Humanize(t)</MudSelectItem>
+            }
+        </MudSelect>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="() => MudDialog.Cancel()">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Save" Disabled="@(Busy || ToUserId is null || starts is null || ends is null)">Delegate</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    private const string All = "*";
+
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+
+    private bool canSearchUsers;
+    private UserListItem? toUser;
+    private string? toUserIdText;
+    private DateTime? starts = DateTime.Today;
+    private DateTime? ends = DateTime.Today.AddDays(7);
+    private string requestType = All;
+
+    private Guid? ToUserId => canSearchUsers ? toUser?.Id : Guid.TryParse(toUserIdText, out var id) ? id : null;
+
+    protected override void OnInitialized() => canSearchUsers = Session.Has(P.Users.View);
+
+    private async Task<IEnumerable<UserListItem>> SearchUsers(string text, CancellationToken ct)
+    {
+        try
+        {
+            var page = await Api.GetAsync<PagedResult<UserListItem>>(ApiClient.Query("api/users", ("search", text), ("type", UserType.Staff), ("pageSize", 20)));
+            return page.Items.Where(u => u.IsActive && u.Id != Session.Me?.User.Id);
+        }
+        catch (Exception ex) when (ex is ApiException or HttpRequestException)
+        {
+            return [];
+        }
+    }
+
+    // Dates are school days in Dhaka (UTC+6): the period runs from local midnight on the first day to local midnight after the last.
+    private static DateTime DhakaMidnightUtc(DateTime date) => DateTime.SpecifyKind(date.Date.AddHours(-6), DateTimeKind.Utc);
+
+    private async Task Save()
+    {
+        var body = new ApprovalDelegationRequest(ToUserId!.Value, DhakaMidnightUtc(starts!.Value), DhakaMidnightUtc(ends!.Value.AddDays(1)),
+            requestType == All ? null : requestType);
+        if (await Run(() => Api.PostAsync("api/approvals/delegations", body), "Delegation saved."))
+            MudDialog.Close(DialogResult.Ok(true));
+    }
+}

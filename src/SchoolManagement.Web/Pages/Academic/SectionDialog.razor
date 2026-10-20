@@ -1,0 +1,117 @@
+@inherits AppPage
+
+<MudDialog>
+    <DialogContent>
+        <MudGrid Spacing="2">
+            <MudItem xs="12" sm="6">
+                <MudSelect T="Guid?" @bind-Value="campusId" Label="Campus" Required="true" Disabled="@(Item is not null)">
+                    @foreach (var c in Campuses)
+                    {
+                        <MudSelectItem T="Guid?" Value="c.Id">@c.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudSelect T="Guid?" @bind-Value="yearId" Label="Academic year" Required="true" Disabled="@(Item is not null)">
+                    @foreach (var y in Years.Where(y => y.Status is AcademicYearStatus.Draft or AcademicYearStatus.Open || y.Id == yearId))
+                    {
+                        <MudSelectItem T="Guid?" Value="y.Id">@y.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudSelect T="Guid?" @bind-Value="yearGroupId" Label="Class" Required="true" Disabled="@(Item is not null)">
+                    @foreach (var p in Programmes)
+                    {
+                        @foreach (var g in p.YearGroups)
+                        {
+                            <MudSelectItem T="Guid?" Value="g.Id">@p.Name › @g.Name</MudSelectItem>
+                        }
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="6" sm="3">
+                <MudTextField @bind-Value="name" Label="Section name" Required="true" Placeholder="e.g. A"
+                              Error="HasError(nameof(SectionRequest.Name))" ErrorText="@ErrorFor(nameof(SectionRequest.Name))" />
+            </MudItem>
+            <MudItem xs="6" sm="3">
+                <MudNumericField @bind-Value="capacity" Label="Capacity" Min="1" Max="200"
+                                 Error="HasError(nameof(SectionRequest.Capacity))" ErrorText="@ErrorFor(nameof(SectionRequest.Capacity))" />
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudSelect T="Guid?" @bind-Value="shiftId" Label="Shift" Clearable="true">
+                    @foreach (var s in Shifts.Where(s => s.CampusId == campusId))
+                    {
+                        <MudSelectItem T="Guid?" Value="s.Id">@s.Name (@s.StartTime.ToString("HH:mm")–@s.EndTime.ToString("HH:mm"))</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudTextField @bind-Value="room" Label="Room" />
+            </MudItem>
+            <MudItem xs="12">
+                @if (Staff.Count > 0)
+                {
+                    <MudSelect T="Guid?" @bind-Value="teacherId" Label="Class teacher" Clearable="true">
+                        @foreach (var u in Staff.Where(u => u.IsActive || u.Id == teacherId).OrderBy(u => u.FullName))
+                        {
+                            <MudSelectItem T="Guid?" Value="u.Id">@u.FullName (@u.UserName)</MudSelectItem>
+                        }
+                    </MudSelect>
+                }
+                else
+                {
+                    <MudText Typo="Typo.caption">
+                        Class teacher: @(teacherId is null ? "none" : "assigned") — choosing a class teacher requires permission to view users.
+                    </MudText>
+                }
+            </MudItem>
+        </MudGrid>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="() => MudDialog.Cancel()">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Save"
+                   Disabled="@(Busy || campusId is null || yearId is null || yearGroupId is null || string.IsNullOrWhiteSpace(name))">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public SectionView? Item { get; set; }
+    [Parameter] public IReadOnlyList<CampusView> Campuses { get; set; } = [];
+    [Parameter] public IReadOnlyList<AcademicYearView> Years { get; set; } = [];
+    [Parameter] public IReadOnlyList<ProgrammeView> Programmes { get; set; } = [];
+    [Parameter] public IReadOnlyList<ShiftView> Shifts { get; set; } = [];
+    [Parameter] public IReadOnlyList<UserListItem> Staff { get; set; } = [];
+    [Parameter] public Guid? DefaultCampusId { get; set; }
+    [Parameter] public Guid? DefaultYearId { get; set; }
+    [Parameter] public Guid? DefaultYearGroupId { get; set; }
+
+    private Guid? campusId, yearId, yearGroupId, shiftId, teacherId;
+    private string name = "";
+    private int capacity = 40;
+    private string? room;
+
+    protected override void OnInitialized()
+    {
+        if (Item is null)
+        {
+            (campusId, yearId, yearGroupId) = (DefaultCampusId, DefaultYearId, DefaultYearGroupId);
+            return;
+        }
+        (campusId, yearId, yearGroupId, name, capacity, shiftId, teacherId, room) =
+            (Item.CampusId, Item.AcademicYearId, Item.YearGroupId, Item.Name, Item.Capacity, Item.ShiftId, Item.ClassTeacherUserId, Item.Room);
+    }
+
+    private async Task Save()
+    {
+        var request = new SectionRequest(campusId!.Value, yearId!.Value, yearGroupId!.Value, name.Trim(), capacity, shiftId, teacherId,
+            string.IsNullOrWhiteSpace(room) ? null : room.Trim());
+        var ok = await Run(async () =>
+        {
+            if (Item is null) await Api.PostAsync<Guid>("api/structure/sections", request);
+            else await Api.PutAsync($"api/structure/sections/{Item.Id}", request);
+        }, "Section saved.");
+        if (ok) MudDialog.Close(DialogResult.Ok(true));
+    }
+}

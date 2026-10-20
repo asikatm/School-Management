@@ -1,0 +1,46 @@
+@inherits AppPage
+@* On-screen preview of an issued ID card, with its QR code fetched through the authenticated API. *@
+
+<MudPaper Outlined="true" Class="pa-3" Style="width:340px">
+    <div class="d-flex gap-3">
+        <div class="flex-grow-1">
+            <MudText Typo="Typo.caption" Color="Color.Secondary">@Card.CampusName</MudText>
+            <MudText Typo="Typo.subtitle1"><b>@Card.Name</b></MudText>
+            @if (!string.IsNullOrEmpty(Card.NameBn))
+            {
+                <MudText Typo="Typo.body2">@Card.NameBn</MudText>
+            }
+            <MudText Typo="Typo.body2">@Card.ClassName@(Card.Section is null ? "" : $" - {Card.Section}")@(Card.RollNo is null ? "" : $" · Roll {Card.RollNo}")</MudText>
+            <MudText Typo="Typo.body2">Adm. no @Card.AdmissionNo@(Card.BloodGroup is null ? "" : $" · {Card.BloodGroup}")</MudText>
+            <MudText Typo="Typo.caption" Class="d-block">Card @Card.CardNo · valid until @Format.Date(Card.ValidUntil)</MudText>
+            @if (!Card.HasPhoto)
+            {
+                <MudText Typo="Typo.caption" Color="Color.Warning" Class="d-block">No photo on file</MudText>
+            }
+        </div>
+        @if (qrUrl is not null)
+        {
+            <img src="@qrUrl" alt="QR" style="width:96px;height:96px" />
+        }
+    </div>
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired] public StudentIdCardData Card { get; set; } = default!;
+
+    private string? qrUrl;
+    private string? loadedFor;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (loadedFor == Card.CardNo) return;
+        loadedFor = Card.CardNo;
+        qrUrl = null;
+        try
+        {
+            var file = await Api.GetFileAsync($"api/students/id-cards/{Uri.EscapeDataString(Card.CardNo)}/qr");
+            qrUrl = $"data:{file.ContentType};base64,{Convert.ToBase64String(file.Content)}";
+        }
+        catch (ApiException) { /* the preview works without the QR */ }
+    }
+}

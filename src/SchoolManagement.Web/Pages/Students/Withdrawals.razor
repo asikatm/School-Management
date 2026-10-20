@@ -1,0 +1,116 @@
+﻿@page "/students/withdrawals"
+@inherits AppPage
+
+<PageTitle>Withdrawals</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-1">Withdrawals</MudText>
+<MudText Typo="Typo.body2" Class="mb-4">
+    Requests are raised from a student's profile. Dues are cleared across modules, approvals run in the approval workflow, then the TC is issued here.
+</MudText>
+
+<MudPaper Class="pa-4 mb-4 d-flex flex-wrap align-center gap-2">
+    <MudSelect T="WithdrawalStatus?" Value="status" ValueChanged="OnStatus" Label="Status" Clearable="true" Placeholder="All"
+               Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:260px" ToStringFunc="@(s => s is { } v ? Format.Enum(v) : "")">
+        @foreach (var s in Enum.GetValues<WithdrawalStatus>())
+        {
+            <MudSelectItem T="WithdrawalStatus?" Value="@s">@Format.Enum(s)</MudSelectItem>
+        }
+    </MudSelect>
+    <MudSpacer />
+    <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Refresh" OnClick="Load" Disabled="Busy">Refresh</MudButton>
+</MudPaper>
+
+<MudTable Items="items" Dense="true" Hover="true" Loading="Busy" RowsPerPage="50">
+    <HeaderContent>
+        <MudTh>Student</MudTh>
+        <MudTh>Requested</MudTh>
+        <MudTh>Last day</MudTh>
+        <MudTh>Reason</MudTh>
+        <MudTh>Status</MudTh>
+        <MudTh>Dues</MudTh>
+        <MudTh></MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd DataLabel="Student">
+            <MudLink Href="@($"students/{context.StudentId}")">@(context.StudentName ?? "—")</MudLink>
+            <MudText Typo="Typo.caption" Class="d-block">@context.AdmissionNo</MudText>
+        </MudTd>
+        <MudTd DataLabel="Requested">@Format.Date(context.CreatedAtUtc)</MudTd>
+        <MudTd DataLabel="Last day">@Format.Date(context.LastAttendanceDate)</MudTd>
+        <MudTd DataLabel="Reason">
+            @context.Reason
+            @if (!string.IsNullOrEmpty(context.DestinationSchool))
+            {
+                <MudText Typo="Typo.caption" Class="d-block">To: @context.DestinationSchool</MudText>
+            }
+        </MudTd>
+        <MudTd DataLabel="Status"><WithdrawalStatusChip Status="context.Status" ApprovalRequestId="context.ApprovalRequestId" /></MudTd>
+        <MudTd DataLabel="Dues">
+            @{ var pending = context.Clearance.Count(c => !c.Cleared); }
+            <MudTooltip>
+                <ChildContent>
+                    <MudText Typo="Typo.body2" Color="@(pending == 0 ? Color.Success : Color.Error)">
+                        @(pending == 0 ? "All cleared" : $"{pending} pending")
+                    </MudText>
+                </ChildContent>
+                <TooltipContent>
+                    @foreach (var c in context.Clearance)
+                    {
+                        <div>@(c.Cleared ? "✓" : "✗") @c.Area: @c.Detail</div>
+                    }
+                </TooltipContent>
+            </MudTooltip>
+        </MudTd>
+        <MudTd Style="text-align:right;white-space:nowrap">
+            @if (StudentChoices.IsOpen(context) && Session.Has(P.Students.Edit))
+            {
+                <MudIconButton Icon="@Icons.Material.Filled.Refresh" Size="Size.Small" title="Re-check dues" OnClick="@(() => Recheck(context))" Disabled="Busy" />
+            }
+            @if (StudentChoices.CanComplete(context) && Session.Has(P.Students.Approve))
+            {
+                <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => Complete(context))" Disabled="Busy">Issue TC</MudButton>
+            }
+            @if (context.TransferCertificateId is { } tcId)
+            {
+                <MudButton Size="Size.Small" StartIcon="@Icons.Material.Filled.Print" OnClick="@(() => PrintTc(tcId))" Disabled="Busy">TC</MudButton>
+            }
+        </MudTd>
+    </RowTemplate>
+    <NoRecordsContent><MudText>No withdrawal requests.</MudText></NoRecordsContent>
+    <PagerContent><MudTablePager /></PagerContent>
+</MudTable>
+
+@code {
+    private WithdrawalStatus? status;
+    private List<StudentWithdrawalView> items = [];
+
+    protected override Task OnInitializedAsync() => Load();
+
+    private async Task Load() =>
+        await Run(async () => items = await Api.GetAsync<List<StudentWithdrawalView>>(ApiClient.Query("api/students/withdrawals", ("status", status))));
+
+    private Task OnStatus(WithdrawalStatus? value)
+    {
+        status = value;
+        return Load();
+    }
+
+    private async Task Recheck(StudentWithdrawalView w)
+    {
+        StudentWithdrawalView? updated = null;
+        if (await Run(async () => updated = await Api.PostAsync<StudentWithdrawalView>($"api/students/withdrawals/{w.Id}/recheck"), "Clearance re-checked."))
+            items = items.Select(x => x.Id == w.Id ? updated! : x).ToList();
+    }
+
+    private async Task Complete(StudentWithdrawalView w)
+    {
+        var dlg = await Dialogs.ShowAsync<CompleteWithdrawalDialog>("Issue transfer certificate",
+            new DialogParameters<CompleteWithdrawalDialog> { { x => x.Withdrawal, w } },
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (await dlg.Result is not { Canceled: false, Data: StudentTransferCertificateView tc }) return;
+        await Load();
+        await PrintTc(tc.Id);
+    }
+
+    private Task PrintTc(Guid id) => OpenFile($"api/students/transfer-certificates/{id}/print");
+}

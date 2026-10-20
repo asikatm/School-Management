@@ -1,0 +1,131 @@
+@page "/notifications"
+@inherits AppPage
+
+<PageTitle>My notifications</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-4">My notifications</MudText>
+
+<MudTabs Elevation="1" Rounded="true" ApplyEffectsToContainer="true" PanelClass="pa-4">
+    <MudTabPanel Text="Inbox" Icon="@Icons.Material.Filled.Notifications">
+        <div class="d-flex align-center mb-2">
+            <MudSwitch T="bool" Value="unreadOnly" ValueChanged="UnreadChanged" Color="Color.Primary" Label="Unread only" />
+            <MudSpacer />
+            <MudButton Size="Size.Small" StartIcon="@Icons.Material.Filled.Refresh" OnClick="() => table.ReloadServerData()">Refresh</MudButton>
+        </div>
+        <MudTable T="NotificationInboxItem" @ref="table" ServerData="LoadAsync" Dense="true" Hover="true" RowsPerPage="25">
+            <HeaderContent>
+                <MudTh>Received</MudTh>
+                <MudTh>Message</MudTh>
+                <MudTh></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="Received" Style="white-space:nowrap">@Format.DateTime(context.CreatedAtUtc)</MudTd>
+                <MudTd DataLabel="Message" Style="@(context.ReadAtUtc is null ? "font-weight:600" : "")">
+                    @if (context.Subject is not null) { <div>@context.Subject</div> }
+                    <div style="white-space:pre-wrap;font-weight:normal">@context.Body</div>
+                    @if (LinkFor(context) is { } href)
+                    {
+                        <MudLink Href="@href" Typo="Typo.caption" OnClick="() => MarkRead(context, false)">Open @context.RelatedEntityType?.ToLowerInvariant()</MudLink>
+                    }
+                </MudTd>
+                <MudTd Style="text-align:right">
+                    @if (context.ReadAtUtc is null)
+                    {
+                        <MudButton Size="Size.Small" StartIcon="@Icons.Material.Filled.DoneAll" OnClick="() => MarkRead(context, true)" Disabled="Busy">Mark read</MudButton>
+                    }
+                </MudTd>
+            </RowTemplate>
+            <NoRecordsContent><MudText>No notifications.</MudText></NoRecordsContent>
+            <PagerContent><MudTablePager /></PagerContent>
+        </MudTable>
+    </MudTabPanel>
+    <MudTabPanel Text="Preferences" Icon="@Icons.Material.Filled.Tune">
+        @if (prefs is not null)
+        {
+            <div style="max-width:520px">
+                <MudText Typo="Typo.subtitle1" Class="mb-2">Channels</MudText>
+                <MudSwitch T="bool" @bind-Value="prefs.SmsEnabled" Color="Color.Primary" Label="SMS" />
+                <MudSwitch T="bool" @bind-Value="prefs.EmailEnabled" Color="Color.Primary" Label="Email" />
+                <MudSwitch T="bool" @bind-Value="prefs.PushEnabled" Color="Color.Primary" Label="Push notifications" />
+                <MudSwitch T="bool" @bind-Value="prefs.WhatsAppEnabled" Color="Color.Primary" Label="WhatsApp" />
+                <MudSelect T="string" @bind-Value="prefs.Language" Label="Message language" Variant="Variant.Outlined" Class="mt-4">
+                    <MudSelectItem T="string" Value="@("en")">English</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("bn")">Bangla</MudSelectItem>
+                </MudSelect>
+                <MudText Typo="Typo.subtitle1" Class="mt-4 mb-1">Quiet hours</MudText>
+                <MudText Typo="Typo.caption" Class="d-block mb-2">Non-urgent messages are held until the quiet period ends.</MudText>
+                <div class="d-flex gap-4">
+                    <MudTimePicker @bind-Time="prefs.QuietStart" Label="From" Variant="Variant.Outlined" Clearable="true" AmPm="true" />
+                    <MudTimePicker @bind-Time="prefs.QuietEnd" Label="Until" Variant="Variant.Outlined" Clearable="true" AmPm="true" />
+                </div>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-4" OnClick="SavePreferences" Disabled="Busy">Save preferences</MudButton>
+            </div>
+        }
+    </MudTabPanel>
+</MudTabs>
+
+@code {
+    private sealed class Prefs
+    {
+        public bool SmsEnabled { get; set; }
+        public bool EmailEnabled { get; set; }
+        public bool PushEnabled { get; set; }
+        public bool WhatsAppEnabled { get; set; }
+        public string Language { get; set; } = "en";
+        public TimeSpan? QuietStart { get; set; }
+        public TimeSpan? QuietEnd { get; set; }
+    }
+
+    private MudTable<NotificationInboxItem> table = default!;
+    private bool unreadOnly;
+    private Prefs? prefs;
+
+    protected override async Task OnInitializedAsync() =>
+        await Run(async () => Show(await Api.GetAsync<NotificationPreferenceView>("api/notifications/preferences")));
+
+    private async Task<TableData<NotificationInboxItem>> LoadAsync(TableState state, CancellationToken ct)
+    {
+        PagedResult<NotificationInboxItem>? result = null;
+        await Run(async () => result = await Api.GetAsync<PagedResult<NotificationInboxItem>>(ApiClient.Query("api/notifications/inbox",
+            ("unreadOnly", unreadOnly), ("page", state.Page + 1), ("pageSize", state.PageSize))));
+        return new TableData<NotificationInboxItem> { Items = result?.Items ?? [], TotalItems = result?.TotalCount ?? 0 };
+    }
+
+    private async Task UnreadChanged(bool value)
+    {
+        unreadOnly = value;
+        await table.ReloadServerData();
+    }
+
+    // Links to the detail pages other modules provide, where the related entity has one.
+    private static string? LinkFor(NotificationInboxItem item) => (item.RelatedEntityType, item.RelatedEntityId) switch
+    {
+        (null, _) or (_, null) => null,
+        ("Student", var id) => $"students/{id}",
+        ("Application", var id) => $"admission/applications/{id}",
+        ("Enquiry", var id) => $"admission/enquiries/{id}",
+        ("ApprovalRequest", _) => "admin/approvals",
+        _ => null
+    };
+
+    private async Task MarkRead(NotificationInboxItem item, bool reload)
+    {
+        if (item.ReadAtUtc is not null) return;
+        if (await Run(() => Api.PostAsync($"api/notifications/inbox/{item.Id}/read")) && reload)
+            await table.ReloadServerData();
+    }
+
+    private void Show(NotificationPreferenceView p) => prefs = new Prefs
+    {
+        SmsEnabled = p.SmsEnabled, EmailEnabled = p.EmailEnabled, PushEnabled = p.PushEnabled, WhatsAppEnabled = p.WhatsAppEnabled,
+        Language = p.Language, QuietStart = p.QuietHoursStart?.ToTimeSpan(), QuietEnd = p.QuietHoursEnd?.ToTimeSpan()
+    };
+
+    private async Task SavePreferences()
+    {
+        var p = prefs!;
+        var request = new NotificationPreferenceView(p.SmsEnabled, p.EmailEnabled, p.PushEnabled, p.WhatsAppEnabled, p.Language,
+            p.QuietStart is { } s ? TimeOnly.FromTimeSpan(s) : null, p.QuietEnd is { } e ? TimeOnly.FromTimeSpan(e) : null);
+        await Run(async () => Show(await Api.PutAsync<NotificationPreferenceView>("api/notifications/preferences", request)), "Preferences saved.");
+    }
+}

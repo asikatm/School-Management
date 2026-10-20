@@ -1,0 +1,54 @@
+@inherits AppPage
+@* Letter, recorded response and revocation for one offer; raises Changed with the updated offer. *@
+
+<div class="d-flex flex-wrap gap-1 justify-end">
+    <MudMenu Icon="@Icons.Material.Filled.Description" Size="Size.Small" Dense="true" AriaLabel="Offer letter">
+        <MudMenuItem OnClick="@(() => OpenFile($"api/admission/offers/{Offer.Id}/letter?lang=en"))">Offer letter (English)</MudMenuItem>
+        <MudMenuItem OnClick="@(() => OpenFile($"api/admission/offers/{Offer.Id}/letter?lang=bn"))">Offer letter (Bangla)</MudMenuItem>
+    </MudMenu>
+    @if (Offer.Status == OfferStatus.Pending)
+    {
+        if (Session.Has(P.Admission.Edit))
+        {
+            <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Success" Disabled="Busy" OnClick="() => Respond(true)">Accept</MudButton>
+            <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Warning" Disabled="Busy" OnClick="() => Respond(false)">Decline</MudButton>
+        }
+        if (Session.Has(P.Admission.Approve))
+        {
+            <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Error" Disabled="Busy" OnClick="Revoke">Revoke</MudButton>
+        }
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public AdmissionOfferView Offer { get; set; } = default!;
+    [Parameter] public EventCallback<AdmissionOfferView> Changed { get; set; }
+
+    private async Task Respond(bool accept)
+    {
+        var note = await ReasonDialog.AskAsync(Dialogs, accept ? "Record acceptance" : "Record decline", "Note (optional)",
+            accept ? "Accept offer" : "Decline offer", required: false,
+            message: accept
+                ? $"Record that the guardian accepted offer {Offer.OfferNo} for {Offer.ApplicantName}. The admission invoice is raised from the offer's fee lines."
+                : $"Record that the guardian declined offer {Offer.OfferNo}. The seat is released to the waiting list.",
+            color: accept ? Color.Success : Color.Warning);
+        if (note is null) return;
+
+        AdmissionOfferView? updated = null;
+        if (await Run(async () => updated = await Api.PostAsync<AdmissionOfferView>($"api/admission/offers/{Offer.Id}/respond",
+                new AdmissionOfferResponseRequest(accept, ApplicationForm.Blank(note))), accept ? "Offer accepted." : "Offer declined."))
+            await Changed.InvokeAsync(updated);
+    }
+
+    private async Task Revoke()
+    {
+        var reason = await ReasonDialog.AskAsync(Dialogs, "Revoke offer", "Reason", "Revoke", required: true,
+            message: $"Revoke offer {Offer.OfferNo}? The applicant returns to the shortlist and the seat goes to the waiting list.", color: Color.Error);
+        if (reason is null) return;
+
+        AdmissionOfferView? updated = null;
+        if (await Run(async () => updated = await Api.PostAsync<AdmissionOfferView>($"api/admission/offers/{Offer.Id}/revoke", new AdmissionReasonRequest(reason)),
+                "Offer revoked."))
+            await Changed.InvokeAsync(updated);
+    }
+}

@@ -1,0 +1,106 @@
+@page "/admission/applications"
+@inherits AppPage
+
+<PageTitle>Applications</PageTitle>
+
+<div class="d-flex flex-wrap align-center gap-2 mb-4">
+    <MudText Typo="Typo.h4">Applications</MudText>
+    <MudSpacer />
+    @if (Session.Has(P.Admission.Create))
+    {
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" Href="admission/applications/new">New application</MudButton>
+    }
+</div>
+
+<MudPaper Class="pa-4 mb-4">
+    <div class="d-flex flex-wrap gap-3 align-center">
+        <MudTextField T="string" @bind-Value="search" Label="Search" Placeholder="Application no., name or guardian phone"
+                      Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Variant="Variant.Outlined" Margin="Margin.Dense"
+                      DebounceInterval="400" OnDebounceIntervalElapsed="Reload" Clearable="true" Style="min-width:260px" />
+        <AdmissionScopePicker Lookups="lookups" @bind-CampusId="campusId" @bind-YearId="yearId" @bind-ClassId="classId" Changed="Reload" />
+        <MudSelect T="ApplicationStatus?" Value="status" ValueChanged="v => { status = v; return Reload(); }" Label="Status" Clearable="true" Placeholder="All statuses"
+                   Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Style="min-width:160px">
+            @foreach (var s in Enum.GetValues<ApplicationStatus>())
+            {
+                <MudSelectItem T="ApplicationStatus?" Value="s">@Format.Enum(s)</MudSelectItem>
+            }
+        </MudSelect>
+    </div>
+</MudPaper>
+
+<MudTable @ref="table" T="ApplicationListItem" ServerData="LoadAsync" Hover="true" Dense="true" Striped="true" Elevation="1"
+          OnRowClick="@((TableRowClickEventArgs<ApplicationListItem> e) => Nav.NavigateTo($"admission/applications/{e.Item!.Id}"))" RowStyle="cursor:pointer">
+    <HeaderContent>
+        <MudTh>Application no.</MudTh>
+        <MudTh>Applicant</MudTh>
+        <MudTh>Date of birth</MudTh>
+        <MudTh>Class</MudTh>
+        <MudTh>Campus</MudTh>
+        <MudTh>Year</MudTh>
+        <MudTh>Status</MudTh>
+        <MudTh>Fee</MudTh>
+        <MudTh Style="text-align:right">Test %</MudTh>
+        <MudTh Style="text-align:right">Merit</MudTh>
+        <MudTh>Guardian phone</MudTh>
+        <MudTh>Submitted</MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd DataLabel="Application no.">
+            @context.ApplicationNo
+            @if (context.IsOnline)
+            {
+                <MudTooltip Text="Applied online"><MudIcon Icon="@Icons.Material.Filled.Language" Size="Size.Small" Color="Color.Info" Class="ml-1" /></MudTooltip>
+            }
+        </MudTd>
+        <MudTd DataLabel="Applicant">@context.Name</MudTd>
+        <MudTd DataLabel="Date of birth">@Format.Date(context.DateOfBirth)</MudTd>
+        <MudTd DataLabel="Class">@lookups.Class(context.YearGroupId)</MudTd>
+        <MudTd DataLabel="Campus">@lookups.Campus(context.CampusId)</MudTd>
+        <MudTd DataLabel="Year">@lookups.Year(context.AcademicYearId)</MudTd>
+        <MudTd DataLabel="Status"><MudChip T="string" Size="Size.Small" Color="AdmissionUi.StatusColor(context.Status)">@Format.Enum(context.Status)</MudChip></MudTd>
+        <MudTd DataLabel="Fee">
+            @if (context.ApplicationFeePaid)
+            {
+                <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Color="Color.Success" Size="Size.Small" />
+            }
+            else
+            {
+                <MudText Typo="Typo.caption" Color="Color.Warning">Unpaid</MudText>
+            }
+        </MudTd>
+        <MudTd DataLabel="Test %" Style="text-align:right">@(context.TestScore?.ToString("0.##") ?? "—")</MudTd>
+        <MudTd DataLabel="Merit" Style="text-align:right">
+            @(context.MeritScore?.ToString("0.##") ?? "—")@(context.MeritRank is { } r ? $" (#{r})" : "")
+        </MudTd>
+        <MudTd DataLabel="Guardian phone">@context.GuardianPhone</MudTd>
+        <MudTd DataLabel="Submitted">@Format.Date(context.SubmittedAtUtc)</MudTd>
+    </RowTemplate>
+    <NoRecordsContent><MudText Class="pa-4">No applications match the filters.</MudText></NoRecordsContent>
+    <PagerContent><MudTablePager PageSizeOptions="new[] { 25, 50, 100 }" /></PagerContent>
+</MudTable>
+
+@code {
+    private MudTable<ApplicationListItem>? table;
+    private AdmissionLookups lookups = AdmissionLookups.Empty;
+    private string? search;
+    private Guid? campusId;
+    private Guid? yearId;
+    private Guid? classId;
+    private ApplicationStatus? status;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Run(async () => lookups = await AdmissionLookups.LoadAsync(Api, Session));
+    }
+
+    private Task Reload() => table?.ReloadServerData() ?? Task.CompletedTask;
+
+    private async Task<TableData<ApplicationListItem>> LoadAsync(TableState state, CancellationToken ct)
+    {
+        PagedResult<ApplicationListItem>? result = null;
+        await Run(async () => result = await Api.GetAsync<PagedResult<ApplicationListItem>>(ApiClient.Query("api/admission/applications",
+            ("campusId", campusId), ("academicYearId", yearId), ("yearGroupId", classId), ("status", status), ("search", search?.Trim()),
+            ("page", state.Page + 1), ("pageSize", state.PageSize))));
+        return new TableData<ApplicationListItem> { Items = result?.Items ?? [], TotalItems = result?.TotalCount ?? 0 };
+    }
+}

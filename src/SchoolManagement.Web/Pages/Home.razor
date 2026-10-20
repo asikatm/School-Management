@@ -1,0 +1,31 @@
+﻿@page "/"
+@inherits AppPage
+
+<PageTitle>Dashboard · Lighthouse School</PageTitle>
+
+<MudText Typo="Typo.h4">Welcome, @Session.Me?.User.FullName</MudText>
+<MudText Typo="Typo.body1" Color="Color.Secondary" Class="mb-6">
+    @string.Join(" · ", Session.Me?.Roles.Select(r => $"{r.Role} — {r.CampusName}") ?? [])
+</MudText>
+
+<MudGrid>
+    @foreach (var group in NavCatalog.Groups)
+    {
+        var items = group.Items.Where(i => i.AnyOf.Length == 0 || Session.HasAny(i.AnyOf)).ToList();
+        if (items.Count == 0) continue;
+        <MudItem xs="12" md="6" lg="3">
+            <MudPaper Class="pa-4" Style="height:100%">
+                <div class="d-flex align-center mb-3">
+                    <MudIcon Icon="@group.Icon" Color="Color.Primary" Class="mr-2" />
+                    <MudText Typo="Typo.h6">@group.Title</MudText>
+                </div>
+                <MudList T="string" Dense="true">
+                    @foreach (var item in items)
+                    {
+                        <MudListItem T="string" Icon="@item.Icon" Href="@item.Href">@item.Title</MudListItem>
+                    }
+                </MudList>
+            </MudPaper>
+        </MudItem>
+    }
+</MudGrid>

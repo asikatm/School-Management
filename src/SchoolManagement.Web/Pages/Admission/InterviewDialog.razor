@@ -1,0 +1,81 @@
+@inherits AppPage
+
+<MudDialog>
+    <DialogContent>
+        @if (Interview is null)
+        {
+            <div class="d-flex gap-3 mb-3">
+                <MudDatePicker @bind-Date="date" Label="Date" Required="true" Variant="Variant.Outlined" DateFormat="dd MMM yyyy" />
+                <MudTimePicker @bind-Time="time" Label="Time" Required="true" Variant="Variant.Outlined" AmPm="true" />
+            </div>
+            <MudTextField @bind-Value="location" Label="Location / room" Variant="Variant.Outlined" Class="mb-3" />
+            @if (Lookups.Users.Count > 0)
+            {
+                <MudSelect T="Guid?" Value="interviewerId" ValueChanged="PickInterviewer" Label="Interviewer (staff user)" Clearable="true" Variant="Variant.Outlined" Class="mb-3">
+                    @foreach (var u in Lookups.Users)
+                    {
+                        <MudSelectItem T="Guid?" Value="u.Id">@u.FullName</MudSelectItem>
+                    }
+                </MudSelect>
+            }
+            <MudTextField @bind-Value="interviewer" Label="Interviewer name" Variant="Variant.Outlined" />
+        }
+        else
+        {
+            <MudText Typo="Typo.body2" Class="mb-3">Interview on @Format.DateTime(Interview.ScheduledAtUtc)@(Interview.InterviewerName is null ? "" : $" with {Interview.InterviewerName}").</MudText>
+            <MudNumericField T="decimal" @bind-Value="score" Label="Score (0–100)" Min="0" Max="100" Variant="Variant.Outlined" Class="mb-3"
+                             Error="HasError(nameof(ApplicationInterviewResultRequest.Score))" ErrorText="@ErrorFor(nameof(ApplicationInterviewResultRequest.Score))" />
+            <MudTextField @bind-Value="notes" Label="Notes" Variant="Variant.Outlined" Lines="3" />
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="() => MudDialog.Cancel()">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Save" Disabled="@(Busy || Interview is null && date is null)">
+            @(Interview is null ? "Schedule" : "Save result")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] public IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public Guid ApplicationId { get; set; }
+
+    /// <summary>Set to record the result of this interview; null schedules a new one.</summary>
+    [Parameter] public ApplicationInterviewView? Interview { get; set; }
+    [Parameter] public AdmissionLookups Lookups { get; set; } = AdmissionLookups.Empty;
+
+    private DateTime? date = AdmissionUi.TodayDhaka.AddDays(1);
+    private TimeSpan? time = new(10, 0, 0);
+    private string? location;
+    private string? interviewer;
+    private Guid? interviewerId;
+    private decimal score;
+    private string? notes;
+
+    protected override void OnInitialized()
+    {
+        if (Interview is not null)
+        {
+            score = Interview.Score ?? 0;
+            notes = Interview.Notes;
+        }
+    }
+
+    private void PickInterviewer(Guid? id)
+    {
+        interviewerId = id;
+        if (id is not null) interviewer = Lookups.Users.FirstOrDefault(u => u.Id == id)?.FullName;
+    }
+
+    private async Task Save()
+    {
+        ApplicationInterviewView? saved = null;
+        var ok = Interview is null
+            ? await Run(async () => saved = await Api.PostAsync<ApplicationInterviewView>($"api/admission/applications/{ApplicationId}/interviews",
+                new ApplicationInterviewRequest(AdmissionUi.ToUtc(date, time)!.Value, ApplicationForm.Blank(location), ApplicationForm.Blank(interviewer), interviewerId)),
+                "Interview scheduled.")
+            : await Run(async () => saved = await Api.PutAsync<ApplicationInterviewView>($"api/admission/applications/interviews/{Interview.Id}",
+                new ApplicationInterviewResultRequest(score, ApplicationForm.Blank(notes))), "Interview result saved.");
+        if (ok) MudDialog.Close(DialogResult.Ok(saved));
+    }
+}

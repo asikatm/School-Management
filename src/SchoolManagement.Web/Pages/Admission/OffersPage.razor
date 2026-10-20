@@ -1,0 +1,89 @@
+@page "/admission/offers"
+@inherits AppPage
+
+<PageTitle>Offers</PageTitle>
+
+<div class="d-flex flex-wrap align-center gap-2 mb-4">
+    <div>
+        <MudText Typo="Typo.h4">Offers</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary">Unanswered offers expire automatically at their deadline and the seat passes to the waiting list.</MudText>
+    </div>
+</div>
+
+<MudPaper Class="pa-4 mb-4">
+    <div class="d-flex flex-wrap gap-3 align-center">
+        <AdmissionScopePicker Lookups="lookups" @bind-CampusId="campusId" ShowYear="false" ShowClass="false" Changed="Reload" />
+        <MudSelect T="OfferStatus?" Value="status" ValueChanged="v => { status = v; return Reload(); }" Label="Status" Clearable="true" Placeholder="All statuses"
+                   Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Style="min-width:160px">
+            @foreach (var s in Enum.GetValues<OfferStatus>())
+            {
+                <MudSelectItem T="OfferStatus?" Value="s">@Format.Enum(s)</MudSelectItem>
+            }
+        </MudSelect>
+    </div>
+</MudPaper>
+
+<MudTable @ref="table" T="AdmissionOfferView" ServerData="LoadAsync" Hover="true" Dense="true" Striped="true" Elevation="1">
+    <HeaderContent>
+        <MudTh>Offer no.</MudTh>
+        <MudTh>Applicant</MudTh>
+        <MudTh>Campus</MudTh>
+        <MudTh>Status</MudTh>
+        <MudTh>Issued</MudTh>
+        <MudTh>Expires</MudTh>
+        <MudTh>Response</MudTh>
+        <MudTh Style="text-align:right">Fees</MudTh>
+        <MudTh></MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd DataLabel="Offer no.">@context.OfferNo</MudTd>
+        <MudTd DataLabel="Applicant">
+            <MudLink Href="@($"admission/applications/{context.ApplicationId}")">@context.ApplicantName</MudLink>
+            <MudText Typo="Typo.caption" Color="Color.Secondary" Class="d-block">@context.ApplicationNo</MudText>
+        </MudTd>
+        <MudTd DataLabel="Campus">@lookups.Campus(context.CampusId)</MudTd>
+        <MudTd DataLabel="Status"><MudChip T="string" Size="Size.Small" Color="AdmissionUi.OfferColor(context.Status)">@Format.Enum(context.Status)</MudChip></MudTd>
+        <MudTd DataLabel="Issued">@Format.Date(context.IssuedAtUtc)</MudTd>
+        <MudTd DataLabel="Expires">
+            <MudText Typo="Typo.body2" Color="@(context.Status == OfferStatus.Pending && context.ExpiresAtUtc < DateTime.UtcNow.AddDays(2) ? Color.Error : Color.Default)">
+                @Format.DateTime(context.ExpiresAtUtc)
+            </MudText>
+        </MudTd>
+        <MudTd DataLabel="Response">
+            @if (context.RespondedAtUtc is not null)
+            {
+                <span>@Format.Date(context.RespondedAtUtc)</span>
+            }
+            @if (!string.IsNullOrWhiteSpace(context.ResponseNote))
+            {
+                <MudText Typo="Typo.caption" Class="d-block">@context.ResponseNote</MudText>
+            }
+        </MudTd>
+        <MudTd DataLabel="Fees" Style="text-align:right">@(context.FeeLines.Count == 0 ? "—" : Format.Money(context.FeeLines.Sum(l => l.Amount)))</MudTd>
+        <MudTd><OfferActions Offer="context" Changed="_ => Reload()" /></MudTd>
+    </RowTemplate>
+    <NoRecordsContent><MudText Class="pa-4">No offers match the filters.</MudText></NoRecordsContent>
+    <PagerContent><MudTablePager PageSizeOptions="new[] { 25, 50, 100 }" /></PagerContent>
+</MudTable>
+
+@code {
+    private MudTable<AdmissionOfferView>? table;
+    private AdmissionLookups lookups = AdmissionLookups.Empty;
+    private Guid? campusId;
+    private OfferStatus? status = OfferStatus.Pending;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Run(async () => lookups = await AdmissionLookups.LoadAsync(Api, Session));
+    }
+
+    private Task Reload() => table?.ReloadServerData() ?? Task.CompletedTask;
+
+    private async Task<TableData<AdmissionOfferView>> LoadAsync(TableState state, CancellationToken ct)
+    {
+        PagedResult<AdmissionOfferView>? result = null;
+        await Run(async () => result = await Api.GetAsync<PagedResult<AdmissionOfferView>>(ApiClient.Query("api/admission/offers",
+            ("campusId", campusId), ("status", status), ("page", state.Page + 1), ("pageSize", state.PageSize))));
+        return new TableData<AdmissionOfferView> { Items = result?.Items ?? [], TotalItems = result?.TotalCount ?? 0 };
+    }
+}

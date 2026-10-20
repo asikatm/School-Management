@@ -1,0 +1,165 @@
+@page "/academic/years"
+@inherits AppPage
+
+<PageTitle>Academic years</PageTitle>
+
+<div class="d-flex align-center mb-4">
+    <MudText Typo="Typo.h4">Academic years</MudText>
+    <MudSpacer />
+    @if (canManage)
+    {
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="() => Edit(null)" Disabled="Busy">New year</MudButton>
+    }
+</div>
+
+@if (current is not null)
+{
+    <MudAlert Severity="Severity.Info" Class="mb-4" Dense="true">
+        Current year: <b>@current.Name</b> (@Format.Date(current.StartDate) – @Format.Date(current.EndDate))
+        @if (current.Terms.Count > 0)
+        {
+            <span> · @current.Terms.Count term(s)</span>
+        }
+    </MudAlert>
+}
+else if (!loading)
+{
+    <MudAlert Severity="Severity.Warning" Class="mb-4" Dense="true">No academic year is marked as current. Open a year and make it current.</MudAlert>
+}
+
+<MudTable T="AcademicYearView" Items="items" Loading="loading" Hover="true" Elevation="1">
+    <HeaderContent>
+        <MudTh>Name</MudTh>
+        <MudTh>Dates</MudTh>
+        <MudTh>Status</MudTh>
+        <MudTh>Terms</MudTh>
+        <MudTh></MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd DataLabel="Name">
+            <b>@context.Name</b>
+            @if (context.IsCurrent)
+            {
+                <MudChip T="string" Size="Size.Small" Color="Color.Primary" Class="ml-2">Current</MudChip>
+            }
+        </MudTd>
+        <MudTd DataLabel="Dates">@Format.Date(context.StartDate) – @Format.Date(context.EndDate)</MudTd>
+        <MudTd DataLabel="Status">
+            <MudChip T="string" Size="Size.Small" Color="StatusColor(context.Status)">@Format.Enum(context.Status)</MudChip>
+        </MudTd>
+        <MudTd DataLabel="Terms">
+            @foreach (var t in context.Terms)
+            {
+                <MudTooltip Text="@($"{Format.Date(t.StartDate)} – {Format.Date(t.EndDate)}{(t.IsLocked ? " (locked)" : "")}")">
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Icon="@(t.IsLocked ? Icons.Material.Filled.Lock : null)">@t.Name</MudChip>
+                </MudTooltip>
+            }
+            @if (context.Terms.Count == 0)
+            {
+                <span>—</span>
+            }
+        </MudTd>
+        <MudTd Style="text-align:right; white-space:nowrap">
+            @if (canManage)
+            {
+                @if (context.Status is AcademicYearStatus.Draft or AcademicYearStatus.Open)
+                {
+                    <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" title="Edit" OnClick="() => Edit(context)" Disabled="Busy" />
+                }
+                <MudMenu Icon="@Icons.Material.Filled.MoreVert" Size="Size.Small" Dense="true" AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight" Disabled="Busy">
+                    @if (context.Status is AcademicYearStatus.Draft)
+                    {
+                        <MudMenuItem Icon="@Icons.Material.Filled.LockOpen" OnClick="() => Transition(context, AcademicYearStatus.Open)">Open year</MudMenuItem>
+                    }
+                    @if (context.Status is AcademicYearStatus.Open && !context.IsCurrent)
+                    {
+                        <MudMenuItem Icon="@Icons.Material.Filled.Star" OnClick="() => SetCurrent(context)">Make current</MudMenuItem>
+                    }
+                    @if (context.Status is AcademicYearStatus.Open)
+                    {
+                        <MudMenuItem Icon="@Icons.Material.Filled.Lock" OnClick="() => Transition(context, AcademicYearStatus.Locked)">Lock year</MudMenuItem>
+                    }
+                    @if (context.Status is AcademicYearStatus.Locked)
+                    {
+                        <MudMenuItem Icon="@Icons.Material.Filled.LockOpen" OnClick="() => Transition(context, AcademicYearStatus.Open)">Re-open year</MudMenuItem>
+                        <MudMenuItem Icon="@Icons.Material.Filled.Archive" OnClick="() => Transition(context, AcademicYearStatus.Archived)">Archive year</MudMenuItem>
+                    }
+                    @if (context.Status is AcademicYearStatus.Open or AcademicYearStatus.Locked)
+                    {
+                        <MudMenuItem Icon="@Icons.Material.Filled.FastForward" Href="@($"academic/years/{context.Id}/rollover")">Roll over to next year…</MudMenuItem>
+                    }
+                    @if (context.Status is AcademicYearStatus.Archived)
+                    {
+                        <MudMenuItem Disabled="true">Archived years are read-only</MudMenuItem>
+                    }
+                </MudMenu>
+            }
+        </MudTd>
+    </RowTemplate>
+    <NoRecordsContent><MudText>No academic years yet.</MudText></NoRecordsContent>
+</MudTable>
+
+@code {
+    private List<AcademicYearView> items = [];
+    private AcademicYearView? current;
+    private bool loading = true;
+    private bool canManage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        canManage = Session.Has(P.Settings.Manage);
+        await Load();
+    }
+
+    private async Task Load()
+    {
+        loading = true;
+        await Run(async () => items = await Api.GetAsync<List<AcademicYearView>>("api/academic-years"));
+        try
+        {
+            current = await Api.GetAsync<AcademicYearView>("api/academic-years/current");
+        }
+        catch (ApiException)
+        {
+            current = null; // 404 when no year is current
+        }
+        loading = false;
+    }
+
+    private static Color StatusColor(AcademicYearStatus s) => s switch
+    {
+        AcademicYearStatus.Draft => Color.Default,
+        AcademicYearStatus.Open => Color.Success,
+        AcademicYearStatus.Locked => Color.Warning,
+        _ => Color.Dark
+    };
+
+    private async Task Edit(AcademicYearView? item)
+    {
+        var dlg = await Dialogs.ShowAsync<AcademicYearDialog>(item is null ? "New academic year" : $"Edit {item.Name}",
+            new DialogParameters<AcademicYearDialog> { { x => x.Item, item } },
+            new DialogOptions { MaxWidth = MaxWidth.Large, FullWidth = true });
+        var r = await dlg.Result;
+        if (r is { Canceled: false }) await Load();
+    }
+
+    private async Task Transition(AcademicYearView y, AcademicYearStatus target)
+    {
+        var (action, message) = target switch
+        {
+            AcademicYearStatus.Locked => ("lock", $"Lock {y.Name}? Every record of the year (marks, attendance, enrolments…) becomes read-only until it is re-opened."),
+            AcademicYearStatus.Archived => ("archive", $"Archive {y.Name}? The year becomes permanently read-only; its records stay searchable."),
+            _ => ("open", $"Open {y.Name} for data entry?")
+        };
+        if (!await Confirm($"{char.ToUpper(action[0])}{action[1..]} academic year", message, char.ToUpper(action[0]) + action[1..])) return;
+        if (await Run(() => Api.PostAsync<AcademicYearView>($"api/academic-years/{y.Id}/{action}"), $"{y.Name}: {Format.Enum(target).ToLowerInvariant()}."))
+            await Load();
+    }
+
+    private async Task SetCurrent(AcademicYearView y)
+    {
+        if (!await Confirm("Make current", $"Make {y.Name} the current academic year? Screens that default to the current year will switch to it.", "Make current")) return;
+        if (await Run(() => Api.PostAsync<AcademicYearView>($"api/academic-years/{y.Id}/set-current"), $"{y.Name} is now the current year."))
+            await Load();
+    }
+}

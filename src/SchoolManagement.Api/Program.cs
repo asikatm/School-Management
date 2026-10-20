@@ -121,8 +121,13 @@ app.Use(async (ctx, next) =>
     h["X-Content-Type-Options"] = "nosniff";
     h["X-Frame-Options"] = "DENY";
     h["Referrer-Policy"] = "no-referrer";
-    if (!ctx.Request.Path.StartsWithSegments("/scalar") && !ctx.Request.Path.StartsWithSegments("/openapi"))
+    if (ctx.Request.Path.StartsWithSegments("/api"))
         h["Content-Security-Policy"] = "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; frame-ancestors 'none'";
+    else if (!ctx.Request.Path.StartsWithSegments("/scalar") && !ctx.Request.Path.StartsWithSegments("/openapi"))
+        // Blazor WebAssembly UI (SchoolManagement.Web): needs wasm-unsafe-eval, MudBlazor inline styles and Google Fonts.
+        h["Content-Security-Policy"] = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; " +
+                                       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; " +
+                                       "img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'";
     await next();
 });
 
@@ -143,6 +148,11 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
 app.MapGet("/health", () => Results.Ok(new { status = "ok" })).AllowAnonymous();
+// Serves the Blazor WebAssembly UI (SchoolManagement.Web, incl. _framework) from the same origin as the API.
+app.MapStaticAssets();
+// Unknown API paths stay 404; every other path is a UI route handled by the Blazor router.
+app.Map("/api/{**rest}", () => Results.NotFound()).AllowAnonymous().ExcludeFromDescription();
+app.MapFallbackToFile("index.html");
 
 await using (var scope = app.Services.CreateAsyncScope())
 {

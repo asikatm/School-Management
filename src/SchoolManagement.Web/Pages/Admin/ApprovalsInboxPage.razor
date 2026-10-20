@@ -1,0 +1,114 @@
+@page "/admin/approvals"
+@inherits AppPage
+
+<PageTitle>My approvals</PageTitle>
+
+<div class="d-flex align-center mb-4 gap-2">
+    <MudText Typo="Typo.h4">My approvals</MudText>
+    <MudSpacer />
+    @if (Session.Has(P.Approvals.View))
+    {
+        <MudButton Variant="Variant.Text" Href="admin/approval-requests" StartIcon="@Icons.Material.Filled.List">All requests</MudButton>
+        <MudButton Variant="Variant.Text" Href="admin/approval-workflows" StartIcon="@Icons.Material.Filled.AccountTree">Workflows</MudButton>
+    }
+</div>
+
+<MudTabs Elevation="1" Rounded="true" ApplyEffectsToContainer="true" PanelClass="pa-4">
+    <MudTabPanel Text="@($"Waiting for me ({inbox.Count})")" Icon="@Icons.Material.Filled.Inbox">
+        <div class="d-flex mb-2">
+            <MudSpacer />
+            <MudButton Size="Size.Small" StartIcon="@Icons.Material.Filled.Refresh" OnClick="LoadInbox" Disabled="Busy">Refresh</MudButton>
+        </div>
+        <ApprovalRequestTable Items="inbox" Names="names" Loading="loadingInbox" OnDecide="Decide"
+                              Empty="Nothing is waiting for your approval." />
+    </MudTabPanel>
+    <MudTabPanel Text="Delegations" Icon="@Icons.Material.Filled.SwapHoriz">
+        <div class="d-flex align-center mb-2">
+            <MudText Typo="Typo.body2">Hand your approvals to a colleague for a period, e.g. while you are on leave.</MudText>
+            <MudSpacer />
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="AddDelegation">Delegate</MudButton>
+        </div>
+        <MudTable T="ApprovalDelegationView" Items="delegations" Dense="true" Hover="true">
+            <HeaderContent>
+                <MudTh>From</MudTh>
+                <MudTh>To</MudTh>
+                <MudTh>Starts</MudTh>
+                <MudTh>Ends</MudTh>
+                <MudTh>Request type</MudTh>
+                <MudTh></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="From">@names[context.FromUserId]</MudTd>
+                <MudTd DataLabel="To">@names[context.ToUserId]</MudTd>
+                <MudTd DataLabel="Starts">@Format.DateTime(context.StartsAtUtc)</MudTd>
+                <MudTd DataLabel="Ends">
+                    @Format.DateTime(context.EndsAtUtc)
+                    @if (context.EndsAtUtc < DateTime.UtcNow) { <MudChip T="string" Size="Size.Small">Expired</MudChip> }
+                </MudTd>
+                <MudTd DataLabel="Request type">@(context.RequestType is null ? "All" : AdminLookups.Humanize(context.RequestType))</MudTd>
+                <MudTd Style="text-align:right">
+                    @if (context.FromUserId == Session.Me?.User.Id)
+                    {
+                        <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" title="Remove" OnClick="() => RemoveDelegation(context)" Disabled="Busy" />
+                    }
+                </MudTd>
+            </RowTemplate>
+            <NoRecordsContent><MudText>No delegations from or to you.</MudText></NoRecordsContent>
+        </MudTable>
+    </MudTabPanel>
+</MudTabs>
+
+@code {
+    private List<ApprovalRequestView> inbox = [];
+    private List<ApprovalDelegationView> delegations = [];
+    private AdminUserNames names = default!;
+    private bool loadingInbox = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        names = new AdminUserNames(Api, Session);
+        await LoadInbox();
+        await LoadDelegations();
+    }
+
+    private async Task LoadInbox()
+    {
+        loadingInbox = true;
+        await Run(async () =>
+        {
+            inbox = await Api.GetAsync<List<ApprovalRequestView>>("api/approvals/inbox");
+            await names.LoadAsync(inbox.SelectMany(r => r.Decisions.SelectMany(d => new[] { d.DecidedBy, d.OnBehalfOf }).Append(r.RequestedBy)));
+        });
+        loadingInbox = false;
+    }
+
+    private async Task LoadDelegations()
+    {
+        await Run(async () =>
+        {
+            delegations = await Api.GetAsync<List<ApprovalDelegationView>>("api/approvals/delegations");
+            await names.LoadAsync(delegations.SelectMany(d => new Guid?[] { d.FromUserId, d.ToUserId }));
+        });
+    }
+
+    private async Task Decide((ApprovalRequestView Request, bool Approve) args)
+    {
+        var parameters = new DialogParameters<ApprovalDecisionDialog> { { x => x.Request, args.Request }, { x => x.Approve, args.Approve } };
+        var dlg = await Dialogs.ShowAsync<ApprovalDecisionDialog>(args.Approve ? "Approve request" : "Reject request", parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (await dlg.Result is { Canceled: false }) await LoadInbox();
+    }
+
+    private async Task AddDelegation()
+    {
+        var dlg = await Dialogs.ShowAsync<ApprovalDelegationDialog>("Delegate my approvals", new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (await dlg.Result is { Canceled: false }) await LoadDelegations();
+    }
+
+    private async Task RemoveDelegation(ApprovalDelegationView d)
+    {
+        if (!await Confirm("Remove delegation", $"Stop delegating to {names[d.ToUserId]}?", "Remove")) return;
+        if (await Run(() => Api.DeleteAsync($"api/approvals/delegations/{d.Id}"), "Delegation removed."))
+            await LoadDelegations();
+    }
+}

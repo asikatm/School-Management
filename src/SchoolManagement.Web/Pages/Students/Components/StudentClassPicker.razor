@@ -1,0 +1,162 @@
+@inherits AppPage
+@*
+    Cascading campus → academic year → class → section selects, rendered as MudItems (place inside a MudGrid).
+    Bind the parts you need; Changed fires after any selection changes.
+*@
+
+@if (ShowCampus)
+{
+    <MudItem xs="12" sm="6" md="@Md">
+        <MudSelect T="Guid?" Label="Campus" Value="CampusId" ValueChanged="OnCampus" Clearable="@(!Required)" Required="Required"
+                   ToStringFunc="@(id => campuses.FirstOrDefault(c => c.Id == id)?.Name ?? "")" Variant="Variant.Outlined" Margin="Margin.Dense">
+            @foreach (var c in campuses)
+            {
+                <MudSelectItem T="Guid?" Value="@c.Id">@c.Name</MudSelectItem>
+            }
+        </MudSelect>
+    </MudItem>
+}
+@if (ShowYear)
+{
+    <MudItem xs="12" sm="6" md="@Md">
+        <MudSelect T="Guid?" Label="@YearLabel" Value="AcademicYearId" ValueChanged="OnYear" Required="Required"
+                   ToStringFunc="@(id => years.FirstOrDefault(y => y.Id == id)?.Name ?? "")" Variant="Variant.Outlined" Margin="Margin.Dense">
+            @foreach (var y in years)
+            {
+                <MudSelectItem T="Guid?" Value="@y.Id">@y.Name@(y.IsCurrent ? " (current)" : "")</MudSelectItem>
+            }
+        </MudSelect>
+    </MudItem>
+}
+@if (ShowClass)
+{
+    <MudItem xs="12" sm="6" md="@Md">
+        <MudSelect T="Guid?" Label="Class" Value="YearGroupId" ValueChanged="OnClass" Clearable="@(!Required)" Required="Required"
+                   ToStringFunc="@(id => yearGroups.FirstOrDefault(y => y.Id == id)?.Name ?? "")" Variant="Variant.Outlined" Margin="Margin.Dense">
+            @foreach (var y in yearGroups)
+            {
+                <MudSelectItem T="Guid?" Value="@y.Id">@y.Name</MudSelectItem>
+            }
+        </MudSelect>
+    </MudItem>
+}
+@if (ShowSection)
+{
+    <MudItem xs="12" sm="6" md="@Md">
+        <MudSelect T="Guid?" Label="Section" Value="SectionId" ValueChanged="OnSection" Clearable="@(!SectionRequired)" Required="SectionRequired"
+                   ToStringFunc="@(id => sections.FirstOrDefault(s => s.Id == id) is { } s ? StudentLookups.SectionLabel(s) : "")"
+                   Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="@(sections.Count == 0)"
+                   HelperText="@(sections.Count == 0 ? "No sections for this selection" : null)">
+            @foreach (var s in sections)
+            {
+                <MudSelectItem T="Guid?" Value="@s.Id">@StudentLookups.SectionLabel(s)</MudSelectItem>
+            }
+        </MudSelect>
+    </MudItem>
+}
+
+@code {
+    [Parameter] public Guid? CampusId { get; set; }
+    [Parameter] public EventCallback<Guid?> CampusIdChanged { get; set; }
+    [Parameter] public Guid? AcademicYearId { get; set; }
+    [Parameter] public EventCallback<Guid?> AcademicYearIdChanged { get; set; }
+    [Parameter] public Guid? YearGroupId { get; set; }
+    [Parameter] public EventCallback<Guid?> YearGroupIdChanged { get; set; }
+    [Parameter] public Guid? SectionId { get; set; }
+    [Parameter] public EventCallback<Guid?> SectionIdChanged { get; set; }
+
+    /// <summary>Fires after any selection changes (after the bound values are updated).</summary>
+    [Parameter] public EventCallback Changed { get; set; }
+
+    [Parameter] public bool ShowCampus { get; set; } = true;
+    [Parameter] public bool ShowYear { get; set; } = true;
+    [Parameter] public bool ShowClass { get; set; } = true;
+    [Parameter] public bool ShowSection { get; set; } = true;
+    /// <summary>Campus, year and class must be chosen (no clear button); the first campus is preselected.</summary>
+    [Parameter] public bool Required { get; set; }
+    [Parameter] public bool SectionRequired { get; set; }
+    [Parameter] public string YearLabel { get; set; } = "Academic year";
+    [Parameter] public int Md { get; set; } = 3;
+
+    private List<StudentCampusOption> campuses = [];
+    private List<StudentAcademicYearOption> years = [];
+    private List<StudentYearGroupOption> yearGroups = [];
+    private List<StudentSectionOption> sections = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Run(async () =>
+        {
+            campuses = await StudentLookups.CampusesAsync(Api);
+            years = await StudentLookups.YearsAsync(Api);
+            yearGroups = await StudentLookups.YearGroupsAsync(Api);
+        });
+
+        var changed = false;
+        if (ShowYear && AcademicYearId is null && (years.FirstOrDefault(y => y.IsCurrent) ?? years.FirstOrDefault()) is { } year)
+        {
+            AcademicYearId = year.Id;
+            await AcademicYearIdChanged.InvokeAsync(AcademicYearId);
+            changed = true;
+        }
+        if (CampusId is null && (Required || campuses.Count == 1) && campuses.Count > 0)
+        {
+            CampusId = campuses[0].Id;
+            await CampusIdChanged.InvokeAsync(CampusId);
+            changed = true;
+        }
+        await LoadSectionsAsync();
+        if (changed) await Changed.InvokeAsync();
+    }
+
+    private async Task LoadSectionsAsync()
+    {
+        if (!ShowSection) return;
+        sections = [];
+        // Without a campus or class the list would span the whole school.
+        if (CampusId is not null || YearGroupId is not null)
+            await Run(async () => sections = await StudentLookups.SectionsAsync(Api, CampusId, AcademicYearId, YearGroupId));
+        if (SectionId is { } sid && sections.All(s => s.Id != sid))
+        {
+            SectionId = null;
+            await SectionIdChanged.InvokeAsync(null);
+        }
+    }
+
+    private async Task OnCampus(Guid? value)
+    {
+        CampusId = value;
+        await CampusIdChanged.InvokeAsync(value);
+        await LoadSectionsAsync();
+        await Changed.InvokeAsync();
+    }
+
+    private async Task OnYear(Guid? value)
+    {
+        AcademicYearId = value;
+        await AcademicYearIdChanged.InvokeAsync(value);
+        await LoadSectionsAsync();
+        await Changed.InvokeAsync();
+    }
+
+    private async Task OnClass(Guid? value)
+    {
+        YearGroupId = value;
+        await YearGroupIdChanged.InvokeAsync(value);
+        await LoadSectionsAsync();
+        await Changed.InvokeAsync();
+    }
+
+    private async Task OnSection(Guid? value)
+    {
+        SectionId = value;
+        await SectionIdChanged.InvokeAsync(value);
+        // Picking a section implies its class.
+        if (value is { } sid && sections.FirstOrDefault(s => s.Id == sid) is { } s && YearGroupId != s.YearGroupId && ShowClass)
+        {
+            YearGroupId = s.YearGroupId;
+            await YearGroupIdChanged.InvokeAsync(YearGroupId);
+        }
+        await Changed.InvokeAsync();
+    }
+}

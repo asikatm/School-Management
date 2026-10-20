@@ -1,0 +1,92 @@
+@inherits AppPage
+
+<MudDialog>
+    <DialogContent>
+        <MudTextField @bind-Value="name" Label="Name" Variant="Variant.Outlined" Class="mb-3" ReadOnly="@(ReadOnly || Role?.IsSystem == true)"
+                      HelperText="@(Role?.IsSystem == true ? "System role: the name cannot be changed, but permissions can be tuned." : null)"
+                      Error="HasError(nameof(RoleRequest.Name))" ErrorText="@ErrorFor(nameof(RoleRequest.Name))" />
+        <MudTextField @bind-Value="description" Label="Description" Variant="Variant.Outlined" Class="mb-4" ReadOnly="ReadOnly" />
+
+        <div class="d-flex align-center mb-2">
+            <MudText Typo="Typo.subtitle1">Permissions (@selected.Count of @Catalogue.Count)</MudText>
+            <MudSpacer />
+            @if (!ReadOnly)
+            {
+                <MudButton Size="Size.Small" OnClick="() => selected.UnionWith(Catalogue)">Select all</MudButton>
+                <MudButton Size="Size.Small" OnClick="() => selected.Clear()">Clear</MudButton>
+            }
+        </div>
+        <MudGrid Spacing="2">
+            @foreach (var group in Catalogue.GroupBy(p => p.Split('.')[0]).OrderBy(g => g.Key))
+            {
+                <MudItem xs="12" sm="6" md="4">
+                    <MudPaper Outlined="true" Class="pa-2">
+                        <MudCheckBox T="bool?" TriState="true" Value="GroupState(group)" ValueChanged="@(v => SetGroup(group, v))" ReadOnly="ReadOnly"
+                                     Label="@Title(group.Key)" Dense="true" Color="Color.Primary" Class="mud-typography-subtitle2" />
+                        @foreach (var permission in group)
+                        {
+                            <MudCheckBox T="bool" Value="selected.Contains(permission)" ValueChanged="@(v => Toggle(permission, v))" ReadOnly="ReadOnly"
+                                         Label="@permission.Split('.', 2)[1]" Dense="true" Size="Size.Small" Class="ml-4" />
+                        }
+                    </MudPaper>
+                </MudItem>
+            }
+        </MudGrid>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="() => MudDialog.Cancel()">@(ReadOnly ? "Close" : "Cancel")</MudButton>
+        @if (!ReadOnly)
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Save" Disabled="@(Busy || string.IsNullOrWhiteSpace(name))">Save</MudButton>
+        }
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public RoleView? Role { get; set; }
+    [Parameter] public IReadOnlyList<string> Catalogue { get; set; } = [];
+    [Parameter] public bool ReadOnly { get; set; }
+
+    private string name = "";
+    private string? description;
+    private HashSet<string> selected = [];
+
+    protected override void OnInitialized()
+    {
+        name = Role?.Name ?? "";
+        description = Role?.Description;
+        selected = [.. Role?.Permissions ?? []];
+    }
+
+    private bool? GroupState(IEnumerable<string> group)
+    {
+        var count = group.Count(selected.Contains);
+        return count == 0 ? false : count == group.Count() ? true : null;
+    }
+
+    // The group box toggles between all and none, whatever value the tri-state cycle proposes.
+    private void SetGroup(IEnumerable<string> group, bool? _)
+    {
+        if (GroupState(group) == true) selected.ExceptWith(group);
+        else selected.UnionWith(group);
+    }
+
+    private void Toggle(string permission, bool on)
+    {
+        if (on) selected.Add(permission);
+        else selected.Remove(permission);
+    }
+
+    private static string Title(string module) => module.Length == 0 ? module : char.ToUpperInvariant(module[0]) + module[1..];
+
+    private async Task Save()
+    {
+        var request = new RoleRequest(name.Trim(), string.IsNullOrWhiteSpace(description) ? null : description.Trim(), selected.Order().ToList());
+        RoleView? saved = null;
+        var ok = await Run(async () => saved = Role is null
+            ? await Api.PostAsync<RoleView>("api/roles", request)
+            : await Api.PutAsync<RoleView>($"api/roles/{Role.Id}", request), "Role saved.");
+        if (ok) MudDialog.Close(DialogResult.Ok(saved!));
+    }
+}

@@ -1,0 +1,45 @@
+@inherits AppPage
+
+<MudDialog>
+    <DialogContent>
+        <MudAutocomplete T="StudentListItem" @bind-Value="selected" SearchFunc="Search" Label="Student" Placeholder="Admission no, name or guardian phone"
+                         ToStringFunc="@(s => s is null ? "" : $"{s.Name} ({s.AdmissionNo})")" MinCharacters="2" DebounceInterval="300"
+                         Variant="Variant.Outlined" AdornmentIcon="@Icons.Material.Filled.Search" ShowProgressIndicator="true">
+            <ItemTemplate Context="s">
+                <div>
+                    <MudText Typo="Typo.body2">@s.Name (@s.AdmissionNo)</MudText>
+                    <MudText Typo="Typo.caption">@(s.ClassName ?? "No class")@(s.Section is null ? "" : $" - {s.Section}") · @(s.GuardianPhone ?? "")</MudText>
+                </div>
+            </ItemTemplate>
+        </MudAutocomplete>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => MudDialog.Cancel())">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(selected is null)" OnClick="@(() => MudDialog.Close(DialogResult.Ok(selected)))">
+            @ActionText
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public Guid? ExcludeId { get; set; }
+    [Parameter] public string ActionText { get; set; } = "Select";
+
+    private StudentListItem? selected;
+
+    private async Task<IEnumerable<StudentListItem>> Search(string text, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return [];
+        try
+        {
+            var result = await Api.GetAsync<PagedResult<StudentListItem>>(ApiClient.Query("api/students", ("search", text.Trim()), ("pageSize", 20)));
+            return result.Items.Where(s => s.Id != ExcludeId);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Describe(), Severity.Error);
+            return [];
+        }
+    }
+}

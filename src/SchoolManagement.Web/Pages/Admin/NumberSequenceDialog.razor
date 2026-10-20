@@ -1,0 +1,64 @@
+@inherits AppPage
+
+<MudDialog>
+    <DialogContent>
+        <MudTextField T="string" Value="prefix" ValueChanged="PrefixChanged" Label="Prefix" Variant="Variant.Outlined" Class="mb-3" Immediate="true" DebounceInterval="400"
+                      Error="HasError(nameof(NumberSequenceRequest.Prefix))" ErrorText="@ErrorFor(nameof(NumberSequenceRequest.Prefix))" />
+        <MudTextField T="string" Value="pattern" ValueChanged="PatternChanged" Label="Pattern" Variant="Variant.Outlined" Class="mb-3" Immediate="true" DebounceInterval="400"
+                      HelperText="e.g. {PREFIX}-{CAMPUS}-{YEAR}-{SEQ:5}"
+                      Error="HasError(nameof(NumberSequenceRequest.Pattern))" ErrorText="@ErrorFor(nameof(NumberSequenceRequest.Pattern))" />
+        <MudNumericField T="long" Value="nextValue" ValueChanged="NextChanged" Label="Next value" Variant="Variant.Outlined" Min="Sequence.NextValue" Class="mb-3"
+                         HelperText="@($"Cannot go below {Sequence.NextValue:N0}.")"
+                         Error="HasError(nameof(NumberSequenceRequest.NextValue))" ErrorText="@ErrorFor(nameof(NumberSequenceRequest.NextValue))" />
+        <MudAlert Severity="Severity.Info" Dense="true">Next number: <b>@(preview ?? "…")</b></MudAlert>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="() => MudDialog.Cancel()">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Save" Disabled="@(Busy || string.IsNullOrWhiteSpace(pattern))">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter, EditorRequired] public NumberSequenceView Sequence { get; set; } = default!;
+    [Parameter] public string? CampusCode { get; set; }
+
+    private string prefix = "";
+    private string pattern = "";
+    private long nextValue;
+    private string? preview;
+
+    protected override async Task OnInitializedAsync()
+    {
+        (prefix, pattern, nextValue) = (Sequence.Prefix, Sequence.Pattern, Sequence.NextValue);
+        await Preview();
+    }
+
+    private async Task PrefixChanged(string value) { prefix = value ?? ""; await Preview(); }
+    private async Task PatternChanged(string value) { pattern = value ?? ""; await Preview(); }
+    private async Task NextChanged(long value) { nextValue = value; await Preview(); }
+
+    // Formats without consuming a number; errors (e.g. a half-typed pattern) just clear the preview.
+    private async Task Preview()
+    {
+        if (string.IsNullOrWhiteSpace(pattern)) { preview = null; return; }
+        try
+        {
+            // The API answers with text/plain (a bare string), so read the raw body.
+            var file = await Api.GetFileAsync(ApiClient.Query("api/settings/numbering/preview",
+                ("pattern", pattern), ("prefix", prefix), ("campusCode", CampusCode), ("value", nextValue)));
+            preview = System.Text.Encoding.UTF8.GetString(file.Content).Trim('"');
+        }
+        catch (Exception ex) when (ex is ApiException or HttpRequestException)
+        {
+            preview = null;
+        }
+    }
+
+    private async Task Save()
+    {
+        var request = new NumberSequenceRequest(prefix.Trim(), pattern.Trim(), nextValue == Sequence.NextValue ? null : nextValue);
+        if (await Run(() => Api.PutAsync($"api/settings/numbering/{Sequence.Id}", request), "Numbering format saved."))
+            MudDialog.Close(DialogResult.Ok(true));
+    }
+}

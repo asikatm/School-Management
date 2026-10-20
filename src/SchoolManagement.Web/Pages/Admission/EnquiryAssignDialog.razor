@@ -1,0 +1,50 @@
+@inherits AppPage
+
+<MudDialog>
+    <DialogContent>
+        @if (Lookups.Users.Count > 0)
+        {
+            <MudSelect T="Guid?" @bind-Value="userId" Label="Counsellor" Clearable="true" Placeholder="Unassigned" Variant="Variant.Outlined">
+                @foreach (var u in Lookups.Users)
+                {
+                    <MudSelectItem T="Guid?" Value="u.Id">@u.FullName (@u.UserName)</MudSelectItem>
+                }
+            </MudSelect>
+        }
+        else
+        {
+            <MudText Typo="Typo.body2" Class="mb-2">Take this enquiry yourself, or release it so another counsellor can pick it up.</MudText>
+            <MudRadioGroup T="Guid?" @bind-Value="userId">
+                <MudRadio T="Guid?" Value="Session.Me?.User.Id">Assign to me</MudRadio>
+                <MudRadio T="Guid?" Value="null">Unassigned</MudRadio>
+            </MudRadioGroup>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="() => MudDialog.Cancel()">Cancel</MudButton>
+        @if (Lookups.Users.Count > 0 && Session.Me is not null)
+        {
+            <MudButton OnClick="() => Save(Session.Me.User.Id)" Disabled="Busy">Assign to me</MudButton>
+        }
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="() => Save(userId)" Disabled="Busy">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] public IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public Guid EnquiryId { get; set; }
+    [Parameter] public Guid? Current { get; set; }
+    [Parameter] public AdmissionLookups Lookups { get; set; } = AdmissionLookups.Empty;
+
+    private Guid? userId;
+
+    protected override void OnInitialized() => userId = Current ?? Session.Me?.User.Id;
+
+    private async Task Save(Guid? user)
+    {
+        EnquiryDetail? saved = null;
+        var ok = await Run(async () => saved = await Api.PostAsync<EnquiryDetail>($"api/admission/enquiries/{EnquiryId}/assign", new EnquiryAssignRequest(user)),
+            user is null ? "Enquiry unassigned." : "Enquiry assigned.");
+        if (ok) MudDialog.Close(DialogResult.Ok(saved));
+    }
+}

@@ -1,0 +1,79 @@
+@page "/admission/applications/new"
+@page "/admission/applications/{Id:guid}/edit"
+@inherits AppPage
+
+<PageTitle>@(Id is null ? "New application" : "Edit application")</PageTitle>
+
+<MudBreadcrumbs Items="breadcrumbs" Class="px-0 pt-0" />
+<MudText Typo="Typo.h4" Class="mb-4">@(Id is null ? "New application" : $"Edit application {applicationNo}")</MudText>
+
+@if (form is null)
+{
+    if (Busy)
+    {
+        <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+    }
+}
+else if (!editable)
+{
+    <MudAlert Severity="Severity.Warning">This application can no longer be edited (only drafts, submitted and under-review applications can be changed).</MudAlert>
+}
+else
+{
+    <ApplicationEditor Form="form" Campuses="lookups.CampusOptions" Years="lookups.YearOptions" Classes="lookups.ClassOptions" ErrorFor="ErrorFor"
+                       SiblingHelp="@(Id is null ? null : "Re-enter the sibling's admission number when saving.")" />
+    <div class="d-flex gap-2">
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Save" OnClick="Save" Disabled="@(Busy || !form.IsComplete)">
+            @(Id is null ? "Create draft" : "Save changes")
+        </MudButton>
+        <MudButton Variant="Variant.Text" Href="@(Id is null ? "admission/applications" : $"admission/applications/{Id}")">Cancel</MudButton>
+    </div>
+}
+
+@code {
+    [Parameter] public Guid? Id { get; set; }
+
+    private AdmissionLookups lookups = AdmissionLookups.Empty;
+    private ApplicationForm? form;
+    private string? applicationNo;
+    private bool editable = true;
+    private List<BreadcrumbItem> breadcrumbs = [];
+
+    protected override async Task OnParametersSetAsync()
+    {
+        form = null;
+        await Run(async () =>
+        {
+            lookups = await AdmissionLookups.LoadAsync(Api, Session);
+            if (Id is { } id)
+            {
+                var app = await Api.GetAsync<ApplicationDetail>($"api/admission/applications/{id}");
+                applicationNo = app.ApplicationNo;
+                editable = AdmissionUi.IsEditable(app.Status);
+                form = ApplicationForm.From(app);
+                if (form.Guardians.Count == 0) form.Guardians.Add(new GuardianForm { IsPrimaryContact = true });
+            }
+            else
+            {
+                form = new ApplicationForm
+                {
+                    CampusId = lookups.Campuses.Count == 1 ? lookups.Campuses[0].Id : null,
+                    AcademicYearId = lookups.CurrentYearId
+                };
+            }
+        });
+        breadcrumbs = Id is null
+            ? [new("Applications", "admission/applications"), new("New", null, true)]
+            : [new("Applications", "admission/applications"), new(applicationNo ?? "Application", $"admission/applications/{Id}"), new("Edit", null, true)];
+    }
+
+    private async Task Save()
+    {
+        var request = form!.ToRequest();
+        ApplicationDetail? saved = null;
+        var ok = await Run(async () => saved = Id is { } id
+            ? await Api.PutAsync<ApplicationDetail>($"api/admission/applications/{id}", request)
+            : await Api.PostAsync<ApplicationDetail>("api/admission/applications", request), "Application saved.");
+        if (ok && saved is not null) Nav.NavigateTo($"admission/applications/{saved.Id}");
+    }
+}

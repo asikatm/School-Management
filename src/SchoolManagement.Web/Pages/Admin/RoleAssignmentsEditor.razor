@@ -1,0 +1,55 @@
+@* Rows of (role, campus). Campus Guid.Empty means "All campuses" (sent to the API as null). *@
+
+@foreach (var row in Rows)
+{
+    <div class="d-flex align-center gap-2 mb-2">
+        <MudSelect T="Guid" @bind-Value="row.RoleId" Label="Role" Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="Disabled" Style="min-width:200px">
+            @foreach (var r in Roles)
+            {
+                <MudSelectItem T="Guid" Value="@r.Id">@r.Name</MudSelectItem>
+            }
+        </MudSelect>
+        <MudSelect T="Guid" @bind-Value="row.CampusId" Label="Campus" Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="Disabled" Style="min-width:200px">
+            <MudSelectItem T="Guid" Value="Guid.Empty">All campuses</MudSelectItem>
+            @foreach (var c in Campuses)
+            {
+                <MudSelectItem T="Guid" Value="@c.Id">@c.Name</MudSelectItem>
+            }
+        </MudSelect>
+        @if (!Disabled)
+        {
+            <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" Size="Size.Small" title="Remove" OnClick="() => Rows.Remove(row)" />
+        }
+    </div>
+}
+@if (Rows.Count == 0)
+{
+    <MudText Typo="Typo.body2" Class="mb-2 mud-text-secondary">No roles assigned.</MudText>
+}
+@if (!Disabled)
+{
+    <MudButton Size="Size.Small" StartIcon="@Icons.Material.Filled.Add" OnClick="Add" Disabled="Roles.Count == 0">Add role</MudButton>
+}
+
+@code {
+    public sealed class Row
+    {
+        public Guid RoleId { get; set; }
+        public Guid CampusId { get; set; }
+    }
+
+    [Parameter, EditorRequired] public List<Row> Rows { get; set; } = [];
+    [Parameter, EditorRequired] public IReadOnlyList<RoleView> Roles { get; set; } = [];
+    [Parameter, EditorRequired] public IReadOnlyList<AdminCampusOption> Campuses { get; set; } = [];
+    [Parameter] public bool Disabled { get; set; }
+
+    public static List<Row> FromView(IEnumerable<RoleAssignmentView> roles) =>
+        roles.Select(r => new Row { RoleId = r.RoleId, CampusId = r.CampusId ?? Guid.Empty }).ToList();
+
+    public static List<RoleAssignmentRequest> ToRequest(IEnumerable<Row> rows) =>
+        rows.Where(r => r.RoleId != Guid.Empty)
+            .Select(r => new RoleAssignmentRequest(r.RoleId, r.CampusId == Guid.Empty ? null : r.CampusId))
+            .Distinct().ToList();
+
+    private void Add() => Rows.Add(new Row { RoleId = Roles[0].Id });
+}

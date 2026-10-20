@@ -1,0 +1,171 @@
+@page "/public/apply"
+@inherits AppPage
+
+<PageTitle>Online application · Lighthouse School</PageTitle>
+
+<PublicShell Subtitle="Online admission application">
+    @if (options is null || Token is not null && app is null)
+    {
+        if (Busy)
+        {
+            <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+        }
+        else if (Token is not null)
+        {
+            <MudAlert Severity="Severity.Error">This application link is not valid. Check the link, or <MudLink Href="public/apply">start a new application</MudLink>.</MudAlert>
+        }
+    }
+    else if (app is null)
+    {
+        <MudAlert Severity="Severity.Info" Class="mb-4">
+            Fill in the form and save it as a draft. You will get a private link to come back, upload documents and submit the application.
+        </MudAlert>
+        <ApplicationEditor Form="form" Campuses="campuses" Years="years" Classes="classes" ErrorFor="ErrorFor" ErrorPrefix="Application." />
+        <div style="position:absolute;left:-10000px" aria-hidden="true">
+            <label>Website <input type="text" tabindex="-1" autocomplete="off" @bind="website" /></label>
+        </div>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Large" OnClick="Start" Disabled="@(Busy || !form.IsComplete)">Save and continue</MudButton>
+    }
+    else
+    {
+        var link = Nav.ToAbsoluteUri($"public/apply?token={Uri.EscapeDataString(Token!)}").ToString();
+        <MudPaper Class="pa-4 mb-4">
+            <div class="d-flex flex-wrap align-center gap-2">
+                <div>
+                    <MudText Typo="Typo.h6">Application @app.ApplicationNo</MudText>
+                    <MudText Typo="Typo.body2">@app.FullName</MudText>
+                </div>
+                <MudSpacer />
+                <MudChip T="string" Color="AdmissionUi.StatusColor(app.Status)">@Format.Enum(app.Status)</MudChip>
+            </div>
+            <MudAlert Severity="@(IsNew ? Severity.Warning : Severity.Normal)" Dense="true" Class="mt-3">
+                Keep this private link to return to your application: <b style="word-break:break-all">@link</b>
+            </MudAlert>
+        </MudPaper>
+
+        @if (app.Status == ApplicationStatus.Draft)
+        {
+            <ApplicationEditor Form="form" Campuses="campuses" Years="years" Classes="classes" ErrorFor="ErrorFor" />
+
+            <MudPaper Class="pa-4 mb-4">
+                <MudText Typo="Typo.h6" Class="mb-2">Documents</MudText>
+                <MudText Typo="Typo.body2" Class="mb-3">Upload the birth registration certificate, a recent photo and the latest report card (PDF or image, up to 10 MB each).</MudText>
+                <div class="d-flex flex-wrap gap-3 align-center mb-3">
+                    <MudSelect T="string" @bind-Value="documentType" Label="Document type" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Style="min-width:220px">
+                        @foreach (var t in AdmissionUi.DocumentTypes)
+                        {
+                            <MudSelectItem T="string" Value="t">@t</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <MudFileUpload T="IBrowserFile" FilesChanged="Upload" Accept=".pdf,.jpg,.jpeg,.png" Disabled="Busy">
+                        <ActivatorContent>
+                            <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.UploadFile" Disabled="Busy">Upload</MudButton>
+                        </ActivatorContent>
+                    </MudFileUpload>
+                </div>
+                @foreach (var d in app.Documents)
+                {
+                    <div class="d-flex align-center gap-2 mb-1">
+                        <MudIcon Icon="@Icons.Material.Filled.InsertDriveFile" Size="Size.Small" />
+                        <MudText Typo="Typo.body2"><b>@d.DocumentType</b> — @d.FileName (@AdmissionUi.Size(d.SizeBytes))</MudText>
+                    </div>
+                }
+            </MudPaper>
+
+            <div class="d-flex flex-wrap gap-2">
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Save" OnClick="SaveDraft" Disabled="@(Busy || !form.IsComplete)">Save draft</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Send" OnClick="Submit" Disabled="@(Busy || !form.IsComplete)">Submit application</MudButton>
+            </div>
+        }
+        else
+        {
+            <MudPaper Class="pa-4">
+                <MudText Class="mb-2">Your application has been submitted@(app.SubmittedAtUtc is null ? "" : $" on {Format.Date(app.SubmittedAtUtc)}"). The admission office will contact you about the next steps.</MudText>
+                @foreach (var t in app.Tests)
+                {
+                    <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">
+                        Admission test: @t.SessionName on @Format.DateTime(t.StartsAtUtc)@(t.Room is null ? "" : $", room {t.Room}") — admit card @t.AdmitCardNo@(t.SeatNo is null ? "" : $", seat {t.SeatNo}").
+                    </MudAlert>
+                }
+                @foreach (var i in app.Interviews.Where(i => !i.IsCompleted))
+                {
+                    <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">Interview on @Format.DateTime(i.ScheduledAtUtc)@(i.Location is null ? "" : $" at {i.Location}").</MudAlert>
+                }
+            </MudPaper>
+        }
+    }
+</PublicShell>
+
+@code {
+    [SupplyParameterFromQuery(Name = "token")] public string? Token { get; set; }
+    [SupplyParameterFromQuery(Name = "new")] public bool IsNew { get; set; }
+
+    private AdmissionPublicOptions? options;
+    private IReadOnlyList<AdmissionOption> campuses = [];
+    private IReadOnlyList<AdmissionOption> years = [];
+    private IReadOnlyList<AdmissionOption> classes = [];
+    private ApplicationForm form = new();
+    private ApplicationDetail? app;
+    private string? website;
+    private string documentType = AdmissionUi.DocumentTypes[0];
+
+    private string AppUrl => $"api/public/admission/applications/{Uri.EscapeDataString(Token!)}";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        app = null;
+        await Run(async () =>
+        {
+            options ??= await Api.GetAsync<AdmissionPublicOptions>("api/public/admission/options");
+            campuses = options.Campuses.Select(Option).ToList();
+            years = options.AcademicYears.Select(Option).ToList();
+            classes = options.Classes.Select(Option).ToList();
+            if (Token is not null)
+            {
+                app = await Api.GetAsync<ApplicationDetail>(AppUrl);
+                form = ApplicationForm.From(app);
+                if (form.Guardians.Count == 0) form.Guardians.Add(new GuardianForm { IsPrimaryContact = true });
+            }
+            else
+            {
+                form = new ApplicationForm
+                {
+                    CampusId = campuses.Count == 1 ? campuses[0].Id : null,
+                    AcademicYearId = years.Count == 1 ? years[0].Id : null
+                };
+            }
+        });
+    }
+
+    private static AdmissionOption Option(AdmissionPublicItem i) => new(i.Id, string.IsNullOrWhiteSpace(i.NameBn) ? i.Name : $"{i.Name} ({i.NameBn})");
+
+    private async Task Start()
+    {
+        AdmissionPublicApplicationResponse? created = null;
+        if (await Run(async () => created = await Api.PostAsync<AdmissionPublicApplicationResponse>("api/public/admission/applications",
+                new AdmissionPublicApplicationRequest(form.ToRequest(), website)), "Draft saved."))
+            Nav.NavigateTo($"public/apply?token={Uri.EscapeDataString(created!.AccessToken)}&new=true");
+    }
+
+    private Task SaveDraft() => Run(async () => app = await Api.PutAsync<ApplicationDetail>(AppUrl, form.ToRequest()), "Draft saved.");
+
+    private async Task Submit()
+    {
+        if (!await Confirm("Submit application", "After submitting you can no longer change the application or add documents online. Submit now?", "Submit")) return;
+        // Save the latest changes first, so what is submitted is what is on screen.
+        if (!await Run(async () => app = await Api.PutAsync<ApplicationDetail>(AppUrl, form.ToRequest()))) return;
+        await Run(async () => app = await Api.PostAsync<ApplicationDetail>($"{AppUrl}/submit"), "Application submitted. We will be in touch.");
+    }
+
+    private async Task Upload(IBrowserFile? file)
+    {
+        if (file is null) return;
+        if (file.Size > ApiClient.MaxUploadBytes)
+        {
+            Snackbar.Add("The file is larger than 10 MB.", Severity.Warning);
+            return;
+        }
+        if (await Run(() => Api.UploadAsync($"{AppUrl}/documents", file, "file", new Dictionary<string, string?> { ["documentType"] = documentType }), "Document uploaded."))
+            await Run(async () => app = await Api.GetAsync<ApplicationDetail>(AppUrl));
+    }
+}

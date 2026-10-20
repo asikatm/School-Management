@@ -1,0 +1,159 @@
+﻿@page "/admission/tests/{Id:guid}"
+@inherits AppPage
+
+<PageTitle>@(session?.Name ?? "Test session")</PageTitle>
+
+<MudBreadcrumbs Items="breadcrumbs" Class="px-0 pt-0" />
+
+@if (session is null)
+{
+    if (Busy)
+    {
+        <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+    }
+    else
+    {
+        <MudAlert Severity="Severity.Warning">The test session could not be loaded.</MudAlert>
+    }
+}
+else
+{
+    var s = session;
+    var canEdit = Session.Has(P.Admission.Edit);
+    var seatsLeft = s.Capacity - rows.Count;
+    <div class="d-flex flex-wrap align-center gap-2 mb-4">
+        <div>
+            <MudText Typo="Typo.h4">@s.Name</MudText>
+            <MudText Typo="Typo.body2" Color="Color.Secondary">
+                @lookups.Class(s.YearGroupId) · @lookups.Campus(s.CampusId) · @lookups.Year(s.AcademicYearId) ·
+                @Format.DateTime(s.StartsAtUtc) · @s.DurationMinutes min · room @(s.Room ?? "—") · invigilator @(s.InvigilatorName ?? "—")
+            </MudText>
+        </div>
+        <MudSpacer />
+        <MudChip T="string" Variant="Variant.Outlined">@rows.Count / @s.Capacity seats</MudChip>
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Badge" Disabled="@(Busy || rows.Count == 0)" OnClick="PrintAdmitCards">Print admit cards</MudButton>
+        @if (canEdit)
+        {
+            <MudMenu Label="Assign candidates" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.GroupAdd" Disabled="@(Busy || seatsLeft <= 0)">
+                <MudMenuItem OnClick="AssignAll">All submitted applicants not yet scheduled</MudMenuItem>
+                <MudMenuItem OnClick="AssignSelected">Choose applicants…</MudMenuItem>
+            </MudMenu>
+        }
+    </div>
+
+    <MudPaper Class="pa-4">
+        <div class="d-flex align-center mb-2">
+            <MudText Typo="Typo.h6">Candidates and scores</MudText>
+            <MudSpacer />
+            @if (canEdit && rows.Count > 0)
+            {
+                <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mr-3">Raw scores out of @s.MaxScore.ToString("0.##"); applications keep them as a percentage.</MudText>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Save" Disabled="@(Busy || !dirty)" OnClick="SaveScores">Save scores</MudButton>
+            }
+        </div>
+        <MudTable T="ScoreRow" Items="rows" Dense="true" Elevation="0" Hover="true">
+            <HeaderContent>
+                <MudTh>Seat</MudTh><MudTh>Admit card</MudTh><MudTh>Application</MudTh><MudTh>Name</MudTh><MudTh>Attended</MudTh>
+                <MudTh Style="width:140px">Score</MudTh><MudTh>Remarks</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="Seat">@context.Candidate.SeatNo</MudTd>
+                <MudTd DataLabel="Admit card">@context.Candidate.AdmitCardNo</MudTd>
+                <MudTd DataLabel="Application"><MudLink Href="@($"admission/applications/{context.Candidate.ApplicationId}")">@context.Candidate.ApplicationNo</MudLink></MudTd>
+                <MudTd DataLabel="Name">@context.Candidate.Name</MudTd>
+                <MudTd DataLabel="Attended">
+                    <MudCheckBox T="bool" Value="context.Attended" ValueChanged="v => { context.Attended = v; if (!v) context.Score = null; dirty = true; }"
+                                 Disabled="!canEdit" Dense="true" />
+                </MudTd>
+                <MudTd DataLabel="Score">
+                    <MudNumericField T="decimal?" Value="context.Score" ValueChanged="v => { context.Score = v; context.Attended |= v is not null; dirty = true; }"
+                                     Min="0" Max="s.MaxScore" Disabled="@(!canEdit || !context.Attended)" Margin="Margin.Dense" Variant="Variant.Outlined" HideSpinButtons="true" />
+                </MudTd>
+                <MudTd DataLabel="Remarks">
+                    <MudTextField T="string" Value="context.Remarks" ValueChanged="v => { context.Remarks = v; dirty = true; }" Disabled="!canEdit"
+                                  Margin="Margin.Dense" Variant="Variant.Outlined" />
+                </MudTd>
+            </RowTemplate>
+            <NoRecordsContent><MudText Class="pa-4">No candidates assigned yet.</MudText></NoRecordsContent>
+        </MudTable>
+    </MudPaper>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private AdmissionTestSessionView? session;
+    private AdmissionLookups lookups = AdmissionLookups.Empty;
+    private List<ScoreRow> rows = [];
+    private bool dirty;
+    private List<BreadcrumbItem> breadcrumbs = [];
+
+    private string Url => $"api/admission/test-sessions/{Id}";
+
+    private sealed class ScoreRow(AdmissionCandidateView c)
+    {
+        public AdmissionCandidateView Candidate { get; } = c;
+        // Not yet marked counts as attended so scores can be typed straight in.
+        public bool Attended { get; set; } = c.Attended ?? true;
+        public decimal? Score { get; set; } = c.Score;
+        public string? Remarks { get; set; } = c.Remarks;
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await Run(async () =>
+        {
+            lookups = await AdmissionLookups.LoadAsync(Api, Session);
+            // There is no single-session endpoint; the list is small (sessions per admission season).
+            var all = await Api.GetAsync<List<AdmissionTestSessionView>>("api/admission/test-sessions");
+            session = all.FirstOrDefault(x => x.Id == Id);
+            if (session is not null) SetRows(await Api.GetAsync<List<AdmissionCandidateView>>($"{Url}/candidates"));
+        });
+        breadcrumbs = [new("Admission tests", "admission/tests"), new(session?.Name ?? "Session", null, true)];
+    }
+
+    private void SetRows(List<AdmissionCandidateView> candidates)
+    {
+        rows = candidates.Select(c => new ScoreRow(c)).ToList();
+        dirty = false;
+    }
+
+    private async Task AssignAll()
+    {
+        if (!await Confirm("Assign candidates",
+                "Assign every submitted applicant for this class who is not yet scheduled for a test? Admit card and seat numbers are generated and guardians are notified by SMS.",
+                "Assign")) return;
+        await Assign(null);
+    }
+
+    private async Task AssignSelected()
+    {
+        var dialog = await Dialogs.ShowAsync<CandidatePickerDialog>("Choose applicants", new DialogParameters<CandidatePickerDialog>
+        {
+            { x => x.Sitting, session! }, { x => x.AlreadyAssigned, rows.Select(r => r.Candidate.ApplicationId).ToList() }, { x => x.SeatsLeft, session!.Capacity - rows.Count }
+        }, new DialogOptions { MaxWidth = MaxWidth.Large, FullWidth = true });
+        if (await dialog.Result is { Canceled: false, Data: List<Guid> ids }) await Assign(ids);
+    }
+
+    private async Task Assign(List<Guid>? ids)
+    {
+        if (dirty && !await Confirm("Unsaved scores", "Assigning reloads the candidate list and discards unsaved score changes. Continue?", "Continue")) return;
+        await Run(async () => SetRows(await Api.PostAsync<List<AdmissionCandidateView>>($"{Url}/candidates", new AdmissionAssignCandidatesRequest(ids))),
+            "Candidates assigned and notified.");
+    }
+
+    private async Task SaveScores()
+    {
+        var entries = rows.Select(r => new AdmissionScoreEntry(r.Candidate.ApplicationId, r.Attended, r.Attended ? r.Score : null, ApplicationForm.Blank(r.Remarks))).ToList();
+        await Run(async () => SetRows(await Api.PutAsync<List<AdmissionCandidateView>>($"{Url}/scores", entries)), "Scores saved.");
+    }
+
+    private async Task PrintAdmitCards()
+    {
+        await Run(async () =>
+        {
+            var cards = await Api.GetAsync<List<AdmissionAdmitCardView>>($"{Url}/admit-cards");
+            await Files.OpenAsync(await AdmitCardPrinter.BuildAsync(Api, cards));
+        });
+    }
+}

@@ -1,0 +1,76 @@
+@page "/academic/campuses"
+@inherits AppPage
+
+<PageTitle>Campuses</PageTitle>
+
+<div class="d-flex align-center mb-4">
+    <MudText Typo="Typo.h4">Campuses</MudText>
+    <MudSpacer />
+    @if (canManage)
+    {
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="() => Edit(null)" Disabled="Busy">New campus</MudButton>
+    }
+</div>
+
+<MudTable T="CampusView" Items="items" Loading="loading" Hover="true" Dense="true" Elevation="1">
+    <HeaderContent>
+        <MudTh>Code</MudTh>
+        <MudTh>Name</MudTh>
+        <MudTh>Head</MudTh>
+        <MudTh>Phone</MudTh>
+        <MudTh>Email</MudTh>
+        <MudTh>Status</MudTh>
+        <MudTh></MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd DataLabel="Code"><b>@context.Code</b></MudTd>
+        <MudTd DataLabel="Name">
+            @context.Name
+            @if (!string.IsNullOrEmpty(context.NameBn))
+            {
+                <MudText Typo="Typo.caption" Class="d-block">@context.NameBn</MudText>
+            }
+        </MudTd>
+        <MudTd DataLabel="Head">@(context.HeadName ?? "—")</MudTd>
+        <MudTd DataLabel="Phone">@(context.Phone ?? "—")</MudTd>
+        <MudTd DataLabel="Email">@(context.Email ?? "—")</MudTd>
+        <MudTd DataLabel="Status">
+            <MudChip T="string" Size="Size.Small" Color="@(context.IsActive ? Color.Success : Color.Default)">@(context.IsActive ? "Active" : "Inactive")</MudChip>
+        </MudTd>
+        <MudTd Style="text-align:right">
+            @if (canManage)
+            {
+                <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" OnClick="() => Edit(context)" Disabled="Busy" title="Edit" />
+            }
+        </MudTd>
+    </RowTemplate>
+    <NoRecordsContent><MudText>No campuses yet.</MudText></NoRecordsContent>
+</MudTable>
+
+@code {
+    private List<CampusView> items = [];
+    private bool loading = true;
+    private bool canManage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        canManage = Session.Has(P.Settings.Manage);
+        await Load();
+    }
+
+    private async Task Load()
+    {
+        loading = true;
+        await Run(async () => items = await Api.GetAsync<List<CampusView>>("api/campuses"));
+        loading = false;
+    }
+
+    private async Task Edit(CampusView? item)
+    {
+        var dlg = await Dialogs.ShowAsync<CampusDialog>(item is null ? "New campus" : $"Edit campus {item.Code}",
+            new DialogParameters<CampusDialog> { { x => x.Id, item?.Id } },
+            new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+        var r = await dlg.Result;
+        if (r is { Canceled: false }) await Load();
+    }
+}

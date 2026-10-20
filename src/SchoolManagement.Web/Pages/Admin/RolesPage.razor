@@ -1,0 +1,83 @@
+@page "/admin/roles"
+@inherits AppPage
+
+<PageTitle>Roles</PageTitle>
+
+<div class="d-flex align-center mb-4">
+    <MudText Typo="Typo.h4">Roles &amp; permissions</MudText>
+    <MudSpacer />
+    @if (canManage)
+    {
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="() => Edit(null)">New role</MudButton>
+    }
+</div>
+
+<MudTable T="RoleView" Items="roles" Hover="true" Dense="true" Loading="loading">
+    <HeaderContent>
+        <MudTh>Name</MudTh>
+        <MudTh>Description</MudTh>
+        <MudTh>Permissions</MudTh>
+        <MudTh></MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd DataLabel="Name">
+            @context.Name
+            @if (context.IsSystem) { <MudChip T="string" Size="Size.Small" Class="ml-2">System</MudChip> }
+        </MudTd>
+        <MudTd DataLabel="Description">@(context.Description ?? "—")</MudTd>
+        <MudTd DataLabel="Permissions">@context.Permissions.Count of @catalogue.Count</MudTd>
+        <MudTd Style="text-align:right;white-space:nowrap">
+            <MudIconButton Icon="@(canManage ? Icons.Material.Filled.Edit : Icons.Material.Filled.Visibility)" Size="Size.Small"
+                           title="@(canManage ? "Edit" : "View")" OnClick="() => Edit(context)" />
+            @if (canManage && !context.IsSystem)
+            {
+                <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" title="Delete" OnClick="() => Delete(context)" Disabled="Busy" />
+            }
+        </MudTd>
+    </RowTemplate>
+    <NoRecordsContent><MudText>No roles.</MudText></NoRecordsContent>
+</MudTable>
+
+@code {
+    private List<RoleView> roles = [];
+    private List<string> catalogue = [];
+    private bool loading = true;
+    private bool canManage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        canManage = Session.Has(P.Users.Manage);
+        await Run(async () => catalogue = await Api.GetAsync<List<string>>("api/roles/permissions"));
+        await Load();
+    }
+
+    private async Task Load()
+    {
+        loading = true;
+        await Run(async () => roles = await Api.GetAsync<List<RoleView>>("api/roles"));
+        loading = false;
+    }
+
+    private async Task Edit(RoleView? role)
+    {
+        var parameters = new DialogParameters<RoleDialog>
+        {
+            { x => x.Role, role }, { x => x.Catalogue, catalogue }, { x => x.ReadOnly, !canManage }
+        };
+        var dlg = await Dialogs.ShowAsync<RoleDialog>(role is null ? "New role" : role.Name, parameters, new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+        var result = await dlg.Result;
+        if (result is { Canceled: false })
+        {
+            await Load();
+            // Editing a role the current user holds changes their own permissions.
+            if (role is not null && Session.Me!.Roles.Any(r => r.Role == role.Name)) await Session.LoadMeAsync();
+        }
+    }
+
+    private async Task Delete(RoleView role)
+    {
+        if (!await Confirm("Delete role", $"Delete the role '{role.Name}'? This only works when no user holds it.", "Delete")) return;
+        if (await Run(() => Api.DeleteAsync($"api/roles/{role.Id}"), "Role deleted."))
+            await Load();
+    }
+}

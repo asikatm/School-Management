@@ -1,0 +1,126 @@
+@page "/students/allocation"
+@inherits AppPage
+
+<PageTitle>Sections & rolls</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-4">Section allocation & roll numbers</MudText>
+
+<MudTabs Elevation="1" Rounded="true" PanelClass="pa-4">
+    <MudTabPanel Text="Allocate to sections" Icon="@Icons.Material.Filled.GroupWork">
+        <MudText Typo="Typo.body2" Class="mb-3">
+            Distributes the class's students across its sections. Preview first; nothing changes until you apply.
+        </MudText>
+        <MudGrid Spacing="2">
+            <StudentClassPicker @bind-CampusId="campusId" @bind-AcademicYearId="yearId" @bind-YearGroupId="yearGroupId"
+                                ShowSection="false" Required="true" Md="4" Changed="@(() => preview = null)" />
+            <MudItem xs="12" sm="6" md="4">
+                <MudSelect T="StudentAllocationStrategy" @bind-Value="strategy" Label="Strategy" Variant="Variant.Outlined" Margin="Margin.Dense">
+                    <MudSelectItem T="StudentAllocationStrategy" Value="StudentAllocationStrategy.Balanced">Balanced (fill emptiest section first)</MudSelectItem>
+                    <MudSelectItem T="StudentAllocationStrategy" Value="StudentAllocationStrategy.Alphabetical">Alphabetical blocks</MudSelectItem>
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="6" md="8" Class="d-flex flex-wrap align-center gap-4">
+                <MudCheckBox T="bool" @bind-Value="balanceGender" Label="Balance gender" Disabled="@(strategy != StudentAllocationStrategy.Balanced)" />
+                <MudCheckBox T="bool" @bind-Value="onlyUnallocated" Label="Only students without a section" />
+            </MudItem>
+            <MudItem xs="12" Class="d-flex gap-2">
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="@(() => Allocate(dryRun: true))" Disabled="@(Busy || !Ready)">Preview</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => Allocate(dryRun: false))"
+                           Disabled="@(Busy || !Ready || preview is not { Applied: false } || preview.Lines.Count == 0)">Apply allocation</MudButton>
+            </MudItem>
+        </MudGrid>
+
+        @if (preview is not null)
+        {
+            <MudAlert Severity="@(preview.Applied ? Severity.Success : Severity.Info)" Dense="true" Class="mt-4 mb-2">
+                @(preview.Applied ? "Applied" : "Preview"): @preview.Lines.Count students.
+                @string.Join(" · ", preview.SectionTotals.Select(t => $"{t.Key}: {t.Value}"))
+            </MudAlert>
+            <MudTable Items="preview.Lines" Dense="true" Hover="true" RowsPerPage="50" Filter="@(l => Matches(l))">
+                <ToolBarContent>
+                    <MudSpacer />
+                    <MudTextField @bind-Value="lineFilter" Placeholder="Filter" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                                  Immediate="true" Margin="Margin.Dense" Class="mt-0" />
+                </ToolBarContent>
+                <HeaderContent>
+                    <MudTh>Admission no</MudTh>
+                    <MudTh>Name</MudTh>
+                    <MudTh>Gender</MudTh>
+                    <MudTh>Section</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Admission no">@context.AdmissionNo</MudTd>
+                    <MudTd DataLabel="Name">@context.Name</MudTd>
+                    <MudTd DataLabel="Gender">@(context.Gender ?? "—")</MudTd>
+                    <MudTd DataLabel="Section">
+                        @context.ToSectionName
+                        @if (context.FromSectionId is not null && context.FromSectionId != context.ToSectionId)
+                        {
+                            <MudText Typo="Typo.caption"> (moved)</MudText>
+                        }
+                    </MudTd>
+                </RowTemplate>
+                <NoRecordsContent><MudText>No students need allocation.</MudText></NoRecordsContent>
+                <PagerContent><MudTablePager /></PagerContent>
+            </MudTable>
+        }
+    </MudTabPanel>
+
+    <MudTabPanel Text="Roll numbers" Icon="@Icons.Material.Filled.FormatListNumbered">
+        <MudText Typo="Typo.body2" Class="mb-3">Renumbers every active student in the section in the chosen order.</MudText>
+        <MudGrid Spacing="2">
+            <StudentClassPicker @bind-CampusId="rollCampusId" @bind-AcademicYearId="rollYearId" @bind-YearGroupId="rollYearGroupId" @bind-SectionId="rollSectionId"
+                                Required="true" SectionRequired="true" />
+            <MudItem xs="12" sm="6" md="3">
+                <MudSelect T="StudentRollOrder" @bind-Value="rollOrder" Label="Order" Variant="Variant.Outlined" Margin="Margin.Dense">
+                    <MudSelectItem T="StudentRollOrder" Value="StudentRollOrder.Name">By name</MudSelectItem>
+                    <MudSelectItem T="StudentRollOrder" Value="StudentRollOrder.AdmissionNo">By admission no</MudSelectItem>
+                    <MudSelectItem T="StudentRollOrder" Value="StudentRollOrder.GenderThenName">By gender, then name</MudSelectItem>
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="6" md="3">
+                <MudNumericField T="int" @bind-Value="startFrom" Label="Start from" Min="1" Variant="Variant.Outlined" Margin="Margin.Dense" />
+            </MudItem>
+            <MudItem xs="12">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="GenerateRolls" Disabled="@(Busy || rollSectionId is null)">Generate roll numbers</MudButton>
+            </MudItem>
+        </MudGrid>
+    </MudTabPanel>
+</MudTabs>
+
+@code {
+    private Guid? campusId, yearId, yearGroupId;
+    private StudentAllocationStrategy strategy;
+    private bool balanceGender = true;
+    private bool onlyUnallocated = true;
+    private StudentBulkAllocationResult? preview;
+    private string lineFilter = "";
+
+    private Guid? rollCampusId, rollYearId, rollYearGroupId, rollSectionId;
+    private StudentRollOrder rollOrder;
+    private int startFrom = 1;
+
+    private bool Ready => campusId is not null && yearId is not null && yearGroupId is not null;
+
+    private bool Matches(StudentAllocationLine l) => string.IsNullOrWhiteSpace(lineFilter)
+        || l.Name.Contains(lineFilter, StringComparison.OrdinalIgnoreCase) || l.AdmissionNo.Contains(lineFilter, StringComparison.OrdinalIgnoreCase)
+        || l.ToSectionName.Contains(lineFilter, StringComparison.OrdinalIgnoreCase);
+
+    private async Task Allocate(bool dryRun)
+    {
+        if (!dryRun && !await Confirm("Apply allocation", $"Move {preview!.Lines.Count} students into the previewed sections?", "Apply")) return;
+        var request = new StudentBulkAllocationRequest(campusId!.Value, yearId!.Value, yearGroupId!.Value, strategy,
+            strategy == StudentAllocationStrategy.Balanced && balanceGender, null, onlyUnallocated, dryRun);
+        StudentBulkAllocationResult? result = null;
+        if (await Run(async () => result = await Api.PostAsync<StudentBulkAllocationResult>("api/students/allocation", request), dryRun ? null : "Allocation applied."))
+            preview = result;
+    }
+
+    private async Task GenerateRolls()
+    {
+        if (!await Confirm("Generate roll numbers", "Existing roll numbers in this section will be replaced.", "Generate")) return;
+        var count = 0;
+        if (await Run(async () => count = await Api.PostAsync<int>("api/students/roll-numbers", new StudentRollGenerationRequest(rollSectionId!.Value, rollOrder, startFrom))))
+            Snackbar.Add($"Roll numbers assigned to {count} students.", Severity.Success);
+    }
+}

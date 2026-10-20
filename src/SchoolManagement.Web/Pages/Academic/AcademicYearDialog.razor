@@ -1,0 +1,134 @@
+﻿@inherits AppPage
+
+<MudDialog>
+    <DialogContent>
+        <MudGrid Spacing="2">
+            <MudItem xs="12" sm="4">
+                <MudTextField @bind-Value="name" Label="Name" Required="true" Placeholder="e.g. 2026â€“27"
+                              Error="HasError(nameof(AcademicYearRequest.Name))" ErrorText="@ErrorFor(nameof(AcademicYearRequest.Name))" />
+            </MudItem>
+            <MudItem xs="12" sm="4">
+                <MudDatePicker @bind-Date="start" Label="Start date" Required="true" DateFormat="dd MMM yyyy"
+                               Error="HasError(nameof(AcademicYearRequest.StartDate))" ErrorText="@ErrorFor(nameof(AcademicYearRequest.StartDate))" />
+            </MudItem>
+            <MudItem xs="12" sm="4">
+                <MudDatePicker @bind-Date="end" Label="End date" Required="true" DateFormat="dd MMM yyyy"
+                               Error="HasError(nameof(AcademicYearRequest.EndDate))" ErrorText="@ErrorFor(nameof(AcademicYearRequest.EndDate))" />
+            </MudItem>
+        </MudGrid>
+
+        <div class="d-flex align-center mt-6 mb-2">
+            <MudText Typo="Typo.h6">Terms</MudText>
+            <MudSpacer />
+            <MudButton Size="Size.Small" StartIcon="@Icons.Material.Filled.Add" OnClick="AddTerm">Add term</MudButton>
+        </div>
+        @if (Item is not null)
+        {
+            <MudText Typo="Typo.caption" Class="d-block mb-2">Saving replaces the year's terms with the list below.</MudText>
+        }
+        <MudSimpleTable Dense="true" Outlined="true">
+            <thead>
+                <tr><th style="width:70px">#</th><th>Name</th><th>Name (Bangla)</th><th>Start</th><th>End</th><th></th></tr>
+            </thead>
+            <tbody>
+                @foreach (var (t, i) in terms.Select((t, i) => (t, i)))
+                {
+                    <tr>
+                        <td><MudNumericField @bind-Value="t.Sequence" Min="1" Margin="Margin.Dense" HideSpinButtons="true" /></td>
+                        <td><MudTextField @bind-Value="t.Name" Margin="Margin.Dense" Error="@(TermError(i, nameof(TermRequest.Name)) is not null)" ErrorText="@TermError(i, nameof(TermRequest.Name))" /></td>
+                        <td><MudTextField @bind-Value="t.NameBn" Margin="Margin.Dense" /></td>
+                        <td><MudDatePicker @bind-Date="t.Start" Margin="Margin.Dense" DateFormat="dd MMM yyyy" /></td>
+                        <td><MudDatePicker @bind-Date="t.End" Margin="Margin.Dense" DateFormat="dd MMM yyyy"
+                                           Error="@(TermError(i, nameof(TermRequest.EndDate)) is not null)" ErrorText="@TermError(i, nameof(TermRequest.EndDate))" /></td>
+                        <td><MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" OnClick="() => terms.Remove(t)" title="Remove term" /></td>
+                    </tr>
+                }
+                @if (terms.Count == 0)
+                {
+                    <tr><td colspan="6"><MudText Typo="Typo.body2">No terms. Add terms now or later.</MudText></td></tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+
+        @if (OtherErrors.Any())
+        {
+            <MudAlert Severity="Severity.Error" Class="mt-3" Dense="true">
+                @foreach (var e in OtherErrors)
+                {
+                    <div>@e</div>
+                }
+            </MudAlert>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="() => MudDialog.Cancel()">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Save"
+                   Disabled="@(Busy || string.IsNullOrWhiteSpace(name) || start is null || end is null || terms.Any(t => t.Start is null || t.End is null))">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+
+    /// <summary>The year to edit; null creates a new one.</summary>
+    [Parameter] public AcademicYearView? Item { get; set; }
+
+    private sealed class TermRow
+    {
+        public int Sequence { get; set; }
+        public string Name { get; set; } = "";
+        public string? NameBn { get; set; }
+        public DateTime? Start { get; set; }
+        public DateTime? End { get; set; }
+    }
+
+    private string name = "";
+    private DateTime? start, end;
+    private List<TermRow> terms = [];
+
+    private static readonly string[] OwnFields = [nameof(AcademicYearRequest.Name), nameof(AcademicYearRequest.StartDate), nameof(AcademicYearRequest.EndDate)];
+
+    /// <summary>Errors not shown next to a field (e.g. "Terms must fall within the academic year").</summary>
+    private IEnumerable<string> OtherErrors => FieldErrors
+        .Where(e => !OwnFields.Contains(e.Key, StringComparer.OrdinalIgnoreCase)
+                    && !(e.Key.StartsWith("Terms[", StringComparison.OrdinalIgnoreCase) && (e.Key.EndsWith(".Name", StringComparison.OrdinalIgnoreCase) || e.Key.EndsWith(".EndDate", StringComparison.OrdinalIgnoreCase))))
+        .SelectMany(e => e.Value);
+
+    private string? TermError(int index, string field) => ErrorFor($"Terms[{index}].{field}");
+
+    protected override void OnInitialized()
+    {
+        if (Item is null) return;
+        name = Item.Name;
+        start = Item.StartDate.ToDateTime(TimeOnly.MinValue);
+        end = Item.EndDate.ToDateTime(TimeOnly.MinValue);
+        terms = Item.Terms.Select(t => new TermRow
+        {
+            Sequence = t.Sequence, Name = t.Name, NameBn = t.NameBn,
+            Start = t.StartDate.ToDateTime(TimeOnly.MinValue), End = t.EndDate.ToDateTime(TimeOnly.MinValue)
+        }).ToList();
+    }
+
+    private void AddTerm()
+    {
+        var prevEnd = terms.Count > 0 ? terms.Max(t => t.End) : null;
+        terms.Add(new TermRow
+        {
+            Sequence = terms.Count == 0 ? 1 : terms.Max(t => t.Sequence) + 1,
+            Name = $"Term {terms.Count + 1}",
+            Start = prevEnd?.AddDays(1) ?? start
+        });
+    }
+
+    private async Task Save()
+    {
+        var request = new AcademicYearRequest(name.Trim(), DateOnly.FromDateTime(start!.Value), DateOnly.FromDateTime(end!.Value),
+            terms.Select(t => new TermRequest(t.Name.Trim(), t.NameBn, t.Sequence, DateOnly.FromDateTime(t.Start!.Value), DateOnly.FromDateTime(t.End!.Value))).ToList());
+        var ok = await Run(async () =>
+        {
+            if (Item is null) await Api.PostAsync<AcademicYearView>("api/academic-years", request);
+            else await Api.PutAsync<AcademicYearView>($"api/academic-years/{Item.Id}", request);
+        }, "Academic year saved.");
+        if (ok) MudDialog.Close(DialogResult.Ok(true));
+    }
+}

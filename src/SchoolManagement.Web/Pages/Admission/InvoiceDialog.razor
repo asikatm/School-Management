@@ -1,0 +1,34 @@
+@* Read-only view of one admission invoice and its lines. *@
+
+<MudDialog>
+    <DialogContent>
+        <MudSimpleTable Dense="true" Elevation="0" Class="mb-3">
+            <tbody>
+                <tr><td>Status</td><td><MudChip T="string" Size="Size.Small" Color="AdmissionUi.InvoiceColor(Invoice.Status)">@Format.Enum(Invoice.Status)</MudChip></td></tr>
+                <tr><td>Due date</td><td>@Format.Date(Invoice.DueDate)</td></tr>
+                <tr><td>Paid</td><td>@Format.DateTime(Invoice.PaidAtUtc)</td></tr>
+                <tr><td>Channel</td><td>@(Invoice.PaymentChannel ?? "—")</td></tr>
+                <tr><td>Reference</td><td>@(Invoice.PaymentReference ?? "—")</td></tr>
+            </tbody>
+        </MudSimpleTable>
+        <MudSimpleTable Dense="true" Bordered="true">
+            <thead><tr><th>Description</th><th style="text-align:right">Amount</th></tr></thead>
+            <tbody>
+                @foreach (var l in Invoice.Lines)
+                {
+                    <tr><td>@l.Description</td><td style="text-align:right">@Format.Money(l.Amount)</td></tr>
+                }
+                <tr><th>Total</th><th style="text-align:right">@Format.Money(Invoice.Amount)</th></tr>
+            </tbody>
+        </MudSimpleTable>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Href="@($"admission/applications/{Invoice.ApplicationId}")" OnClick="() => MudDialog.Close()">Open application</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="() => MudDialog.Close()">Close</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] public IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public AdmissionInvoiceView Invoice { get; set; } = default!;
+}

@@ -1,0 +1,43 @@
+@inherits AppPage
+
+<MudDialog>
+    <DialogContent>
+        <MudTextField @bind-Value="name" Label="Name" Required="true" Class="mb-3"
+                      Error="HasError(nameof(HouseRequest.Name))" ErrorText="@ErrorFor(nameof(HouseRequest.Name))" />
+        <MudTextField @bind-Value="nameBn" Label="Name (Bangla)" Class="mb-3" />
+        <div class="d-flex align-center gap-3">
+            <input type="color" value="@(colour ?? "#1e88e5")" @onchange="e => colour = e.Value?.ToString()" title="Pick a colour"
+                   style="width:48px;height:40px;border:none;background:none;cursor:pointer" />
+            <MudTextField @bind-Value="colour" Label="Colour" Placeholder="#1E88E5" Clearable="true" HelperText="Hex code or colour name"
+                          Error="HasError(nameof(HouseRequest.Colour))" ErrorText="@ErrorFor(nameof(HouseRequest.Colour))" />
+        </div>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="() => MudDialog.Cancel()">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Save" Disabled="@(Busy || string.IsNullOrWhiteSpace(name))">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public HouseView? Item { get; set; }
+
+    private string name = "";
+    private string? nameBn, colour;
+
+    protected override void OnInitialized()
+    {
+        if (Item is not null) (name, nameBn, colour) = (Item.Name, Item.NameBn, Item.Colour);
+    }
+
+    private async Task Save()
+    {
+        var request = new HouseRequest(name.Trim(), nameBn, string.IsNullOrWhiteSpace(colour) ? null : colour);
+        var ok = await Run(async () =>
+        {
+            if (Item is null) await Api.PostAsync<Guid>("api/master/houses", request);
+            else await Api.PutAsync($"api/master/houses/{Item.Id}", request);
+        }, "House saved.");
+        if (ok) MudDialog.Close(DialogResult.Ok(true));
+    }
+}

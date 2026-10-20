@@ -1,0 +1,76 @@
+@inherits AppPage
+
+<MudDialog>
+    <DialogContent>
+        <MudSelect T="EnquiryActivityType" @bind-Value="type" Label="Type" Variant="Variant.Outlined" Class="mb-3">
+            @foreach (var t in Types)
+            {
+                <MudSelectItem T="EnquiryActivityType" Value="t">@Format.Enum(t)</MudSelectItem>
+            }
+        </MudSelect>
+        <MudTextField @bind-Value="text" Label="@(type == EnquiryActivityType.Task ? "What needs to be done" : "Notes")" Required="true" Lines="3"
+                      Variant="Variant.Outlined" Class="mb-3" MaxLength="2000" Immediate="true"
+                      Error="HasError(nameof(EnquiryActivityRequest.Text))" ErrorText="@ErrorFor(nameof(EnquiryActivityRequest.Text))" />
+        @if (type == EnquiryActivityType.Task)
+        {
+            <div class="d-flex gap-3 mb-3">
+                <MudDatePicker @bind-Date="dueDate" Label="Due date" Variant="Variant.Outlined" DateFormat="dd MMM yyyy"
+                               Error="HasError(nameof(EnquiryActivityRequest.DueAtUtc))" ErrorText="@ErrorFor(nameof(EnquiryActivityRequest.DueAtUtc))" />
+                <MudTimePicker @bind-Time="dueTime" Label="Time" Variant="Variant.Outlined" AmPm="true" />
+            </div>
+            @if (Lookups.Users.Count > 0)
+            {
+                <MudSelect T="Guid?" @bind-Value="assignedTo" Label="Assign to" Clearable="true" Placeholder="Enquiry's counsellor (or me)" Variant="Variant.Outlined" Class="mb-3">
+                    @foreach (var u in Lookups.Users)
+                    {
+                        <MudSelectItem T="Guid?" Value="u.Id">@u.FullName</MudSelectItem>
+                    }
+                </MudSelect>
+            }
+        }
+        @if (type == EnquiryActivityType.Call && Stage == EnquiryStage.Enquiry)
+        {
+            <MudCheckBox @bind-Value="markCampusVisit" Label="Campus visit booked (move to Campus visit stage)" />
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="() => MudDialog.Cancel()">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Save"
+                   Disabled="@(Busy || string.IsNullOrWhiteSpace(text) || type == EnquiryActivityType.Task && dueDate is null)">Add</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    private static readonly EnquiryActivityType[] Types =
+        [EnquiryActivityType.Note, EnquiryActivityType.Call, EnquiryActivityType.Task, EnquiryActivityType.Email, EnquiryActivityType.Sms];
+
+    [CascadingParameter] public IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public Guid EnquiryId { get; set; }
+    [Parameter] public EnquiryStage Stage { get; set; }
+    [Parameter] public EnquiryActivityType InitialType { get; set; } = EnquiryActivityType.Note;
+    [Parameter] public AdmissionLookups Lookups { get; set; } = AdmissionLookups.Empty;
+
+    private EnquiryActivityType type;
+    private string text = "";
+    private DateTime? dueDate;
+    private TimeSpan? dueTime = new(10, 0, 0);
+    private Guid? assignedTo;
+    private bool markCampusVisit;
+
+    protected override void OnInitialized()
+    {
+        type = InitialType;
+        dueDate = AdmissionUi.TodayDhaka.AddDays(1);
+    }
+
+    private async Task Save()
+    {
+        var request = new EnquiryActivityRequest(type, text.Trim(),
+            type == EnquiryActivityType.Task ? AdmissionUi.ToUtc(dueDate, dueTime) : null,
+            type == EnquiryActivityType.Task ? assignedTo : null,
+            type == EnquiryActivityType.Call && markCampusVisit);
+        EnquiryDetail? saved = null;
+        var ok = await Run(async () => saved = await Api.PostAsync<EnquiryDetail>($"api/admission/enquiries/{EnquiryId}/activities", request), "Activity added.");
+        if (ok) MudDialog.Close(DialogResult.Ok(saved));
+    }
+}

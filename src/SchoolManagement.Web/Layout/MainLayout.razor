@@ -1,0 +1,133 @@
+﻿@inherits LayoutComponentBase
+@implements IDisposable
+@inject Session Session
+@inject NavigationManager Nav
+
+<MudThemeProvider Theme="AppTheme.Theme" />
+<MudPopoverProvider />
+<MudDialogProvider CloseOnEscapeKey="true" />
+<MudSnackbarProvider />
+
+@if (!ready)
+{
+    <div class="d-flex justify-center align-center" style="height:100vh">
+        <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
+    </div>
+}
+else if (!Session.IsSignedIn)
+{
+    @* Login and other public pages render without the shell. *@
+    @Body
+}
+else
+{
+    <MudLayout>
+        <MudAppBar Elevation="1" Dense="false">
+            <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start" OnClick="() => drawerOpen = !drawerOpen" />
+            <MudText Typo="Typo.h6" Class="ml-2 d-none d-sm-flex">Lighthouse International School</MudText>
+            <MudSpacer />
+            <MudTextField T="string" @bind-Value="searchText" Placeholder="Search students, applicants, enquiries…"
+                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                          Variant="Variant.Outlined" Margin="Margin.Dense" Class="mx-4 app-search" OnKeyDown="SearchKey" Immediate="true" />
+            <MudMenu AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
+                <ActivatorContent>
+                    <MudButton Color="Color.Inherit" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.AccountCircle"
+                               EndIcon="@Icons.Material.Filled.ArrowDropDown" Style="text-transform:none">
+                        @Session.Me!.User.FullName
+                    </MudButton>
+                </ActivatorContent>
+                <ChildContent>
+                    <MudMenuItem Disabled="true">
+                        <MudText Typo="Typo.caption">@string.Join(", ", Session.Me!.Roles.Select(r => $"{r.Role} ({r.CampusName})"))</MudText>
+                    </MudMenuItem>
+                    <MudDivider />
+                    <MudMenuItem Icon="@Icons.Material.Filled.Password" Href="change-password">Change password</MudMenuItem>
+                    <MudMenuItem Icon="@Icons.Material.Filled.Api" Href="scalar/" Target="_blank">API reference</MudMenuItem>
+                    <MudMenuItem Icon="@Icons.Material.Filled.Logout" OnClick="Logout">Sign out</MudMenuItem>
+                </ChildContent>
+            </MudMenu>
+        </MudAppBar>
+        <MudDrawer @bind-Open="drawerOpen" ClipMode="DrawerClipMode.Always" Elevation="1" Variant="DrawerVariant.Responsive">
+            <NavMenu />
+        </MudDrawer>
+        <MudMainContent>
+            <MudContainer MaxWidth="MaxWidth.ExtraExtraLarge" Class="py-4">
+                <ErrorBoundary @ref="errorBoundary">
+                    <ChildContent>@Body</ChildContent>
+                    <ErrorContent Context="ex">
+                        <MudAlert Severity="Severity.Error" Class="mb-4">
+                            Something went wrong on this page: @ex.Message
+                            <MudButton Size="Size.Small" OnClick="() => errorBoundary?.Recover()">Try again</MudButton>
+                        </MudAlert>
+                    </ErrorContent>
+                </ErrorBoundary>
+            </MudContainer>
+        </MudMainContent>
+    </MudLayout>
+}
+
+@code {
+    // "login" plus everything under public/ (website enquiry, online application, offer accept/decline).
+    private static bool IsPublicPath(string path) =>
+        path.Equals("login", StringComparison.OrdinalIgnoreCase) || path.StartsWith("public/", StringComparison.OrdinalIgnoreCase);
+    private bool ready;
+    private bool drawerOpen = true;
+    private string? searchText;
+    private ErrorBoundary? errorBoundary;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Session.Changed += OnSessionChanged;
+        Nav.LocationChanged += OnLocationChanged;
+        await Session.RestoreAsync();
+        ready = true;
+        Guard();
+    }
+
+    private void OnSessionChanged()
+    {
+        Guard();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        errorBoundary?.Recover();
+        Guard();
+    }
+
+    /// <summary>Sends signed-out users to the login page and users with a temporary password to change it.</summary>
+    private void Guard()
+    {
+        if (!ready) return;
+        var path = Nav.ToBaseRelativePath(Nav.Uri).Split('?', '#')[0];
+        var isPublic = IsPublicPath(path);
+        if (!Session.IsSignedIn && !isPublic)
+        {
+            var returnUrl = Uri.EscapeDataString(Nav.ToBaseRelativePath(Nav.Uri));
+            Nav.NavigateTo(returnUrl.Length > 0 ? $"login?returnUrl={returnUrl}" : "login", replace: true);
+        }
+        else if (Session.IsSignedIn && Session.MustChangePassword && path != "change-password")
+        {
+            Nav.NavigateTo("change-password", replace: true);
+        }
+    }
+
+    private void SearchKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(searchText))
+            Nav.NavigateTo($"search?q={Uri.EscapeDataString(searchText.Trim())}");
+    }
+
+    private async Task Logout()
+    {
+        await Session.LogoutAsync();
+        Nav.NavigateTo("login", replace: true);
+    }
+
+    public void Dispose()
+    {
+        Session.Changed -= OnSessionChanged;
+        Nav.LocationChanged -= OnLocationChanged;
+    }
+}

@@ -1,0 +1,204 @@
+@page "/admission/enquiries/{Id:guid}"
+@inherits AppPage
+
+<PageTitle>@(enquiry?.EnquiryNo ?? "Enquiry")</PageTitle>
+
+<MudBreadcrumbs Items="breadcrumbs" Class="px-0 pt-0" />
+
+@if (enquiry is null)
+{
+    if (Busy)
+    {
+        <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+    }
+    else
+    {
+        <MudAlert Severity="Severity.Warning">The enquiry could not be loaded.</MudAlert>
+    }
+}
+else
+{
+    var e = enquiry;
+    var canEdit = Session.Has(P.Admission.Edit);
+    <div class="d-flex flex-wrap align-center gap-2 mb-4">
+        <div>
+            <MudText Typo="Typo.h4">@e.ChildName</MudText>
+            <MudText Typo="Typo.body2" Color="Color.Secondary">@e.EnquiryNo · received @Format.DateTime(e.CreatedAtUtc) · @Format.Enum(e.Source)</MudText>
+        </div>
+        <MudChip T="string" Color="AdmissionUi.StageColor(e.Stage)" Class="ml-2">@Format.Enum(e.Stage)</MudChip>
+        <MudSpacer />
+        @if (canEdit)
+        {
+            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Edit" OnClick="Edit">Edit</MudButton>
+            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Timeline" OnClick="ChangeStage">Change stage</MudButton>
+            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.PersonAdd" OnClick="Assign">Assign</MudButton>
+        }
+        @if (e.ApplicationId is { } appId)
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Assignment" Href="@($"admission/applications/{appId}")">Open application</MudButton>
+        }
+        else if (Session.Has(P.Admission.Create) && e.Stage != EnquiryStage.Lost)
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.NoteAdd" OnClick="Convert">Start application</MudButton>
+        }
+    </div>
+
+    <MudGrid>
+        <MudItem xs="12" md="5">
+            <MudPaper Class="pa-4">
+                <MudText Typo="Typo.h6" Class="mb-2">Details</MudText>
+                <MudSimpleTable Dense="true" Elevation="0">
+                    <tbody>
+                        <tr><td>Guardian</td><td>@e.GuardianName</td></tr>
+                        <tr><td>Mobile</td><td><MudLink Href="@($"tel:{e.GuardianPhone}")">@e.GuardianPhone</MudLink></td></tr>
+                        <tr><td>E-mail</td><td>@(e.GuardianEmail ?? "—")</td></tr>
+                        <tr><td>Child's date of birth</td><td>@Format.Date(e.ChildDateOfBirth)</td></tr>
+                        <tr><td>Campus</td><td>@lookups.Campus(e.CampusId)</td></tr>
+                        <tr><td>Academic year</td><td>@lookups.Year(e.AcademicYearId)</td></tr>
+                        <tr><td>Class of interest</td><td>@lookups.Class(e.YearGroupId)</td></tr>
+                        <tr><td>Campaign</td><td>@(e.CampaignCode ?? "—")</td></tr>
+                        <tr><td>Counsellor</td><td>@lookups.User(e.AssignedToUserId, Session.Me?.User.Id)</td></tr>
+                        @if (e.Stage == EnquiryStage.Lost)
+                        {
+                            <tr><td>Reason lost</td><td>@e.LostReason</td></tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+                @if (!string.IsNullOrWhiteSpace(e.Message))
+                {
+                    <MudText Typo="Typo.subtitle2" Class="mt-3">Message</MudText>
+                    <MudText Typo="Typo.body2" Style="white-space:pre-wrap">@e.Message</MudText>
+                }
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" md="7">
+            <MudPaper Class="pa-4">
+                <div class="d-flex align-center mb-2">
+                    <MudText Typo="Typo.h6">Activity</MudText>
+                    <MudSpacer />
+                    @if (canEdit)
+                    {
+                        <MudButton Size="Size.Small" StartIcon="@Icons.Material.Filled.Call" OnClick="() => AddActivity(EnquiryActivityType.Call)">Log call</MudButton>
+                        <MudButton Size="Size.Small" StartIcon="@Icons.Material.Filled.AddTask" OnClick="() => AddActivity(EnquiryActivityType.Task)">Add task</MudButton>
+                        <MudButton Size="Size.Small" StartIcon="@Icons.Material.Filled.Notes" OnClick="() => AddActivity(EnquiryActivityType.Note)">Add note</MudButton>
+                    }
+                </div>
+                @if (e.Activities.Count == 0)
+                {
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">No activity yet.</MudText>
+                }
+                <MudTimeline TimelinePosition="TimelinePosition.Start" Class="pt-0">
+                    @foreach (var a in e.Activities)
+                    {
+                        <MudTimelineItem Color="@ActivityColor(a)" Size="Size.Small">
+                            <div class="d-flex align-start gap-2">
+                                <div style="flex:1">
+                                    <MudText Typo="Typo.subtitle2">
+                                        @Format.Enum(a.Type)
+                                        @if (a.Type == EnquiryActivityType.Task)
+                                        {
+                                            <span> · due @Format.DateTime(a.DueAtUtc) · @lookups.User(a.AssignedToUserId, Session.Me?.User.Id)</span>
+                                        }
+                                    </MudText>
+                                    <MudText Typo="Typo.body2" Style="white-space:pre-wrap">@a.Text</MudText>
+                                    <MudText Typo="Typo.caption" Color="Color.Secondary">@Format.DateTime(a.CreatedAtUtc)</MudText>
+                                </div>
+                                @if (a.Type == EnquiryActivityType.Task)
+                                {
+                                    if (a.IsCompleted)
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Success">Done</MudChip>
+                                    }
+                                    else if (canEdit)
+                                    {
+                                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Success" Disabled="Busy" OnClick="() => Complete(a)">Mark done</MudButton>
+                                    }
+                                }
+                            </div>
+                        </MudTimelineItem>
+                    }
+                </MudTimeline>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private EnquiryDetail? enquiry;
+    private AdmissionLookups lookups = AdmissionLookups.Empty;
+    private List<BreadcrumbItem> breadcrumbs = [new("Enquiries", "admission/enquiries")];
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await Run(async () =>
+        {
+            lookups = await AdmissionLookups.LoadAsync(Api, Session);
+            enquiry = await Api.GetAsync<EnquiryDetail>($"api/admission/enquiries/{Id}");
+        });
+        breadcrumbs = [new("Enquiries", "admission/enquiries"), new(enquiry?.EnquiryNo ?? "Enquiry", null, true)];
+    }
+
+    private static Color ActivityColor(EnquiryActivityView a) => a.Type switch
+    {
+        EnquiryActivityType.Task => a.IsCompleted ? Color.Success : a.DueAtUtc < DateTime.UtcNow ? Color.Error : Color.Warning,
+        EnquiryActivityType.StageChange => Color.Primary,
+        EnquiryActivityType.Call => Color.Info,
+        _ => Color.Default
+    };
+
+    private async Task<T?> Show<TDialog, T>(string title, DialogParameters<TDialog> parameters, MaxWidth width = MaxWidth.Small) where TDialog : IComponent
+    {
+        var dialog = await Dialogs.ShowAsync<TDialog>(title, parameters, new DialogOptions { MaxWidth = width, FullWidth = true });
+        var result = await dialog.Result;
+        return result is { Canceled: false, Data: T data } ? data : default;
+    }
+
+    private async Task Edit()
+    {
+        var saved = await Show<EnquiryDialog, EnquiryDetail>("Edit enquiry",
+            new DialogParameters<EnquiryDialog> { { x => x.Item, enquiry }, { x => x.Lookups, lookups } }, MaxWidth.Medium);
+        if (saved is not null) enquiry = saved;
+    }
+
+    private async Task ChangeStage()
+    {
+        var saved = await Show<EnquiryStageDialog, EnquiryDetail>("Change stage",
+            new DialogParameters<EnquiryStageDialog> { { x => x.EnquiryId, Id }, { x => x.Current, enquiry!.Stage } });
+        if (saved is not null) enquiry = saved;
+    }
+
+    private async Task Assign()
+    {
+        var saved = await Show<EnquiryAssignDialog, EnquiryDetail>("Assign counsellor",
+            new DialogParameters<EnquiryAssignDialog> { { x => x.EnquiryId, Id }, { x => x.Current, enquiry!.AssignedToUserId }, { x => x.Lookups, lookups } });
+        if (saved is not null) enquiry = saved;
+    }
+
+    private async Task AddActivity(EnquiryActivityType type)
+    {
+        var title = type switch { EnquiryActivityType.Call => "Log call", EnquiryActivityType.Task => "Add follow-up task", _ => "Add note" };
+        var saved = await Show<EnquiryActivityDialog, EnquiryDetail>(title, new DialogParameters<EnquiryActivityDialog>
+        {
+            { x => x.EnquiryId, Id }, { x => x.Stage, enquiry!.Stage }, { x => x.InitialType, type }, { x => x.Lookups, lookups }
+        });
+        if (saved is not null) enquiry = saved;
+    }
+
+    private async Task Complete(EnquiryActivityView activity)
+    {
+        if (await Run(() => Api.PostAsync($"api/admission/enquiries/activities/{activity.Id}/complete"), "Task completed."))
+            await Run(async () => enquiry = await Api.GetAsync<EnquiryDetail>($"api/admission/enquiries/{Id}"));
+    }
+
+    private async Task Convert()
+    {
+        var dialog = await Dialogs.ShowAsync<EnquiryConvertDialog>("Start application",
+            new DialogParameters<EnquiryConvertDialog> { { x => x.Enquiry, enquiry! }, { x => x.Lookups, lookups } },
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: Guid applicationId })
+            Nav.NavigateTo($"admission/applications/{applicationId}/edit");
+    }
+}

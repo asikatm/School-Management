@@ -1,0 +1,14 @@
+﻿<MudChip T="string" Size="Size.Small" Color="ColorFor()" Variant="Variant.Outlined">@Format.Enum(Status)</MudChip>
+
+@code {
+    [Parameter] public StudentStatus Status { get; set; }
+
+    private Color ColorFor() => Status switch
+    {
+        StudentStatus.Active => Color.Success,
+        StudentStatus.Suspended => Color.Warning,
+        StudentStatus.Withdrawn => Color.Error,
+        StudentStatus.Graduated or StudentStatus.Alumni => Color.Info,
+        _ => Color.Default
+    };
+}

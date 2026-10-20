@@ -1,0 +1,60 @@
+@inherits AppPage
+
+<MudDialog>
+    <DialogContent>
+        <MudGrid Spacing="2">
+            <MudItem xs="12" sm="4">
+                <MudTextField @bind-Value="code" Label="Code" Required="true"
+                              Error="HasError(nameof(SubjectRequest.Code))" ErrorText="@ErrorFor(nameof(SubjectRequest.Code))" />
+            </MudItem>
+            <MudItem xs="12" sm="8">
+                <MudTextField @bind-Value="name" Label="Name" Required="true"
+                              Error="HasError(nameof(SubjectRequest.Name))" ErrorText="@ErrorFor(nameof(SubjectRequest.Name))" />
+            </MudItem>
+            <MudItem xs="12">
+                <MudTextField @bind-Value="nameBn" Label="Name (Bangla)" />
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudSelect T="SubjectType" @bind-Value="type" Label="Type">
+                    @foreach (var t in Enum.GetValues<SubjectType>())
+                    {
+                        <MudSelectItem T="SubjectType" Value="t">@Format.Enum(t)</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudTextField @bind-Value="externalCode" Label="Board / external code" HelperText="e.g. Cambridge or NCTB subject code" />
+            </MudItem>
+        </MudGrid>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="() => MudDialog.Cancel()">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Save" Disabled="@(Busy || string.IsNullOrWhiteSpace(code) || string.IsNullOrWhiteSpace(name))">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public SubjectView? Item { get; set; }
+
+    private string code = "", name = "";
+    private string? nameBn, externalCode;
+    private SubjectType type = SubjectType.Compulsory;
+
+    protected override void OnInitialized()
+    {
+        if (Item is not null)
+            (code, name, nameBn, type, externalCode) = (Item.Code, Item.Name, Item.NameBn, Item.Type, Item.ExternalCode);
+    }
+
+    private async Task Save()
+    {
+        var request = new SubjectRequest(code.Trim(), name.Trim(), nameBn, type, string.IsNullOrWhiteSpace(externalCode) ? null : externalCode.Trim());
+        var ok = await Run(async () =>
+        {
+            if (Item is null) await Api.PostAsync<Guid>("api/master/subjects", request);
+            else await Api.PutAsync($"api/master/subjects/{Item.Id}", request);
+        }, "Subject saved.");
+        if (ok) MudDialog.Close(DialogResult.Ok(true));
+    }
+}

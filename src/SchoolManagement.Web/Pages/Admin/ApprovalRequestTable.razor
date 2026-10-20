@@ -1,0 +1,65 @@
+@* Approval requests with an expandable decision trail; shows approve/reject buttons when OnDecide is bound. *@
+
+<MudTable T="ApprovalRequestView" Items="Items" Dense="true" Hover="true" Loading="Loading">
+    <HeaderContent>
+        <MudTh></MudTh>
+        <MudTh>Request</MudTh>
+        <MudTh>Summary</MudTh>
+        <MudTh>Requested by</MudTh>
+        <MudTh>Step</MudTh>
+        <MudTh>Status</MudTh>
+        <MudTh>Created</MudTh>
+        @if (OnDecide.HasDelegate) { <MudTh></MudTh> }
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd>
+            <MudIconButton Size="Size.Small" Icon="@(expanded.Contains(context.Id) ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)"
+                           OnClick="() => Toggle(context.Id)" title="Decision history" />
+        </MudTd>
+        <MudTd DataLabel="Request">
+            @AdminLookups.Humanize(context.RequestType)
+            <MudText Typo="Typo.caption" Class="d-block">@context.EntityType @context.EntityId</MudText>
+        </MudTd>
+        <MudTd DataLabel="Summary">@(context.Summary ?? "—")</MudTd>
+        <MudTd DataLabel="Requested by">@Names[context.RequestedBy]</MudTd>
+        <MudTd DataLabel="Step">
+            @context.CurrentStep
+            @if (context.IsEscalated) { <MudChip T="string" Size="Size.Small" Color="Color.Warning">Escalated</MudChip> }
+        </MudTd>
+        <MudTd DataLabel="Status"><ApprovalStatusChip Status="context.Status" /></MudTd>
+        <MudTd DataLabel="Created">@Format.DateTime(context.CreatedAtUtc)</MudTd>
+        @if (OnDecide.HasDelegate)
+        {
+            <MudTd Style="text-align:right;white-space:nowrap">
+                <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Success" OnClick="() => OnDecide.InvokeAsync((context, true))">Approve</MudButton>
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Error" OnClick="() => OnDecide.InvokeAsync((context, false))">Reject</MudButton>
+            </MudTd>
+        }
+    </RowTemplate>
+    <ChildRowContent>
+        @if (expanded.Contains(context.Id))
+        {
+            <MudTr>
+                <td colspan="8" class="pa-4">
+                    <ApprovalDecisionHistory Request="context" Names="Names" />
+                </td>
+            </MudTr>
+        }
+    </ChildRowContent>
+    <NoRecordsContent><MudText>@Empty</MudText></NoRecordsContent>
+</MudTable>
+
+@code {
+    [Parameter] public IEnumerable<ApprovalRequestView>? Items { get; set; }
+    [Parameter, EditorRequired] public AdminUserNames Names { get; set; } = default!;
+    [Parameter] public bool Loading { get; set; }
+    [Parameter] public string Empty { get; set; } = "No requests.";
+    [Parameter] public EventCallback<(ApprovalRequestView Request, bool Approve)> OnDecide { get; set; }
+
+    private readonly HashSet<Guid> expanded = [];
+
+    private void Toggle(Guid id)
+    {
+        if (!expanded.Remove(id)) expanded.Add(id);
+    }
+}

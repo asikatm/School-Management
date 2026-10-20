@@ -1,0 +1,37 @@
+@inherits AppPage
+
+<MudDialog>
+    <DialogContent>
+        <MudText Typo="Typo.body2" Class="mb-3">
+            Dues are checked across modules (fees, library, transport, inventory) and the request goes for approval when a workflow is configured.
+            The transfer certificate is issued once it is approved and cleared.
+        </MudText>
+        <MudDatePicker @bind-Date="lastDay" Label="Last attendance date" Required="true" DateFormat="dd MMM yyyy" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-3"
+                       Error="HasError(nameof(StudentWithdrawalCreateRequest.LastAttendanceDate))" ErrorText="@ErrorFor(nameof(StudentWithdrawalCreateRequest.LastAttendanceDate))" />
+        <MudTextField @bind-Value="reason" Label="Reason" Required="true" Lines="2" Counter="500" MaxLength="500" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-3"
+                      Error="HasError(nameof(StudentWithdrawalCreateRequest.Reason))" ErrorText="@ErrorFor(nameof(StudentWithdrawalCreateRequest.Reason))" />
+        <MudTextField @bind-Value="destination" Label="Destination school (optional)" Variant="Variant.Outlined" Margin="Margin.Dense" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => MudDialog.Cancel())">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Error" OnClick="Save"
+                   Disabled="@(Busy || lastDay is null || string.IsNullOrWhiteSpace(reason))">Request withdrawal</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public Guid StudentId { get; set; }
+
+    private DateTime? lastDay = DateTime.Today;
+    private string reason = "";
+    private string? destination;
+
+    private async Task Save()
+    {
+        var request = new StudentWithdrawalCreateRequest(DateOnly.FromDateTime(lastDay!.Value), reason.Trim(), StudentProfileModel.Blank(destination));
+        StudentWithdrawalView? created = null;
+        if (await Run(async () => created = await Api.PostAsync<StudentWithdrawalView>($"api/students/{StudentId}/withdrawals", request), "Withdrawal requested."))
+            MudDialog.Close(DialogResult.Ok(created));
+    }
+}

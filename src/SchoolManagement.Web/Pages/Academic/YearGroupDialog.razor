@@ -1,0 +1,120 @@
+@inherits AppPage
+
+<MudDialog>
+    <DialogContent>
+        <MudGrid Spacing="2">
+            <MudItem xs="12" sm="6">
+                <MudSelect T="Guid" @bind-Value="programmeId" Label="Programme" Required="true">
+                    @foreach (var p in Programmes)
+                    {
+                        <MudSelectItem T="Guid" Value="p.Id">@p.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="3">
+                <MudTextField @bind-Value="code" Label="Code" Required="true"
+                              Error="HasError(nameof(YearGroupRequest.Code))" ErrorText="@ErrorFor(nameof(YearGroupRequest.Code))" />
+            </MudItem>
+            <MudItem xs="12" sm="3">
+                <MudNumericField @bind-Value="sequence" Label="Order" Min="0" />
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudTextField @bind-Value="name" Label="Name" Required="true" Placeholder="e.g. Class 1"
+                              Error="HasError(nameof(YearGroupRequest.Name))" ErrorText="@ErrorFor(nameof(YearGroupRequest.Name))" />
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudTextField @bind-Value="nameBn" Label="Name (Bangla)" />
+            </MudItem>
+
+            <MudItem xs="12" sm="6" Class="d-flex align-center">
+                <MudSwitch @bind-Value="isFinalYear" Color="Color.Secondary" Label="Final year (students graduate)" />
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudSelect T="Guid?" @bind-Value="nextYearGroupId" Label="Promotes to" Clearable="true" Disabled="isFinalYear">
+                    @foreach (var p in Programmes)
+                    {
+                        @foreach (var y in p.YearGroups.Where(y => y.Id != Item?.Id))
+                        {
+                            <MudSelectItem T="Guid?" Value="y.Id">@p.Name › @y.Name</MudSelectItem>
+                        }
+                    }
+                </MudSelect>
+            </MudItem>
+
+            <MudItem xs="12"><MudText Typo="Typo.subtitle2">Admission age</MudText></MudItem>
+            <MudItem xs="6" sm="3">
+                <MudNumericField T="int?" @bind-Value="minAge" Label="Min age (months)" Min="0" Clearable="true" HelperText="@AgeText(minAge)" />
+            </MudItem>
+            <MudItem xs="6" sm="3">
+                <MudNumericField T="int?" @bind-Value="maxAge" Label="Max age (months)" Min="0" Clearable="true" HelperText="@AgeText(maxAge)"
+                                 Error="HasError(nameof(YearGroupRequest.MaxAgeMonths))" ErrorText="@ErrorFor(nameof(YearGroupRequest.MaxAgeMonths))" />
+            </MudItem>
+            <MudItem xs="6" sm="3">
+                <MudSelect T="int" @bind-Value="cutOffMonth" Label="Age cut-off month"
+                           Error="HasError(nameof(YearGroupRequest.AgeCutOffMonth))" ErrorText="@ErrorFor(nameof(YearGroupRequest.AgeCutOffMonth))">
+                    @for (var m = 1; m <= 12; m++)
+                    {
+                        var month = m;
+                        <MudSelectItem T="int" Value="month">@System.Globalization.CultureInfo.InvariantCulture.DateTimeFormat.GetMonthName(month)</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="6" sm="3">
+                <MudNumericField @bind-Value="cutOffDay" Label="Cut-off day" Min="1" Max="31"
+                                 Error="HasError(nameof(YearGroupRequest.AgeCutOffDay))" ErrorText="@ErrorFor(nameof(YearGroupRequest.AgeCutOffDay))" />
+            </MudItem>
+            <MudItem xs="12">
+                <MudText Typo="Typo.caption">An applicant's age is measured on the cut-off date of the admission year.</MudText>
+            </MudItem>
+        </MudGrid>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="() => MudDialog.Cancel()">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Save"
+                   Disabled="@(Busy || programmeId == Guid.Empty || string.IsNullOrWhiteSpace(code) || string.IsNullOrWhiteSpace(name))">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public YearGroupView? Item { get; set; }
+    [Parameter] public Guid ProgrammeId { get; set; }
+    [Parameter] public IReadOnlyList<ProgrammeView> Programmes { get; set; } = [];
+
+    private Guid programmeId;
+    private string code = "", name = "";
+    private string? nameBn;
+    private int sequence = 1;
+    private Guid? nextYearGroupId;
+    private bool isFinalYear;
+    private int? minAge, maxAge;
+    private int cutOffMonth = 7, cutOffDay = 1;
+
+    protected override void OnInitialized()
+    {
+        programmeId = ProgrammeId;
+        if (Item is null)
+        {
+            var groups = Programmes.FirstOrDefault(p => p.Id == ProgrammeId)?.YearGroups ?? [];
+            sequence = groups.Count == 0 ? 1 : groups.Max(y => y.Sequence) + 1;
+            return;
+        }
+        programmeId = Item.ProgrammeId;
+        (code, name, nameBn, sequence, nextYearGroupId, isFinalYear) = (Item.Code, Item.Name, Item.NameBn, Item.Sequence, Item.NextYearGroupId, Item.IsFinalYear);
+        (minAge, maxAge, cutOffMonth, cutOffDay) = (Item.MinAgeMonths, Item.MaxAgeMonths, Item.AgeCutOffMonth, Item.AgeCutOffDay);
+    }
+
+    private static string? AgeText(int? months) => months is null ? null : $"{months / 12} years {months % 12} months";
+
+    private async Task Save()
+    {
+        var request = new YearGroupRequest(programmeId, code.Trim(), name.Trim(), nameBn, sequence, isFinalYear ? null : nextYearGroupId, isFinalYear,
+            minAge, maxAge, cutOffMonth, cutOffDay);
+        var ok = await Run(async () =>
+        {
+            if (Item is null) await Api.PostAsync<Guid>("api/structure/year-groups", request);
+            else await Api.PutAsync($"api/structure/year-groups/{Item.Id}", request);
+        }, "Class saved.");
+        if (ok) MudDialog.Close(DialogResult.Ok(true));
+    }
+}

@@ -1,0 +1,169 @@
+@page "/academic/structure"
+@inherits AppPage
+
+<PageTitle>Programmes & classes</PageTitle>
+
+<div class="d-flex align-center mb-1">
+    <MudText Typo="Typo.h4">Programmes & classes</MudText>
+    <MudSpacer />
+    @if (canManage)
+    {
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="() => EditProgramme(null)" Disabled="Busy">New programme</MudButton>
+    }
+</div>
+<MudText Typo="Typo.body2" Class="mb-4">
+    Programmes (e.g. Pre-school, Primary, O Level) contain the classes (year groups) students are promoted through.
+    Sections of each class are set up per campus and year on the <MudLink Href="academic/sections">Sections</MudLink> page.
+</MudText>
+
+@if (loading)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else if (programmes.Count == 0)
+{
+    <MudAlert Severity="Severity.Info">No programmes yet.</MudAlert>
+}
+else
+{
+    <MudExpansionPanels MultiExpansion="true">
+        @foreach (var p in programmes)
+        {
+            <MudExpansionPanel Expanded="true">
+                <TitleContent>
+                    <div class="d-flex align-center gap-2">
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@p.Code</MudChip>
+                        <MudText Typo="Typo.h6">@p.Name</MudText>
+                        @if (!string.IsNullOrEmpty(p.NameBn))
+                        {
+                            <MudText Typo="Typo.body2">(@p.NameBn)</MudText>
+                        }
+                        <MudText Typo="Typo.caption" Class="ml-4">Order @p.Sequence · Grading: @SchemeName(p.DefaultGradingSchemeId)</MudText>
+                    </div>
+                </TitleContent>
+                <ChildContent>
+                    @if (canManage)
+                    {
+                        <div class="d-flex gap-2 mb-2">
+                            <MudButton Size="Size.Small" StartIcon="@Icons.Material.Filled.Edit" OnClick="() => EditProgramme(p)" Disabled="Busy">Edit programme</MudButton>
+                            <MudButton Size="Size.Small" StartIcon="@Icons.Material.Filled.Add" OnClick="() => EditYearGroup(null, p.Id)" Disabled="Busy">Add class</MudButton>
+                        </div>
+                    }
+                    <MudTable T="YearGroupView" Items="p.YearGroups" Dense="true" Hover="true" Elevation="0" Outlined="true">
+                        <HeaderContent>
+                            <MudTh>#</MudTh>
+                            <MudTh>Code</MudTh>
+                            <MudTh>Name</MudTh>
+                            <MudTh>Promotes to</MudTh>
+                            <MudTh>Age range</MudTh>
+                            <MudTh>Age cut-off</MudTh>
+                            <MudTh></MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd DataLabel="#">@context.Sequence</MudTd>
+                            <MudTd DataLabel="Code">@context.Code</MudTd>
+                            <MudTd DataLabel="Name">
+                                @context.Name
+                                @if (!string.IsNullOrEmpty(context.NameBn))
+                                {
+                                    <MudText Typo="Typo.caption" Class="d-block">@context.NameBn</MudText>
+                                }
+                            </MudTd>
+                            <MudTd DataLabel="Promotes to">
+                                @if (context.IsFinalYear)
+                                {
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Secondary">Final year (graduates)</MudChip>
+                                }
+                                else
+                                {
+                                    @YearGroupName(context.NextYearGroupId)
+                                }
+                            </MudTd>
+                            <MudTd DataLabel="Age range">@AgeRange(context)</MudTd>
+                            <MudTd DataLabel="Age cut-off">@CutOff(context)</MudTd>
+                            <MudTd Style="text-align:right">
+                                @if (canManage)
+                                {
+                                    <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" title="Edit class" OnClick="() => EditYearGroup(context, p.Id)" Disabled="Busy" />
+                                }
+                            </MudTd>
+                        </RowTemplate>
+                        <NoRecordsContent><MudText Typo="Typo.body2">No classes in this programme.</MudText></NoRecordsContent>
+                    </MudTable>
+                </ChildContent>
+            </MudExpansionPanel>
+        }
+    </MudExpansionPanels>
+}
+
+@code {
+    private List<ProgrammeView> programmes = [];
+    private List<GradingSchemeView> schemes = [];
+    private bool loading = true;
+    private bool canManage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        canManage = Session.Has(P.Settings.Manage);
+        await Load();
+    }
+
+    private async Task Load()
+    {
+        loading = true;
+        await Run(async () =>
+        {
+            var p = Api.GetAsync<List<ProgrammeView>>("api/structure/programmes");
+            var s = Api.GetAsync<List<GradingSchemeView>>("api/grading-schemes");
+            programmes = await p;
+            schemes = await s;
+        });
+        loading = false;
+    }
+
+    private string SchemeName(Guid? id) => id is null ? "—" : schemes.FirstOrDefault(s => s.Id == id)?.Name ?? "—";
+
+    private string YearGroupName(Guid? id) =>
+        id is null ? "—" : programmes.SelectMany(p => p.YearGroups).FirstOrDefault(y => y.Id == id)?.Name ?? "—";
+
+    private static string Months(int m) => m % 12 == 0 ? $"{m / 12}y" : $"{m / 12}y {m % 12}m";
+
+    private static string AgeRange(YearGroupView y) => (y.MinAgeMonths, y.MaxAgeMonths) switch
+    {
+        (null, null) => "—",
+        ({ } min, null) => $"from {Months(min)}",
+        (null, { } max) => $"up to {Months(max)}",
+        ({ } min, { } max) => $"{Months(min)} – {Months(max)}"
+    };
+
+    private static string CutOff(YearGroupView y) =>
+        $"{y.AgeCutOffDay} {System.Globalization.CultureInfo.InvariantCulture.DateTimeFormat.GetAbbreviatedMonthName(y.AgeCutOffMonth)}";
+
+    private async Task EditProgramme(ProgrammeView? item)
+    {
+        var dlg = await Dialogs.ShowAsync<ProgrammeDialog>(item is null ? "New programme" : $"Edit {item.Name}",
+            new DialogParameters<ProgrammeDialog>
+            {
+                { x => x.Item, item },
+                { x => x.Schemes, schemes },
+                { x => x.NextSequence, programmes.Count == 0 ? 1 : programmes.Max(p => p.Sequence) + 1 }
+            },
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var r = await dlg.Result;
+        if (r is { Canceled: false }) await Load();
+    }
+
+    private async Task EditYearGroup(YearGroupView? item, Guid programmeId)
+    {
+        var dlg = await Dialogs.ShowAsync<YearGroupDialog>(item is null ? "New class" : $"Edit {item.Name}",
+            new DialogParameters<YearGroupDialog>
+            {
+                { x => x.Item, item },
+                { x => x.ProgrammeId, programmeId },
+                { x => x.Programmes, programmes }
+            },
+            new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+        var r = await dlg.Result;
+        if (r is { Canceled: false }) await Load();
+    }
+}

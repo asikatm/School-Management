@@ -1,0 +1,79 @@
+@page "/admission/invoices"
+@inherits AppPage
+
+<PageTitle>Admission invoices</PageTitle>
+
+<div class="d-flex flex-wrap align-center gap-2 mb-4">
+    <div>
+        <MudText Typo="Typo.h4">Admission invoices</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary">Raised when an offer is accepted; paid in full at the counter before enrolment.</MudText>
+    </div>
+</div>
+
+<MudPaper Class="pa-4 mb-4">
+    <div class="d-flex flex-wrap gap-3 align-center">
+        <AdmissionScopePicker Lookups="lookups" @bind-CampusId="campusId" ShowYear="false" ShowClass="false" Changed="Reload" />
+        <MudSelect T="AdmissionInvoiceStatus?" Value="status" ValueChanged="v => { status = v; return Reload(); }" Label="Status" Clearable="true" Placeholder="All statuses"
+                   Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Style="min-width:160px">
+            @foreach (var s in Enum.GetValues<AdmissionInvoiceStatus>())
+            {
+                <MudSelectItem T="AdmissionInvoiceStatus?" Value="s">@Format.Enum(s)</MudSelectItem>
+            }
+        </MudSelect>
+    </div>
+</MudPaper>
+
+<MudTable @ref="table" T="AdmissionInvoiceView" ServerData="LoadAsync" Hover="true" Dense="true" Striped="true" Elevation="1">
+    <HeaderContent>
+        <MudTh>Invoice no.</MudTh>
+        <MudTh>Application</MudTh>
+        <MudTh>Campus</MudTh>
+        <MudTh>Items</MudTh>
+        <MudTh>Due</MudTh>
+        <MudTh Style="text-align:right">Amount</MudTh>
+        <MudTh>Status</MudTh>
+        <MudTh>Paid</MudTh>
+        <MudTh>Reference</MudTh>
+        <MudTh></MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd DataLabel="Invoice no.">@context.InvoiceNo</MudTd>
+        <MudTd DataLabel="Application"><MudLink Href="@($"admission/applications/{context.ApplicationId}")">Open</MudLink></MudTd>
+        <MudTd DataLabel="Campus">@lookups.Campus(context.CampusId)</MudTd>
+        <MudTd DataLabel="Items"><MudText Typo="Typo.caption">@string.Join(", ", context.Lines.Select(l => l.Description))</MudText></MudTd>
+        <MudTd DataLabel="Due">
+            <MudText Typo="Typo.body2" Color="@(context.Status == AdmissionInvoiceStatus.Unpaid && context.DueDate < DateOnly.FromDateTime(AdmissionUi.TodayDhaka) ? Color.Error : Color.Default)">
+                @Format.Date(context.DueDate)
+            </MudText>
+        </MudTd>
+        <MudTd DataLabel="Amount" Style="text-align:right">@Format.Money(context.Amount)</MudTd>
+        <MudTd DataLabel="Status"><MudChip T="string" Size="Size.Small" Color="AdmissionUi.InvoiceColor(context.Status)">@Format.Enum(context.Status)</MudChip></MudTd>
+        <MudTd DataLabel="Paid">@Format.Date(context.PaidAtUtc)</MudTd>
+        <MudTd DataLabel="Reference">@(context.PaymentChannel is null ? "" : context.PaymentChannel + ": ")@context.PaymentReference</MudTd>
+        <MudTd><InvoiceActions Invoice="context" Changed="_ => Reload()" /></MudTd>
+    </RowTemplate>
+    <NoRecordsContent><MudText Class="pa-4">No invoices match the filters.</MudText></NoRecordsContent>
+    <PagerContent><MudTablePager PageSizeOptions="new[] { 25, 50, 100 }" /></PagerContent>
+</MudTable>
+
+@code {
+    private MudTable<AdmissionInvoiceView>? table;
+    private AdmissionLookups lookups = AdmissionLookups.Empty;
+    private Guid? campusId;
+    private AdmissionInvoiceStatus? status = AdmissionInvoiceStatus.Unpaid;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Run(async () => lookups = await AdmissionLookups.LoadAsync(Api, Session));
+    }
+
+    private Task Reload() => table?.ReloadServerData() ?? Task.CompletedTask;
+
+    private async Task<TableData<AdmissionInvoiceView>> LoadAsync(TableState state, CancellationToken ct)
+    {
+        PagedResult<AdmissionInvoiceView>? result = null;
+        await Run(async () => result = await Api.GetAsync<PagedResult<AdmissionInvoiceView>>(ApiClient.Query("api/admission/invoices",
+            ("campusId", campusId), ("status", status), ("page", state.Page + 1), ("pageSize", state.PageSize))));
+        return new TableData<AdmissionInvoiceView> { Items = result?.Items ?? [], TotalItems = result?.TotalCount ?? 0 };
+    }
+}

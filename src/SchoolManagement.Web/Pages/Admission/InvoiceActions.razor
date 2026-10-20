@@ -1,0 +1,50 @@
+@inherits AppPage
+@* Record payment or cancel one admission invoice; raises Changed with the updated invoice. *@
+
+<div class="d-flex flex-wrap gap-1 justify-end">
+    <MudIconButton Icon="@Icons.Material.Filled.Visibility" Size="Size.Small" OnClick="View" aria-label="View invoice" />
+    @if (Invoice.Status == AdmissionInvoiceStatus.Unpaid)
+    {
+        if (Session.Has(P.Admission.Edit))
+        {
+            <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Success" Disabled="Busy" OnClick="Pay">Record payment</MudButton>
+        }
+        if (Session.Has(P.Admission.Approve))
+        {
+            <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Error" Disabled="Busy" OnClick="Cancel">Cancel</MudButton>
+        }
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public AdmissionInvoiceView Invoice { get; set; } = default!;
+    [Parameter] public EventCallback<AdmissionInvoiceView> Changed { get; set; }
+
+    private async Task View()
+    {
+        AdmissionInvoiceView? fresh = null;
+        if (!await Run(async () => fresh = await Api.GetAsync<AdmissionInvoiceView>($"api/admission/invoices/{Invoice.Id}"))) return;
+        await Dialogs.ShowAsync<InvoiceDialog>($"Invoice {fresh!.InvoiceNo}", new DialogParameters<InvoiceDialog> { { x => x.Invoice, fresh } },
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+    }
+
+    private async Task Pay()
+    {
+        var payment = await PaymentDialog.AskAsync(Dialogs, $"Payment for {Invoice.InvoiceNo}", Invoice.Amount, fixedAmount: true);
+        if (payment is null) return;
+        AdmissionInvoiceView? updated = null;
+        if (await Run(async () => updated = await Api.PostAsync<AdmissionInvoiceView>($"api/admission/invoices/{Invoice.Id}/pay", payment), "Payment recorded."))
+            await Changed.InvokeAsync(updated);
+    }
+
+    private async Task Cancel()
+    {
+        var reason = await ReasonDialog.AskAsync(Dialogs, "Cancel invoice", "Reason", "Cancel invoice", required: true,
+            message: $"Cancel invoice {Invoice.InvoiceNo} ({Format.Money(Invoice.Amount)})?", color: Color.Error);
+        if (reason is null) return;
+        AdmissionInvoiceView? updated = null;
+        if (await Run(async () => updated = await Api.PostAsync<AdmissionInvoiceView>($"api/admission/invoices/{Invoice.Id}/cancel", new AdmissionReasonRequest(reason)),
+                "Invoice cancelled."))
+            await Changed.InvokeAsync(updated);
+    }
+}

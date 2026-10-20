@@ -1,0 +1,93 @@
+@inherits AppPage
+
+<MudDialog>
+    <DialogContent>
+        <MudGrid>
+            <MudItem xs="12" sm="6">
+                <MudTextField @bind-Value="userName" Label="User name" Variant="Variant.Outlined" Required="true"
+                              HelperText="Letters, digits and . _ @@ -" Error="HasError(nameof(CreateUserRequest.UserName))" ErrorText="@ErrorFor(nameof(CreateUserRequest.UserName))" />
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudTextField @bind-Value="fullName" Label="Full name" Variant="Variant.Outlined" Required="true"
+                              Error="HasError(nameof(CreateUserRequest.FullName))" ErrorText="@ErrorFor(nameof(CreateUserRequest.FullName))" />
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudTextField @bind-Value="email" Label="Email" Variant="Variant.Outlined" InputType="InputType.Email"
+                              Error="HasError(nameof(CreateUserRequest.Email))" ErrorText="@ErrorFor(nameof(CreateUserRequest.Email))" />
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudTextField @bind-Value="phone" Label="Phone" Variant="Variant.Outlined" HelperText="e.g. +8801712345678"
+                              Error="HasError(nameof(CreateUserRequest.Phone))" ErrorText="@ErrorFor(nameof(CreateUserRequest.Phone))" />
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudSelect T="UserType" @bind-Value="userType" Label="Type" Variant="Variant.Outlined">
+                    @foreach (var t in Enum.GetValues<UserType>())
+                    {
+                        <MudSelectItem T="UserType" Value="@t">@Format.Enum(t)</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudSelect T="string" @bind-Value="language" Label="Language" Variant="Variant.Outlined"
+                           Error="HasError(nameof(CreateUserRequest.Language))" ErrorText="@ErrorFor(nameof(CreateUserRequest.Language))">
+                    <MudSelectItem T="string" Value="@("en")">English</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("bn")">Bangla</MudSelectItem>
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12">
+                <MudSwitch T="bool" @bind-Value="generatePassword" Color="Color.Primary" Label="Generate a temporary password" />
+                @if (!generatePassword)
+                {
+                    <MudTextField @bind-Value="password" Label="Initial password" Variant="Variant.Outlined" InputType="InputType.Password"
+                                  HelperText="The user must change it at first sign-in."
+                                  Error="HasError(nameof(CreateUserRequest.Password))" ErrorText="@ErrorFor(nameof(CreateUserRequest.Password))" />
+                }
+            </MudItem>
+            <MudItem xs="12">
+                <MudText Typo="Typo.subtitle2" Class="mb-2">Roles</MudText>
+                <RoleAssignmentsEditor Rows="rows" Roles="roles" Campuses="campuses" />
+            </MudItem>
+        </MudGrid>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="() => MudDialog.Cancel()">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Save"
+                   Disabled="@(Busy || string.IsNullOrWhiteSpace(userName) || string.IsNullOrWhiteSpace(fullName))">Create</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+
+    private string userName = "";
+    private string fullName = "";
+    private string? email;
+    private string? phone;
+    private UserType userType = UserType.Staff;
+    private string language = "en";
+    private bool generatePassword = true;
+    private string? password;
+    private List<RoleAssignmentsEditor.Row> rows = [];
+    private List<RoleView> roles = [];
+    private List<AdminCampusOption> campuses = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Run(async () =>
+        {
+            roles = await Api.GetAsync<List<RoleView>>("api/roles");
+            campuses = await Api.GetAsync<List<AdminCampusOption>>("api/campuses");
+        });
+    }
+
+    private async Task Save()
+    {
+        var request = new CreateUserRequest(userName.Trim(), fullName.Trim(), Blank(email), Blank(phone), userType,
+            generatePassword ? null : password, language, RoleAssignmentsEditor.ToRequest(rows));
+        CreateUserResponse? created = null;
+        if (await Run(async () => created = await Api.PostAsync<CreateUserResponse>("api/users", request), "User created."))
+            MudDialog.Close(DialogResult.Ok(created!));
+    }
+
+    private static string? Blank(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+}

@@ -1,0 +1,131 @@
+@inherits AppPage
+
+<div class="d-flex align-center mb-2">
+    <MudText Typo="Typo.h6">Withdrawal</MudText>
+    <MudSpacer />
+    @if (Session.Has(P.Students.Edit) && Student.Status == StudentStatus.Active && !withdrawals.Any(StudentChoices.IsOpen))
+    {
+        <MudButton Variant="Variant.Outlined" Color="Color.Error" StartIcon="@Icons.Material.Filled.ExitToApp" OnClick="Request">Request withdrawal</MudButton>
+    }
+</div>
+
+@if (loading)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else if (withdrawals.Count == 0)
+{
+    <MudText Typo="Typo.body2" Class="mb-4">No withdrawal requests.</MudText>
+}
+else
+{
+    @foreach (var w in withdrawals)
+    {
+        <MudPaper Outlined="true" Class="pa-3 mb-3">
+            <div class="d-flex flex-wrap align-center gap-2">
+                <WithdrawalStatusChip Status="w.Status" ApprovalRequestId="w.ApprovalRequestId" />
+                <MudText Typo="Typo.body2">Requested @Format.DateTime(w.CreatedAtUtc) · last day @Format.Date(w.LastAttendanceDate)</MudText>
+                <MudSpacer />
+                @if (StudentChoices.IsOpen(w) && Session.Has(P.Students.Edit))
+                {
+                    <MudButton Size="Size.Small" StartIcon="@Icons.Material.Filled.Refresh" OnClick="@(() => Recheck(w))" Disabled="Busy">Re-check dues</MudButton>
+                }
+                @if (StudentChoices.CanComplete(w) && Session.Has(P.Students.Approve))
+                {
+                    <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => Complete(w))" Disabled="Busy">Issue TC</MudButton>
+                }
+            </div>
+            <MudText Typo="Typo.body2" Class="mt-2"><b>Reason:</b> @w.Reason</MudText>
+            @if (!string.IsNullOrEmpty(w.DestinationSchool))
+            {
+                <MudText Typo="Typo.body2"><b>Destination:</b> @w.DestinationSchool</MudText>
+            }
+            @if (w.Status == WithdrawalStatus.Cleared && w.ApprovalRequestId is not null)
+            {
+                <MudText Typo="Typo.caption" Class="d-block">Waiting for the approval workflow to finish.</MudText>
+            }
+            <ClearanceList Items="w.Clearance" />
+        </MudPaper>
+    }
+}
+
+<MudText Typo="Typo.h6" Class="mt-4 mb-2">Transfer certificates</MudText>
+@if (certificates.Count == 0)
+{
+    <MudText Typo="Typo.body2">No transfer certificate issued.</MudText>
+}
+else
+{
+    <MudTable Items="certificates" Dense="true" Elevation="0" Outlined="true">
+        <HeaderContent>
+            <MudTh>Certificate no</MudTh>
+            <MudTh>Issued</MudTh>
+            <MudTh>Last class</MudTh>
+            <MudTh>Conduct</MudTh>
+            <MudTh>Verification code</MudTh>
+            <MudTh></MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Certificate no">@context.CertificateNo</MudTd>
+            <MudTd DataLabel="Issued">@Format.Date(context.IssueDate)</MudTd>
+            <MudTd DataLabel="Last class">@context.LastClass</MudTd>
+            <MudTd DataLabel="Conduct">@(context.Conduct ?? "—")</MudTd>
+            <MudTd DataLabel="Verification code">@context.VerificationCode</MudTd>
+            <MudTd Style="text-align:right">
+                <MudButton Size="Size.Small" StartIcon="@Icons.Material.Filled.Print" OnClick="@(() => Print(context.Id))" Disabled="Busy">Print</MudButton>
+            </MudTd>
+        </RowTemplate>
+    </MudTable>
+}
+
+@code {
+    [Parameter, EditorRequired] public StudentDetail Student { get; set; } = default!;
+    /// <summary>Reloads the student (status changes after a TC).</summary>
+    [Parameter] public EventCallback Reload { get; set; }
+
+    private List<StudentWithdrawalView> withdrawals = [];
+    private List<StudentTransferCertificateView> certificates = [];
+    private bool loading = true;
+
+    protected override Task OnInitializedAsync() => Load();
+
+    private async Task Load()
+    {
+        loading = true;
+        // The API has no per-student filter; the register endpoints return the latest 500 / 1000 entries.
+        await Run(async () =>
+        {
+            withdrawals = (await Api.GetAsync<List<StudentWithdrawalView>>("api/students/withdrawals")).Where(w => w.StudentId == Student.Id).ToList();
+            certificates = (await Api.GetAsync<List<StudentTransferCertificateView>>(ApiClient.Query("api/students/transfer-certificates", ("campusId", Student.CampusId))))
+                .Where(t => t.StudentId == Student.Id).ToList();
+        });
+        loading = false;
+    }
+
+    private async Task Request()
+    {
+        var dlg = await Dialogs.ShowAsync<WithdrawalRequestDialog>("Request withdrawal",
+            new DialogParameters<WithdrawalRequestDialog> { { x => x.StudentId, Student.Id } },
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (await dlg.Result is { Canceled: false }) await Load();
+    }
+
+    private async Task Recheck(StudentWithdrawalView w)
+    {
+        if (await Run(() => Api.PostAsync<StudentWithdrawalView>($"api/students/withdrawals/{w.Id}/recheck"), "Clearance re-checked."))
+            await Load();
+    }
+
+    private async Task Complete(StudentWithdrawalView w)
+    {
+        var dlg = await Dialogs.ShowAsync<CompleteWithdrawalDialog>("Issue transfer certificate",
+            new DialogParameters<CompleteWithdrawalDialog> { { x => x.Withdrawal, w } },
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (await dlg.Result is not { Canceled: false, Data: StudentTransferCertificateView tc }) return;
+        await Load();
+        await Reload.InvokeAsync();
+        await Print(tc.Id);
+    }
+
+    private Task Print(Guid tcId) => OpenFile($"api/students/transfer-certificates/{tcId}/print");
+}

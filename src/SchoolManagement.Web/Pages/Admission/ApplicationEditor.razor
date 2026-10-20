@@ -1,0 +1,215 @@
+@* The application form, shared by the staff screen and the public online application. *@
+
+<MudPaper Class="pa-4 mb-4">
+    <MudText Typo="Typo.h6" Class="mb-3">Admission sought</MudText>
+    <MudGrid Spacing="2">
+        <MudItem xs="12" sm="4">
+            <MudSelect T="Guid?" @bind-Value="Form.CampusId" Label="Campus" Required="true" Variant="Variant.Outlined" Disabled="Disabled"
+                       Error="Has(nameof(Form.CampusId))" ErrorText="@E(nameof(Form.CampusId))">
+                @foreach (var c in Campuses)
+                {
+                    <MudSelectItem T="Guid?" Value="c.Id">@c.Name</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="4">
+            <MudSelect T="Guid?" @bind-Value="Form.AcademicYearId" Label="Academic year" Required="true" Variant="Variant.Outlined" Disabled="Disabled"
+                       Error="Has(nameof(Form.AcademicYearId))" ErrorText="@E(nameof(Form.AcademicYearId))">
+                @foreach (var y in Years)
+                {
+                    <MudSelectItem T="Guid?" Value="y.Id">@y.Name</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="4">
+            <MudSelect T="Guid?" @bind-Value="Form.YearGroupId" Label="Class" Required="true" Variant="Variant.Outlined" Disabled="Disabled"
+                       Error="Has(nameof(Form.YearGroupId))" ErrorText="@E(nameof(Form.YearGroupId))">
+                @foreach (var c in Classes)
+                {
+                    <MudSelectItem T="Guid?" Value="c.Id">@c.Name</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+<MudPaper Class="pa-4 mb-4">
+    <MudText Typo="Typo.h6" Class="mb-3">Applicant</MudText>
+    <MudGrid Spacing="2">
+        <MudItem xs="12" sm="4">
+            <MudTextField @bind-Value="Form.FirstName" Label="First name" Required="true" Variant="Variant.Outlined" MaxLength="100" Disabled="Disabled" Immediate="true"
+                          Error="Has(nameof(Form.FirstName))" ErrorText="@E(nameof(Form.FirstName))" />
+        </MudItem>
+        <MudItem xs="12" sm="4">
+            <MudTextField @bind-Value="Form.LastName" Label="Last name" Variant="Variant.Outlined" MaxLength="100" Disabled="Disabled"
+                          Error="Has(nameof(Form.LastName))" ErrorText="@E(nameof(Form.LastName))" />
+        </MudItem>
+        <MudItem xs="12" sm="4">
+            <MudTextField @bind-Value="Form.NameBn" Label="Name in Bangla" Variant="Variant.Outlined" Disabled="Disabled" />
+        </MudItem>
+        <MudItem xs="12" sm="4">
+            <MudDatePicker @bind-Date="Form.DateOfBirth" Label="Date of birth" Required="true" Variant="Variant.Outlined" DateFormat="dd MMM yyyy" Disabled="Disabled"
+                           MaxDate="DateTime.Today" OpenTo="OpenTo.Year" Error="Has(nameof(Form.DateOfBirth))" ErrorText="@E(nameof(Form.DateOfBirth))" />
+        </MudItem>
+        <MudItem xs="12" sm="4">
+            <MudSelect T="string" @bind-Value="Form.Gender" Label="Gender" Clearable="true" Variant="Variant.Outlined" Disabled="Disabled"
+                       Error="Has(nameof(Form.Gender))" ErrorText="@E(nameof(Form.Gender))">
+                <MudSelectItem T="string" Value="@("Male")">Male</MudSelectItem>
+                <MudSelectItem T="string" Value="@("Female")">Female</MudSelectItem>
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="4">
+            <MudSelect T="string" @bind-Value="Form.BloodGroup" Label="Blood group" Clearable="true" Variant="Variant.Outlined" Disabled="Disabled"
+                       Error="Has(nameof(Form.BloodGroup))" ErrorText="@E(nameof(Form.BloodGroup))">
+                @foreach (var b in AdmissionUi.BloodGroups)
+                {
+                    <MudSelectItem T="string" Value="b">@b</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="4">
+            <MudSelect T="string" @bind-Value="Form.Religion" Label="Religion" Clearable="true" Variant="Variant.Outlined" Disabled="Disabled">
+                @foreach (var r in AdmissionUi.Religions)
+                {
+                    <MudSelectItem T="string" Value="r">@r</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="4">
+            <MudTextField @bind-Value="Form.Nationality" Label="Nationality" Variant="Variant.Outlined" Disabled="Disabled" />
+        </MudItem>
+        <MudItem xs="12" sm="4">
+            <MudTextField @bind-Value="Form.BirthCertificateNo" Label="Birth registration no." Variant="Variant.Outlined" Disabled="Disabled" HelperText="17 digits"
+                          Error="Has(nameof(Form.BirthCertificateNo))" ErrorText="@E(nameof(Form.BirthCertificateNo))" />
+        </MudItem>
+        <MudItem xs="12" sm="6">
+            <MudTextField @bind-Value="Form.PreviousSchool" Label="Previous school" Variant="Variant.Outlined" Disabled="Disabled" />
+        </MudItem>
+        <MudItem xs="12" sm="6">
+            <MudTextField @bind-Value="Form.PreviousClass" Label="Previous class" Variant="Variant.Outlined" Disabled="Disabled" />
+        </MudItem>
+        <MudItem xs="12" sm="6">
+            <MudTextField @bind-Value="Form.PresentAddress" Label="Present address" Variant="Variant.Outlined" Lines="2" Disabled="Disabled" />
+        </MudItem>
+        <MudItem xs="12" sm="6">
+            <MudTextField @bind-Value="Form.PermanentAddress" Label="Permanent address" Variant="Variant.Outlined" Lines="2" Disabled="Disabled" />
+        </MudItem>
+        <MudItem xs="12">
+            <MudTextField @bind-Value="Form.SpecialNeeds" Label="Special needs / medical notes" Variant="Variant.Outlined" Lines="2" Disabled="Disabled" />
+        </MudItem>
+        <MudItem xs="12" sm="4" Class="d-flex align-center">
+            <MudCheckBox @bind-Value="Form.HasSiblingInSchool" Label="Has a sibling studying here" Disabled="Disabled" />
+        </MudItem>
+        <MudItem xs="12" sm="4">
+            @if (Form.HasSiblingInSchool)
+            {
+                <MudTextField @bind-Value="Form.SiblingAdmissionNo" Label="Sibling's admission no." Required="true" Variant="Variant.Outlined" Disabled="Disabled"
+                              HelperText="@SiblingHelp" Error="Has(nameof(Form.SiblingAdmissionNo))" ErrorText="@E(nameof(Form.SiblingAdmissionNo))" />
+            }
+        </MudItem>
+        <MudItem xs="12" sm="4" Class="d-flex align-center">
+            <MudCheckBox @bind-Value="Form.IsStaffWard" Label="Child of a staff member" Disabled="Disabled" />
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+<MudPaper Class="pa-4 mb-4">
+    <div class="d-flex align-center mb-3">
+        <MudText Typo="Typo.h6">Guardians</MudText>
+        <MudSpacer />
+        @if (!Disabled && Form.Guardians.Count < 4)
+        {
+            <MudButton Size="Size.Small" StartIcon="@Icons.Material.Filled.Add" OnClick="AddGuardian">Add guardian</MudButton>
+        }
+    </div>
+    @if (Has(nameof(Form.Guardians)))
+    {
+        <MudAlert Severity="Severity.Error" Dense="true" Class="mb-3">@E(nameof(Form.Guardians))</MudAlert>
+    }
+    @for (var i = 0; i < Form.Guardians.Count; i++)
+    {
+        var index = i;
+        var g = Form.Guardians[index];
+        var key = $"Guardians[{index}].";
+        <MudPaper Outlined="true" Class="pa-3 mb-3">
+            <MudGrid Spacing="2">
+                <MudItem xs="12" sm="3">
+                    <MudSelect T="string" @bind-Value="g.Relationship" Label="Relationship" Variant="Variant.Outlined" Disabled="Disabled"
+                               Error="Has(key + nameof(g.Relationship))" ErrorText="@E(key + nameof(g.Relationship))">
+                        @foreach (var r in AdmissionUi.Relationships)
+                        {
+                            <MudSelectItem T="string" Value="r">@r</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" sm="5">
+                    <MudTextField @bind-Value="g.Name" Label="Name" Required="true" Variant="Variant.Outlined" MaxLength="200" Disabled="Disabled" Immediate="true"
+                                  Error="Has(key + nameof(g.Name))" ErrorText="@E(key + nameof(g.Name))" />
+                </MudItem>
+                <MudItem xs="12" sm="4">
+                    <MudTextField @bind-Value="g.Phone" Label="Mobile" Required="true" Variant="Variant.Outlined" Placeholder="01XXXXXXXXX" Disabled="Disabled" Immediate="true"
+                                  Error="Has(key + nameof(g.Phone))" ErrorText="@E(key + nameof(g.Phone))" />
+                </MudItem>
+                <MudItem xs="12" sm="4">
+                    <MudTextField @bind-Value="g.Email" Label="E-mail" Variant="Variant.Outlined" Disabled="Disabled"
+                                  Error="Has(key + nameof(g.Email))" ErrorText="@E(key + nameof(g.Email))" />
+                </MudItem>
+                <MudItem xs="12" sm="4">
+                    <MudTextField @bind-Value="g.NationalId" Label="NID" Variant="Variant.Outlined" Disabled="Disabled" HelperText="10, 13 or 17 digits"
+                                  Error="Has(key + nameof(g.NationalId))" ErrorText="@E(key + nameof(g.NationalId))" />
+                </MudItem>
+                <MudItem xs="12" sm="4">
+                    <MudSelect T="string" @bind-Value="g.IncomeBand" Label="Monthly income (৳)" Clearable="true" Variant="Variant.Outlined" Disabled="Disabled">
+                        @foreach (var b in AdmissionUi.IncomeBands)
+                        {
+                            <MudSelectItem T="string" Value="b">@b</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" sm="4">
+                    <MudTextField @bind-Value="g.Occupation" Label="Occupation" Variant="Variant.Outlined" Disabled="Disabled" />
+                </MudItem>
+                <MudItem xs="12" sm="4">
+                    <MudTextField @bind-Value="g.Organisation" Label="Organisation" Variant="Variant.Outlined" Disabled="Disabled" />
+                </MudItem>
+                <MudItem xs="12" sm="4" Class="d-flex align-center">
+                    <MudCheckBox T="bool" Value="g.IsPrimaryContact" ValueChanged="v => SetPrimary(index, v)" Label="Primary contact" Disabled="Disabled" />
+                    <MudSpacer />
+                    @if (!Disabled && Form.Guardians.Count > 1)
+                    {
+                        <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" Size="Size.Small" OnClick="() => Form.Guardians.RemoveAt(index)" aria-label="Remove guardian" />
+                    }
+                </MudItem>
+            </MudGrid>
+        </MudPaper>
+    }
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired] public ApplicationForm Form { get; set; } = default!;
+    [Parameter] public IReadOnlyList<AdmissionOption> Campuses { get; set; } = [];
+    [Parameter] public IReadOnlyList<AdmissionOption> Years { get; set; } = [];
+    [Parameter] public IReadOnlyList<AdmissionOption> Classes { get; set; } = [];
+    [Parameter] public bool Disabled { get; set; }
+
+    /// <summary>Looks up the API's validation message for a field (e.g. "FirstName", "Guardians[0].Phone").</summary>
+    [Parameter] public Func<string, string?>? ErrorFor { get; set; }
+
+    /// <summary>Prefix of the field names in the API's errors, e.g. "Application." for the public endpoint.</summary>
+    [Parameter] public string ErrorPrefix { get; set; } = "";
+
+    [Parameter] public string? SiblingHelp { get; set; }
+
+    private string? E(string field) => ErrorFor?.Invoke(ErrorPrefix + field);
+    private bool Has(string field) => E(field) is not null;
+
+    private void AddGuardian() =>
+        Form.Guardians.Add(new GuardianForm { Relationship = Form.Guardians.Count == 1 ? "Mother" : "Guardian", IsPrimaryContact = Form.Guardians.Count == 0 });
+
+    // Exactly one guardian is the primary contact.
+    private void SetPrimary(int index, bool value)
+    {
+        for (var i = 0; i < Form.Guardians.Count; i++)
+            Form.Guardians[i].IsPrimaryContact = value ? i == index : Form.Guardians[i].IsPrimaryContact && i != index;
+    }
+}

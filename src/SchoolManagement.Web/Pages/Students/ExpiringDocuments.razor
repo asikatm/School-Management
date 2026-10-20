@@ -1,0 +1,60 @@
+﻿@page "/students/documents/expiring"
+@inherits AppPage
+
+<PageTitle>Expiring documents</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-4">Expiring documents</MudText>
+
+<MudPaper Class="pa-4 mb-4 d-flex flex-wrap align-center gap-2">
+    <MudSelect T="int" Value="days" ValueChanged="OnDays" Label="Expiring within" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:220px">
+        @foreach (var d in new[] { 7, 15, 30, 60, 90, 180, 365 })
+        {
+            <MudSelectItem T="int" Value="@d">@d days</MudSelectItem>
+        }
+    </MudSelect>
+    <MudText Typo="Typo.body2">Already expired documents are included.</MudText>
+</MudPaper>
+
+<MudTable Items="items" Dense="true" Hover="true" Loading="Busy" RowsPerPage="50">
+    <HeaderContent>
+        <MudTh>Expires</MudTh>
+        <MudTh>Document</MudTh>
+        <MudTh>Student</MudTh>
+        <MudTh></MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd DataLabel="Expires">
+            <MudText Typo="Typo.body2" Color="@(context.ExpiresOn < today ? Color.Error : Color.Default)">
+                @Format.Date(context.ExpiresOn)@(context.ExpiresOn < today ? " (expired)" : "")
+            </MudText>
+        </MudTd>
+        <MudTd DataLabel="Document">@context.DocumentType</MudTd>
+        <MudTd DataLabel="Student">
+            <MudLink Href="@($"students/{context.StudentId}")">@context.StudentName</MudLink>
+            <MudText Typo="Typo.caption" Class="d-block">@context.AdmissionNo</MudText>
+        </MudTd>
+        <MudTd Style="text-align:right">
+            <MudIconButton Icon="@Icons.Material.Filled.Visibility" Size="Size.Small" title="Open" Disabled="Busy"
+                           OnClick="@(() => OpenFile($"api/students/{context.StudentId}/documents/{context.DocumentId}"))" />
+        </MudTd>
+    </RowTemplate>
+    <NoRecordsContent><MudText>No documents expire in this period.</MudText></NoRecordsContent>
+    <PagerContent><MudTablePager /></PagerContent>
+</MudTable>
+
+@code {
+    private int days = 30;
+    private readonly DateOnly today = DateOnly.FromDateTime(DateTime.Today);
+    private List<StudentExpiringDocument> items = [];
+
+    protected override Task OnInitializedAsync() => Load();
+
+    private async Task Load() =>
+        await Run(async () => items = await Api.GetAsync<List<StudentExpiringDocument>>(ApiClient.Query("api/students/documents/expiring", ("days", days))));
+
+    private Task OnDays(int value)
+    {
+        days = value;
+        return Load();
+    }
+}

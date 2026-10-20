@@ -1,0 +1,43 @@
+@inherits AppPage
+
+<MudDialog>
+    <DialogContent>
+        <MudSelect T="EnquiryStage" @bind-Value="stage" Label="New stage" Variant="Variant.Outlined" Class="mb-3">
+            @foreach (var s in Enum.GetValues<EnquiryStage>())
+            {
+                <MudSelectItem T="EnquiryStage" Value="s">@Format.Enum(s)</MudSelectItem>
+            }
+        </MudSelect>
+        @if (stage == EnquiryStage.Lost)
+        {
+            <MudTextField @bind-Value="lostReason" Label="Reason lost" Required="true" Variant="Variant.Outlined" Class="mb-3" Immediate="true"
+                          HelperText="E.g. chose another school, fees, distance." />
+        }
+        <MudTextField @bind-Value="note" Label="Note" Variant="Variant.Outlined" Lines="2" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="() => MudDialog.Cancel()">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Save"
+                   Disabled="@(Busy || stage == Current || stage == EnquiryStage.Lost && string.IsNullOrWhiteSpace(lostReason))">Change stage</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] public IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public Guid EnquiryId { get; set; }
+    [Parameter] public EnquiryStage Current { get; set; }
+
+    private EnquiryStage stage;
+    private string? lostReason;
+    private string? note;
+
+    protected override void OnInitialized() => stage = Current;
+
+    private async Task Save()
+    {
+        EnquiryDetail? saved = null;
+        var ok = await Run(async () => saved = await Api.PostAsync<EnquiryDetail>($"api/admission/enquiries/{EnquiryId}/stage",
+            new EnquiryStageChangeRequest(stage, stage == EnquiryStage.Lost ? lostReason?.Trim() : null, ApplicationForm.Blank(note))), "Stage changed.");
+        if (ok) MudDialog.Close(DialogResult.Ok(saved));
+    }
+}

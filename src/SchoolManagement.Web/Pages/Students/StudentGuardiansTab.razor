@@ -1,0 +1,155 @@
+﻿@inherits AppPage
+
+<div class="d-flex align-center mb-2">
+    <MudText Typo="Typo.h6">Guardians</MudText>
+    <MudSpacer />
+    @if (CanEdit)
+    {
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.PersonAdd" OnClick="AddGuardian">Link guardian</MudButton>
+    }
+</div>
+
+<MudTable Items="Student.Guardians" Dense="true" Hover="true" Elevation="0" Outlined="true">
+    <HeaderContent>
+        <MudTh>Name</MudTh>
+        <MudTh>Relationship</MudTh>
+        <MudTh>Phone</MudTh>
+        <MudTh>Email</MudTh>
+        <MudTh>Flags</MudTh>
+        <MudTh>Portal</MudTh>
+        <MudTh></MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd DataLabel="Name">
+            @context.Name
+            @if (!string.IsNullOrEmpty(context.Occupation))
+            {
+                <MudText Typo="Typo.caption" Class="d-block">@context.Occupation</MudText>
+            }
+        </MudTd>
+        <MudTd DataLabel="Relationship">@context.Relationship</MudTd>
+        <MudTd DataLabel="Phone">@context.Phone</MudTd>
+        <MudTd DataLabel="Email">@(context.Email ?? "—")</MudTd>
+        <MudTd DataLabel="Flags">
+            @if (context.IsPrimaryContact) { <MudChip T="string" Size="Size.Small" Color="Color.Primary">Primary</MudChip> }
+            @if (context.IsAuthorisedPickup) { <MudChip T="string" Size="Size.Small">Pickup</MudChip> }
+            @if (context.IsEmergencyContact) { <MudChip T="string" Size="Size.Small">Emergency</MudChip> }
+            @if (context.CanViewFees) { <MudChip T="string" Size="Size.Small">Fees</MudChip> }
+        </MudTd>
+        <MudTd DataLabel="Portal">
+            @if (context.HasPortalAccount)
+            {
+                <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Color="Color.Success" Size="Size.Small" Title="Has a portal account" />
+            }
+            else if (CanEdit)
+            {
+                <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => CreatePortalAccount(context))" Disabled="Busy">Create login</MudButton>
+            }
+            else
+            {
+                <span>—</span>
+            }
+        </MudTd>
+        <MudTd Style="text-align:right;white-space:nowrap">
+            @if (CanEdit)
+            {
+                <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" title="Edit link" OnClick="@(() => EditLink(context))" />
+                <MudIconButton Icon="@Icons.Material.Filled.LinkOff" Size="Size.Small" Color="Color.Error" title="Unlink"
+                               Disabled="@(Busy || context.IsPrimaryContact)" OnClick="@(() => Unlink(context))" />
+            }
+        </MudTd>
+    </RowTemplate>
+    <NoRecordsContent><MudText>No guardians linked.</MudText></NoRecordsContent>
+</MudTable>
+
+<div class="d-flex align-center mt-6 mb-2">
+    <MudText Typo="Typo.h6">Siblings</MudText>
+    <MudSpacer />
+    @if (CanEdit)
+    {
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Link" OnClick="LinkSibling">Link sibling</MudButton>
+    }
+</div>
+<MudText Typo="Typo.caption" Class="d-block mb-2">Siblings share one family: one guardian login and a combined fee view.</MudText>
+
+<MudTable Items="Student.Siblings" Dense="true" Hover="true" Elevation="0" Outlined="true"
+          OnRowClick="@((TableRowClickEventArgs<StudentSiblingView> e) => Nav.NavigateTo($"students/{e.Item!.Id}"))" RowStyle="cursor:pointer">
+    <HeaderContent>
+        <MudTh>Admission no</MudTh>
+        <MudTh>Name</MudTh>
+        <MudTh>Status</MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd DataLabel="Admission no">@context.AdmissionNo</MudTd>
+        <MudTd DataLabel="Name">@context.Name</MudTd>
+        <MudTd DataLabel="Status"><StudentStatusChip Status="context.Status" /></MudTd>
+    </RowTemplate>
+    <NoRecordsContent><MudText>No siblings linked.</MudText></NoRecordsContent>
+</MudTable>
+
+@code {
+    [Parameter, EditorRequired] public StudentDetail Student { get; set; } = default!;
+    [Parameter] public EventCallback<StudentDetail> StudentChanged { get; set; }
+
+    private bool CanEdit => Session.Has(P.Students.Edit);
+
+    private async Task Apply(StudentDetail? updated)
+    {
+        if (updated is not null) await StudentChanged.InvokeAsync(updated);
+    }
+
+    private async Task AddGuardian()
+    {
+        var dlg = await Dialogs.ShowAsync<GuardianLinkDialog>("Link guardian",
+            new DialogParameters<GuardianLinkDialog> { { x => x.StudentId, Student.Id }, { x => x.FirstGuardian, Student.Guardians.Count == 0 } },
+            new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+        if (await dlg.Result is { Canceled: false, Data: StudentDetail updated }) await Apply(updated);
+    }
+
+    private async Task EditLink(StudentGuardianView guardian)
+    {
+        var dlg = await Dialogs.ShowAsync<GuardianFlagsDialog>($"Edit {guardian.Name}",
+            new DialogParameters<GuardianFlagsDialog> { { x => x.StudentId, Student.Id }, { x => x.Guardian, guardian } },
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (await dlg.Result is { Canceled: false, Data: StudentDetail updated }) await Apply(updated);
+    }
+
+    private async Task Unlink(StudentGuardianView guardian)
+    {
+        if (!await Confirm("Unlink guardian", $"Remove {guardian.Name} from this student's guardians?", "Unlink")) return;
+        // The API returns the updated student, but ApiClient.DeleteAsync has no typed overload; re-read instead.
+        if (await Run(() => Api.DeleteAsync($"api/students/{Student.Id}/guardians/{guardian.GuardianId}"), "Guardian unlinked."))
+            await Refresh();
+    }
+
+    private async Task Refresh()
+    {
+        StudentDetail? updated = null;
+        await Run(async () => updated = await Api.GetAsync<StudentDetail>($"api/students/{Student.Id}"));
+        await Apply(updated);
+    }
+
+    private async Task CreatePortalAccount(StudentGuardianView guardian)
+    {
+        if (!await Confirm("Create portal login", $"Create a guardian portal login for {guardian.Name} ({guardian.Phone})?", "Create")) return;
+        GuardianPortalAccountResult? result = null;
+        if (!await Run(async () => result = await Api.PostAsync<GuardianPortalAccountResult>($"api/students/guardians/{guardian.GuardianId}/portal-account"))) return;
+
+        var message = result!.TemporaryPassword is { } pwd
+            ? $"User name: {result.UserName}\nTemporary password: {pwd}\n\nShare these with the guardian now; the password is not shown again."
+            : $"The guardian already has a login: {result.UserName}. Access to this student has been granted.";
+        await Dialogs.ShowMessageBox("Guardian portal login", message, yesText: "Done");
+        await Refresh();
+    }
+
+    private async Task LinkSibling()
+    {
+        var dlg = await Dialogs.ShowAsync<StudentPickerDialog>("Link sibling",
+            new DialogParameters<StudentPickerDialog> { { x => x.ExcludeId, Student.Id }, { x => x.ActionText, "Link sibling" } },
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (await dlg.Result is not { Canceled: false, Data: StudentListItem sibling }) return;
+        StudentDetail? updated = null;
+        if (await Run(async () => updated = await Api.PostAsync<StudentDetail>($"api/students/{Student.Id}/siblings/{sibling.Id}"), "Sibling linked."))
+            await Apply(updated);
+    }
+}

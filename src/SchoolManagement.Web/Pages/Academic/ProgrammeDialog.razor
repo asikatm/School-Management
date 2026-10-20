@@ -1,0 +1,64 @@
+@inherits AppPage
+
+<MudDialog>
+    <DialogContent>
+        <MudGrid Spacing="2">
+            <MudItem xs="12" sm="4">
+                <MudTextField @bind-Value="code" Label="Code" Required="true"
+                              Error="HasError(nameof(ProgrammeRequest.Code))" ErrorText="@ErrorFor(nameof(ProgrammeRequest.Code))" />
+            </MudItem>
+            <MudItem xs="12" sm="8">
+                <MudTextField @bind-Value="name" Label="Name" Required="true"
+                              Error="HasError(nameof(ProgrammeRequest.Name))" ErrorText="@ErrorFor(nameof(ProgrammeRequest.Name))" />
+            </MudItem>
+            <MudItem xs="12" sm="8">
+                <MudTextField @bind-Value="nameBn" Label="Name (Bangla)" />
+            </MudItem>
+            <MudItem xs="12" sm="4">
+                <MudNumericField @bind-Value="sequence" Label="Display order" Min="0" />
+            </MudItem>
+            <MudItem xs="12">
+                <MudSelect T="Guid?" @bind-Value="gradingSchemeId" Label="Default grading scheme" Clearable="true">
+                    @foreach (var s in Schemes)
+                    {
+                        <MudSelectItem T="Guid?" Value="s.Id">@s.Name (@s.Code)</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+        </MudGrid>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="() => MudDialog.Cancel()">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Save" Disabled="@(Busy || string.IsNullOrWhiteSpace(code) || string.IsNullOrWhiteSpace(name))">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public ProgrammeView? Item { get; set; }
+    [Parameter] public IReadOnlyList<GradingSchemeView> Schemes { get; set; } = [];
+    [Parameter] public int NextSequence { get; set; } = 1;
+
+    private string code = "", name = "";
+    private string? nameBn;
+    private int sequence;
+    private Guid? gradingSchemeId;
+
+    protected override void OnInitialized()
+    {
+        sequence = NextSequence;
+        if (Item is null) return;
+        (code, name, nameBn, sequence, gradingSchemeId) = (Item.Code, Item.Name, Item.NameBn, Item.Sequence, Item.DefaultGradingSchemeId);
+    }
+
+    private async Task Save()
+    {
+        var request = new ProgrammeRequest(code.Trim(), name.Trim(), nameBn, sequence, gradingSchemeId);
+        var ok = await Run(async () =>
+        {
+            if (Item is null) await Api.PostAsync<Guid>("api/structure/programmes", request);
+            else await Api.PutAsync($"api/structure/programmes/{Item.Id}", request);
+        }, "Programme saved.");
+        if (ok) MudDialog.Close(DialogResult.Ok(true));
+    }
+}

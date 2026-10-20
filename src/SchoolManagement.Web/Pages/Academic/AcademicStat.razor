@@ -1,0 +1,10 @@
+@* A small number tile used on the academic setup pages. *@
+<MudPaper Outlined="true" Class="pa-3">
+    <MudText Typo="Typo.caption">@Label</MudText>
+    <MudText Typo="Typo.h5">@Value.ToString("N0")</MudText>
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired] public string Label { get; set; } = "";
+    [Parameter] public int Value { get; set; }
+}

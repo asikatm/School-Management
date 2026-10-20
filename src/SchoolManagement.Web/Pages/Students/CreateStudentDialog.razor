@@ -1,0 +1,105 @@
+@inherits AppPage
+
+<MudDialog>
+    <DialogContent>
+        <MudText Typo="Typo.caption" Class="mb-2 d-block">
+            Direct admission for migrations, transfer-ins and mid-year joiners. Regular admissions come through the admission pipeline.
+        </MudText>
+
+        <MudText Typo="Typo.subtitle1" Class="mt-2 mb-1"><b>Enrolment</b></MudText>
+        <MudGrid Spacing="2">
+            <StudentClassPicker @bind-CampusId="campusId" @bind-AcademicYearId="yearId" @bind-YearGroupId="yearGroupId" @bind-SectionId="sectionId" Required="true" />
+            <MudItem xs="12" sm="6" md="3">
+                <MudDatePicker @bind-Date="admissionDate" Label="Admission date" HelperText="Defaults to today" Clearable="true"
+                               DateFormat="dd MMM yyyy" Variant="Variant.Outlined" Margin="Margin.Dense" />
+            </MudItem>
+        </MudGrid>
+
+        <MudText Typo="Typo.subtitle1" Class="mt-4 mb-1"><b>Profile</b></MudText>
+        <MudGrid Spacing="2">
+            <StudentProfileFields Model="profile" Error="@(f => ErrorFor("Profile." + f))" />
+        </MudGrid>
+
+        <div class="d-flex align-center mt-4 mb-1">
+            <MudText Typo="Typo.subtitle1"><b>Guardians</b></MudText>
+            <MudSpacer />
+            <MudButton Size="Size.Small" StartIcon="@Icons.Material.Filled.Add" OnClick="AddGuardian">Add guardian</MudButton>
+        </div>
+        @if (ErrorFor("Guardians") is { } gErr)
+        {
+            <MudAlert Severity="Severity.Error" Dense="true" Class="mb-2">@gErr</MudAlert>
+        }
+        @for (var i = 0; i < guardians.Count; i++)
+        {
+            var index = i;
+            var g = guardians[index];
+            <MudPaper Outlined="true" Class="pa-3 mb-2">
+                <MudGrid Spacing="2">
+                    <MudItem xs="12" sm="4">
+                        <MudTextField @bind-Value="g.Name" Label="Name" Required="true" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                      Error="@HasError($"Guardians[{index}].Name")" ErrorText="@ErrorFor($"Guardians[{index}].Name")" />
+                    </MudItem>
+                    <MudItem xs="12" sm="4">
+                        <MudSelect T="string" @bind-Value="g.Relationship" Label="Relationship" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                   Error="@HasError($"Guardians[{index}].Relationship")" ErrorText="@ErrorFor($"Guardians[{index}].Relationship")">
+                            @foreach (var r in StudentChoices.Relationships)
+                            {
+                                <MudSelectItem T="string" Value="@r">@r</MudSelectItem>
+                            }
+                        </MudSelect>
+                    </MudItem>
+                    <MudItem xs="12" sm="4">
+                        <MudTextField @bind-Value="g.Phone" Label="Mobile" Required="true" Placeholder="01XXXXXXXXX" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                      Error="@HasError($"Guardians[{index}].Phone")" ErrorText="@ErrorFor($"Guardians[{index}].Phone")" />
+                    </MudItem>
+                    <MudItem xs="12" sm="4">
+                        <MudTextField @bind-Value="g.Email" Label="Email" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                    </MudItem>
+                    <MudItem xs="12" sm="4">
+                        <MudTextField @bind-Value="g.Occupation" Label="Occupation" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                    </MudItem>
+                    <MudItem xs="12" sm="4">
+                        <MudTextField @bind-Value="g.NationalId" Label="National ID" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                    </MudItem>
+                    <MudItem xs="12" Class="d-flex align-center flex-wrap gap-4">
+                        <MudCheckBox T="bool" Value="g.IsPrimaryContact" ValueChanged="@(v => SetPrimary(g, v))" Label="Primary contact" />
+                        <MudCheckBox T="bool" @bind-Value="g.IsAuthorisedPickup" Label="Authorised pickup" />
+                        <MudSpacer />
+                        <MudButton Size="Size.Small" Color="Color.Error" Disabled="@(guardians.Count == 1)" OnClick="@(() => guardians.Remove(g))">Remove</MudButton>
+                    </MudItem>
+                </MudGrid>
+            </MudPaper>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => MudDialog.Cancel())">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Save"
+                   Disabled="@(Busy || campusId is null || yearId is null || yearGroupId is null)">Create student</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+
+    private Guid? campusId, yearId, yearGroupId, sectionId;
+    private DateTime? admissionDate;
+    private readonly StudentProfileModel profile = new();
+    private readonly List<StudentGuardianModel> guardians = [new() { IsPrimaryContact = true }];
+
+    private void AddGuardian() => guardians.Add(new StudentGuardianModel { Relationship = "Mother" });
+
+    private void SetPrimary(StudentGuardianModel g, bool value)
+    {
+        if (value) foreach (var other in guardians) other.IsPrimaryContact = false;
+        g.IsPrimaryContact = value;
+    }
+
+    private async Task Save()
+    {
+        var request = new CreateStudentRequest(campusId!.Value, yearId!.Value, yearGroupId!.Value, sectionId,
+            admissionDate is { } d ? DateOnly.FromDateTime(d) : null, profile.ToRequest(), guardians.Select(g => g.ToRequest()).ToList());
+        StudentDetail? created = null;
+        if (await Run(async () => created = await Api.PostAsync<StudentDetail>("api/students", request), "Student created."))
+            MudDialog.Close(DialogResult.Ok(created));
+    }
+}

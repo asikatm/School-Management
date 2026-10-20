@@ -1,0 +1,75 @@
+@inherits AppPage
+
+<MudDialog>
+    <DialogContent>
+        @if (result is null)
+        {
+            <MudText Typo="Typo.body2" Class="mb-3">
+                Creates the student record with an admission number, class enrolment and roll number, links the guardians (re-using an existing family
+                for siblings) and copies the application documents.
+            </MudText>
+            <MudSelect T="Guid?" @bind-Value="sectionId" Label="Section" Clearable="true" Placeholder="Allocate automatically" Variant="Variant.Outlined" Class="mb-3">
+                @foreach (var s in sections)
+                {
+                    <MudSelectItem T="Guid?" Value="s.Id">@s.Name (@s.StudentCount / @s.Capacity)</MudSelectItem>
+                }
+            </MudSelect>
+            <MudDatePicker @bind-Date="admissionDate" Label="Admission date" Variant="Variant.Outlined" DateFormat="dd MMM yyyy" Class="mb-3" HelperText="Blank = today" Clearable="true" />
+            <MudCheckBox @bind-Value="createPortalAccounts" Label="Create parent portal accounts for the guardians" />
+        }
+        else
+        {
+            <MudAlert Severity="Severity.Success" Class="mb-3">
+                Enrolled with admission number <b>@result.AdmissionNo</b>@(result.RollNo is { } roll ? $", roll {roll}" : "").
+            </MudAlert>
+            @if (result.PortalAccounts.Count > 0)
+            {
+                <MudText Typo="Typo.subtitle1" Class="mb-1">Parent portal accounts</MudText>
+                <MudText Typo="Typo.body2" Color="Color.Warning" Class="mb-2">Temporary passwords are shown only once. Hand them to the guardians now.</MudText>
+                <MudSimpleTable Dense="true" Bordered="true">
+                    <thead><tr><th>Guardian</th><th>User name</th><th>Temporary password</th></tr></thead>
+                    <tbody>
+                        @foreach (var c in result.PortalAccounts)
+                        {
+                            <tr><td>@c.GuardianName</td><td><code>@c.UserName</code></td><td><code>@(c.TemporaryPassword ?? "(existing account)")</code></td></tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            }
+        }
+    </DialogContent>
+    <DialogActions>
+        @if (result is null)
+        {
+            <MudButton OnClick="() => MudDialog.Cancel()">Cancel</MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Success" OnClick="Enrol" Disabled="Busy">Enrol student</MudButton>
+        }
+        else
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="() => MudDialog.Close(DialogResult.Ok(result))">Done</MudButton>
+        }
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] public IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public ApplicationDetail Application { get; set; } = default!;
+
+    private List<AdmissionSectionOption> sections = [];
+    private Guid? sectionId;
+    private DateTime? admissionDate;
+    private bool createPortalAccounts = true;
+    private ApplicationEnrolResult? result;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Run(async () => sections = await Api.GetAsync<List<AdmissionSectionOption>>(ApiClient.Query("api/structure/sections",
+            ("campusId", Application.CampusId), ("academicYearId", Application.AcademicYearId), ("yearGroupId", Application.YearGroupId))));
+    }
+
+    private async Task Enrol()
+    {
+        await Run(async () => result = await Api.PostAsync<ApplicationEnrolResult>($"api/admission/applications/{Application.Id}/enrol",
+            new ApplicationEnrolRequest(sectionId, AdmissionUi.ToDateOnly(admissionDate), createPortalAccounts)), "Student enrolled.");
+    }
+}
