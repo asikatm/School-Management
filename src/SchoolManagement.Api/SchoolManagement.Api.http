@@ -1,0 +1,73 @@
+@host = http://localhost:5107
+
+### Sign in (copy accessToken into @token below)
+POST {{host}}/api/auth/login
+Content-Type: application/json
+
+{ "login": "admin", "password": "Admin@12345" }
+
+###
+@token = paste-access-token-here
+
+### Who am I, which campuses and permissions
+GET {{host}}/api/auth/me
+Authorization: Bearer {{token}}
+
+### Campuses and the current academic year
+GET {{host}}/api/campuses
+Authorization: Bearer {{token}}
+
+###
+GET {{host}}/api/academic-years/current
+Authorization: Bearer {{token}}
+
+### Programmes and classes
+GET {{host}}/api/structure/programmes
+Authorization: Bearer {{token}}
+
+### Website: options for the admission form (anonymous)
+GET {{host}}/api/public/admission/options
+
+### Website: enquiry form (anonymous) — replace the ids from the call above
+POST {{host}}/api/public/admission/enquiries
+Content-Type: application/json
+
+{
+  "campusId": "00000000-0000-0000-0000-000000000000",
+  "yearGroupId": "00000000-0000-0000-0000-000000000000",
+  "childName": "Ayaan Rahman",
+  "guardianName": "Karim Rahman",
+  "guardianPhone": "01711000000",
+  "message": "Is there a seat in Year 5?"
+}
+
+### Admission pipeline
+GET {{host}}/api/admission/enquiries?stage=Enquiry
+Authorization: Bearer {{token}}
+
+###
+GET {{host}}/api/admission/enquiries/analytics
+Authorization: Bearer {{token}}
+
+### Global search
+GET {{host}}/api/search?q=Rahman
+Authorization: Bearer {{token}}
+
+### Students
+GET {{host}}/api/students?search=Rahman
+Authorization: Bearer {{token}}
+
+### Excel import template
+GET {{host}}/api/students/import/template
+Authorization: Bearer {{token}}
+
+### Audit trail and chain verification
+GET {{host}}/api/audit?pageSize=20
+Authorization: Bearer {{token}}
+
+###
+GET {{host}}/api/audit/verify
+Authorization: Bearer {{token}}
+
+### Bangla / Hijri / lakh-crore helpers
+GET {{host}}/api/localization/today?amount=660000

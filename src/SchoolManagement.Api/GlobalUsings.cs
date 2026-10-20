@@ -1,0 +1,10 @@
+global using FluentValidation;
+global using Microsoft.AspNetCore.Authorization;
+global using Microsoft.AspNetCore.Mvc;
+global using Microsoft.EntityFrameworkCore;
+global using SchoolManagement.Api.Auth;
+global using SchoolManagement.Api.Common;
+global using SchoolManagement.Domain.Identity;
+global using SchoolManagement.Infrastructure.Common;
+global using SchoolManagement.Infrastructure.Persistence;
+global using SchoolManagement.Infrastructure.Security;
