@@ -77,7 +77,7 @@ else
                             <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">@w</MudAlert>
                         }
                         <MudList T="string" Dense="true">
-                            <MudListItem Icon="@Icons.Material.Filled.CalendarMonth">New year <b>@newName</b>: @Format.Date(ToDate(start)) â€“ @Format.Date(ToDate(end))</MudListItem>
+                            <MudListItem Icon="@Icons.Material.Filled.CalendarMonth">New year <b>@newName</b>: @Format.Date(ToDate(start)) – @Format.Date(ToDate(end))</MudListItem>
                             <MudListItem Icon="@Icons.Material.Filled.Groups">@(copySections ? "Sections will be copied" : "Sections will not be copied")@(copySeatCapacities ? ", with seat capacities" : "")</MudListItem>
                             <MudListItem Icon="@Icons.Material.Filled.School">@(promoteStudents ? "Students will be promoted or graduated" : "Students will not be promoted")</MudListItem>
                             <MudListItem Icon="@Icons.Material.Filled.Lock">@(lockSource ? $"{preview.SourceYear} will be locked" : $"{preview.SourceYear} stays as it is")</MudListItem>
@@ -165,7 +165,7 @@ else
         end = source.EndDate.AddYears(1).ToDateTime(TimeOnly.MinValue);
     }
 
-    /// <summary>"2025â€“26" â†’ "2026â€“27": bumps every number in the name.</summary>
+    /// <summary>"2025–26" → "2026–27": bumps every number in the name.</summary>
     private static string NextName(string name) =>
         Regex.Replace(name, @"\d+", m => (int.Parse(m.Value) + 1).ToString().PadLeft(m.Length, '0'));
 

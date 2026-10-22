@@ -1,31 +1,415 @@
 ﻿@page "/"
 @inherits AppPage
+@using SchoolManagement.Domain.Admission
+@using SchoolManagement.Web.Pages.Admission
+@using P = SchoolManagement.Domain.Identity.Permissions
 
 <PageTitle>Dashboard · Lighthouse School</PageTitle>
 
-<MudText Typo="Typo.h4">Welcome, @Session.Me?.User.FullName</MudText>
-<MudText Typo="Typo.body1" Color="Color.Secondary" Class="mb-6">
-    @string.Join(" · ", Session.Me?.Roles.Select(r => $"{r.Role} — {r.CampusName}") ?? [])
-</MudText>
+@* ---------- Greeting banner ---------- *@
+<div class="dash-hero mb-6">
+    <div class="dash-hero-body">
+        <div class="dash-hero-text">
+            <div class="dash-hero-eyebrow">@Greeting</div>
+            <div class="dash-hero-title">@Session.Me?.User.FullName</div>
+            <div class="dash-hero-meta">
+                <span><MudIcon Icon="@Icons.Material.Outlined.CalendarToday" Size="Size.Small" /> @TodayText</span>
+                @if (today is not null)
+                {
+                    <span class="bn">@today.DateBangla</span>
+                    <span>@today.Hijri</span>
+                }
+                @if (year is not null)
+                {
+                    <span class="dash-pill">Academic year @year.Name</span>
+                }
+            </div>
+            <div class="dash-hero-roles">
+                @foreach (var r in Session.Me?.Roles ?? [])
+                {
+                    <span class="dash-role">@r.Role · @(r.CampusName ?? "All campuses")</span>
+                }
+            </div>
+        </div>
+        <div class="dash-hero-actions">
+            @if (Session.Has(P.Admission.Create))
+            {
+                <a class="dash-action" href="admission/enquiries"><MudIcon Icon="@Icons.Material.Filled.AddIcCall" /> Enquiries</a>
+                <a class="dash-action" href="admission/applications/new"><MudIcon Icon="@Icons.Material.Filled.NoteAdd" /> New application</a>
+            }
+            @if (Session.Has(P.Students.View))
+            {
+                <a class="dash-action" href="students"><MudIcon Icon="@Icons.Material.Filled.People" /> Students</a>
+            }
+            <a class="dash-action" href="admin/approvals"><MudIcon Icon="@Icons.Material.Filled.FactCheck" /> My approvals</a>
+        </div>
+    </div>
+</div>
 
-<MudGrid>
-    @foreach (var group in NavCatalog.Groups)
-    {
-        var items = group.Items.Where(i => i.AnyOf.Length == 0 || Session.HasAny(i.AnyOf)).ToList();
-        if (items.Count == 0) continue;
-        <MudItem xs="12" md="6" lg="3">
-            <MudPaper Class="pa-4" Style="height:100%">
-                <div class="d-flex align-center mb-3">
-                    <MudIcon Icon="@group.Icon" Color="Color.Primary" Class="mr-2" />
-                    <MudText Typo="Typo.h6">@group.Title</MudText>
-                </div>
-                <MudList T="string" Dense="true">
-                    @foreach (var item in items)
+@* ---------- KPI cards ---------- *@
+@if (kpis.Count > 0)
+{
+    <div class="dash-kpis mb-6">
+        @foreach (var k in kpis)
+        {
+            <a class="kpi-card" href="@k.Href" style="--kpi:@k.Color">
+                <div class="kpi-icon"><MudIcon Icon="@k.Icon" /></div>
+                <div class="kpi-body">
+                    <div class="kpi-label">@k.Label</div>
+                    <div class="kpi-value">@(k.Value ?? "—")</div>
+                    @if (k.Sub is not null)
                     {
-                        <MudListItem T="string" Icon="@item.Icon" Href="@item.Href">@item.Title</MudListItem>
+                        <div class="kpi-sub">@k.Sub</div>
                     }
-                </MudList>
-            </MudPaper>
+                </div>
+                <MudIcon Icon="@Icons.Material.Filled.ArrowForward" Class="kpi-go" Size="Size.Small" />
+            </a>
+        }
+    </div>
+}
+else if (loading)
+{
+    <div class="dash-kpis mb-6">
+        @for (var i = 0; i < 4; i++)
+        {
+            <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="104px" Class="rounded-lg" />
+        }
+    </div>
+}
+
+<MudGrid Spacing="4">
+    @* ---------- Admission funnel ---------- *@
+    @if (Session.Has(P.Admission.View))
+    {
+        <MudItem xs="12" lg="7">
+            <div class="dash-card">
+                <div class="dash-card-head">
+                    <div>
+                        <div class="dash-card-title">Admission pipeline</div>
+                        <div class="dash-card-sub">Every enquiry by its current stage</div>
+                    </div>
+                    <MudButton Href="admission/analytics" Variant="Variant.Text" Size="Size.Small" EndIcon="@Icons.Material.Filled.ChevronRight">Analytics</MudButton>
+                </div>
+                @if (analytics is null)
+                {
+                    <MudSkeleton Height="180px" SkeletonType="SkeletonType.Rectangle" />
+                }
+                else if (analytics.Total.Enquiries == 0)
+                {
+                    <div class="dash-empty"><MudIcon Icon="@Icons.Material.Outlined.Inbox" /> No enquiries yet. They appear here as soon as the office or the website records one.</div>
+                }
+                else
+                {
+                    <div class="funnel">
+                        @foreach (var (stage, label, color) in Stages)
+                        {
+                            var count = analytics.ByStage.GetValueOrDefault(stage.ToString());
+                            var width = Math.Max(count == 0 ? 0 : 6, (int)Math.Round(100.0 * count / FunnelMax));
+                            <div class="funnel-row">
+                                <div class="funnel-label">@label</div>
+                                <div class="funnel-track"><div class="funnel-bar" style="width:@(width)%;background:@color"></div></div>
+                                <div class="funnel-count">@count</div>
+                            </div>
+                        }
+                    </div>
+                    <div class="dash-stats mt-4">
+                        <div><span>@analytics.Total.Enquiries</span>Enquiries</div>
+                        <div><span>@analytics.Total.Applied</span>Applied</div>
+                        <div><span>@analytics.Total.Admitted</span>Admitted</div>
+                        <div class="accent"><span>@analytics.Total.ConversionPercent.ToString("0.#")%</span>Conversion</div>
+                    </div>
+                }
+            </div>
+        </MudItem>
+
+        @* ---------- Seats ---------- *@
+        <MudItem xs="12" lg="5">
+            <div class="dash-card">
+                <div class="dash-card-head">
+                    <div>
+                        <div class="dash-card-title">Seat availability</div>
+                        <div class="dash-card-sub">@(year?.Name ?? "Current year") · filled = enrolled + accepted</div>
+                    </div>
+                    @if (campuses.Count > 1)
+                    {
+                        <MudSelect T="Guid?" Value="campusId" ValueChanged="CampusChanged" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Style="max-width:190px">
+                            @foreach (var c in campuses)
+                            {
+                                <MudSelectItem T="Guid?" Value="c.Id">@c.Name</MudSelectItem>
+                            }
+                        </MudSelect>
+                    }
+                </div>
+                @if (seats is null)
+                {
+                    <MudSkeleton Height="180px" SkeletonType="SkeletonType.Rectangle" />
+                }
+                else
+                {
+                    var total = seats.Sum(s => s.TotalSeats);
+                    var filled = seats.Sum(s => s.Enrolled + s.AcceptedAwaitingEnrolment);
+                    <div class="seat-summary">
+                        <div class="seat-ring" style="--p:@(total == 0 ? 0 : Math.Min(100, 100 * filled / total))">
+                            <div><b>@(total == 0 ? 0 : 100 * filled / total)%</b><small>filled</small></div>
+                        </div>
+                        <div class="seat-figures">
+                            <div><span>@total</span>Total seats</div>
+                            <div><span>@filled</span>Filled</div>
+                            <div class="accent"><span>@seats.Sum(s => s.Available)</span>Available</div>
+                            <div><span>@seats.Sum(s => s.Waitlisted)</span>Waiting list</div>
+                        </div>
+                    </div>
+                    <div class="seat-list">
+                        @foreach (var s in seats.Where(s => s.TotalSeats > 0))
+                        {
+                            var pct = Math.Min(100, 100 * (s.Enrolled + s.AcceptedAwaitingEnrolment) / s.TotalSeats);
+                            <div class="seat-row">
+                                <span class="seat-name">@s.YearGroupName</span>
+                                <div class="funnel-track"><div class="funnel-bar" style="width:@(pct)%;background:@(pct >= 90 ? "#e53935" : pct >= 70 ? "#fb8c00" : "#43a047")"></div></div>
+                                <span class="seat-num">@(s.Enrolled + s.AcceptedAwaitingEnrolment)/@s.TotalSeats</span>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        </MudItem>
+
+        @* ---------- Recent enquiries ---------- *@
+        <MudItem xs="12" md="6">
+            <div class="dash-card">
+                <div class="dash-card-head">
+                    <div class="dash-card-title">Latest enquiries</div>
+                    <MudButton Href="admission/enquiries" Variant="Variant.Text" Size="Size.Small" EndIcon="@Icons.Material.Filled.ChevronRight">View all</MudButton>
+                </div>
+                @if (recent is null)
+                {
+                    <MudSkeleton Height="160px" SkeletonType="SkeletonType.Rectangle" />
+                }
+                else if (recent.Count == 0)
+                {
+                    <div class="dash-empty"><MudIcon Icon="@Icons.Material.Outlined.ContactPhone" /> No enquiries yet.</div>
+                }
+                else
+                {
+                    @foreach (var e in recent)
+                    {
+                        <a class="dash-row" href="admission/enquiries/@e.Id">
+                            <div class="dash-avatar" style="background:@AvatarColor(e.ChildName)">@Initials(e.ChildName)</div>
+                            <div class="dash-row-main">
+                                <div class="dash-row-title">@e.ChildName</div>
+                                <div class="dash-row-sub">@e.GuardianName · @e.GuardianPhone · @Ago(e.CreatedAtUtc)</div>
+                            </div>
+                            <MudChip T="string" Size="Size.Small" Color="AdmissionUi.StageColor(e.Stage)">@Format.Enum(e.Stage)</MudChip>
+                        </a>
+                    }
+                }
+            </div>
+        </MudItem>
+
+        @* ---------- Follow-ups ---------- *@
+        <MudItem xs="12" md="6">
+            <div class="dash-card">
+                <div class="dash-card-head">
+                    <div class="dash-card-title">My follow-ups</div>
+                    <MudButton Href="admission/tasks" Variant="Variant.Text" Size="Size.Small" EndIcon="@Icons.Material.Filled.ChevronRight">All tasks</MudButton>
+                </div>
+                @if (tasks is null)
+                {
+                    <MudSkeleton Height="160px" SkeletonType="SkeletonType.Rectangle" />
+                }
+                else if (tasks.Count == 0)
+                {
+                    <div class="dash-empty"><MudIcon Icon="@Icons.Material.Outlined.TaskAlt" /> You are all caught up — no open follow-ups.</div>
+                }
+                else
+                {
+                    @foreach (var task in tasks.Take(6))
+                    {
+                        <a class="dash-row" href="admission/enquiries/@task.EnquiryId">
+                            <div class="dash-avatar @(task.IsOverdue ? "overdue" : "")"><MudIcon Icon="@(task.IsOverdue ? Icons.Material.Filled.AlarmOn : Icons.Material.Filled.Alarm)" Size="Size.Small" /></div>
+                            <div class="dash-row-main">
+                                <div class="dash-row-title">@task.Text</div>
+                                <div class="dash-row-sub">@task.ChildName · @task.GuardianPhone</div>
+                            </div>
+                            <span class="dash-due @(task.IsOverdue ? "overdue" : "")">@(task.IsOverdue ? "Overdue · " : "")@Format.DateTime(task.DueAtUtc)</span>
+                        </a>
+                    }
+                }
+            </div>
         </MudItem>
     }
+
+    @* ---------- Shortcuts ---------- *@
+    <MudItem xs="12">
+        <div class="dash-card">
+            <div class="dash-card-head">
+                <div class="dash-card-title">Shortcuts</div>
+            </div>
+            <div class="dash-tiles">
+                @foreach (var group in NavCatalog.Groups)
+                {
+                    @foreach (var item in group.Items.Where(i => i.AnyOf.Length == 0 || Session.HasAny(i.AnyOf)))
+                    {
+                        <a class="dash-tile" href="@item.Href" title="@group.Title">
+                            <span class="dash-tile-icon" style="--tile:@GroupColor(group.Title)"><MudIcon Icon="@item.Icon" /></span>
+                            <span class="dash-tile-text">@item.Title<small>@group.Title</small></span>
+                        </a>
+                    }
+                }
+            </div>
+        </div>
+    </MudItem>
 </MudGrid>
+
+@code {
+    private sealed record Kpi(string Label, string? Value, string Icon, string Color, string Href, string? Sub = null);
+
+    private static readonly (EnquiryStage Stage, string Label, string Color)[] Stages =
+    [
+        (EnquiryStage.Enquiry, "Enquiry", "linear-gradient(90deg,#64b5f6,#1e88e5)"),
+        (EnquiryStage.CampusVisit, "Campus visit", "linear-gradient(90deg,#4dd0e1,#00acc1)"),
+        (EnquiryStage.Applied, "Applied", "linear-gradient(90deg,#9575cd,#5e35b1)"),
+        (EnquiryStage.TestInterview, "Test / interview", "linear-gradient(90deg,#ffb74d,#fb8c00)"),
+        (EnquiryStage.Offered, "Offered", "linear-gradient(90deg,#f06292,#d81b60)"),
+        (EnquiryStage.Admitted, "Admitted", "linear-gradient(90deg,#81c784,#43a047)"),
+        (EnquiryStage.Lost, "Lost", "linear-gradient(90deg,#bdbdbd,#757575)")
+    ];
+
+    private bool loading = true;
+    private LocalizationToday? today;
+    private AcademicYearView? year;
+    private List<Kpi> kpis = [];
+    private EnquiryAnalyticsResult? analytics;
+    private List<EnquiryListItem>? recent;
+    private List<EnquiryTaskItem>? tasks;
+    private List<CampusView> campuses = [];
+    private Guid? campusId;
+    private List<AdmissionSeatSummary>? seats;
+
+    private static DateTime DhakaNow => DateTime.UtcNow.AddHours(6);
+
+    private string Greeting => DhakaNow.Hour switch
+    {
+        < 12 => "Good morning",
+        < 17 => "Good afternoon",
+        _ => "Good evening"
+    };
+
+    private static string TodayText => DhakaNow.ToString("dddd, d MMMM yyyy", System.Globalization.CultureInfo.InvariantCulture);
+
+    private int FunnelMax => Math.Max(1, analytics?.ByStage.Values.DefaultIfEmpty(0).Max() ?? 1);
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Each widget loads on its own; a failing one shows "—" instead of breaking the page.
+        var header = Task.WhenAll(
+            Load(async () => today = await Api.GetAsync<LocalizationToday>("api/localization/today")),
+            Load(async () => year = await Api.GetAsync<AcademicYearView>("api/academic-years/current")),
+            Load(async () => campuses = (await Api.GetAsync<List<CampusView>>("api/campuses")).Where(c => c.IsActive).ToList()));
+        var cards = LoadKpisAsync();
+        await header;
+
+        if (Session.Has(P.Admission.View))
+        {
+            campusId = campuses.FirstOrDefault()?.Id;
+            await Task.WhenAll(
+                Load(async () => analytics = await Api.GetAsync<EnquiryAnalyticsResult>("api/admission/enquiries/analytics")),
+                Load(async () => recent = (await Api.GetAsync<PagedResult<EnquiryListItem>>("api/admission/enquiries?page=1&pageSize=5")).Items.ToList(), () => recent = []),
+                Load(async () => tasks = await Api.GetAsync<List<EnquiryTaskItem>>("api/admission/enquiries/my-tasks"), () => tasks = []),
+                LoadSeatsAsync());
+        }
+        await cards;
+        loading = false;
+    }
+
+    private async Task LoadKpisAsync()
+    {
+        var list = new List<Kpi>();
+        int? students = null, newEnquiries = null, toReview = null, offers = null, approvals = null;
+        int unpaidCount = 0;
+        decimal unpaid = 0;
+        var jobs = new List<Task>
+        {
+            Load(async () => approvals = (await Api.GetAsync<List<ApprovalRequestView>>("api/approvals/inbox")).Count)
+        };
+        if (Session.Has(P.Students.View))
+            jobs.Add(Load(async () => students = await Count("api/students")));
+        if (Session.Has(P.Admission.View))
+        {
+            jobs.Add(Load(async () => newEnquiries = await Count("api/admission/enquiries?stage=Enquiry")));
+            jobs.Add(Load(async () => toReview = await Count("api/admission/applications?status=Submitted") + await Count("api/admission/applications?status=UnderReview")));
+            jobs.Add(Load(async () => offers = await Count("api/admission/offers?status=Pending")));
+            jobs.Add(Load(async () =>
+            {
+                var inv = await Api.GetAsync<PagedResult<AdmissionInvoiceView>>("api/admission/invoices?status=Unpaid&page=1&pageSize=200");
+                unpaidCount = inv.TotalCount;
+                unpaid = inv.Items.Sum(i => i.Amount);
+            }));
+        }
+        await Task.WhenAll(jobs);
+
+        if (Session.Has(P.Students.View))
+            list.Add(new("Active students", students?.ToString("N0"), Icons.Material.Filled.School, "#1e88e5", "students"));
+        if (Session.Has(P.Admission.View))
+        {
+            list.Add(new("New enquiries", newEnquiries?.ToString("N0"), Icons.Material.Filled.ContactPhone, "#00acc1", "admission/enquiries", "Not yet contacted"));
+            list.Add(new("Applications to review", toReview?.ToString("N0"), Icons.Material.Filled.Assignment, "#5e35b1", "admission/applications", "Submitted or under review"));
+            list.Add(new("Offers awaiting reply", offers?.ToString("N0"), Icons.Material.Filled.MarkEmailRead, "#d81b60", "admission/offers"));
+            list.Add(new("Unpaid admission fees", Format.Money(unpaid), Icons.Material.Filled.ReceiptLong, "#fb8c00", "admission/invoices", $"{unpaidCount} invoice(s)"));
+        }
+        list.Add(new("Waiting for my approval", approvals?.ToString("N0"), Icons.Material.Filled.FactCheck, "#43a047", "admin/approvals"));
+        kpis = list;
+        StateHasChanged();
+    }
+
+    private async Task<int> Count(string url) =>
+        (await Api.GetAsync<PagedResult<object>>(url + (url.Contains('?') ? "&" : "?") + "page=1&pageSize=1")).TotalCount;
+
+    private async Task LoadSeatsAsync()
+    {
+        if (campusId is not { } c || year is null)
+        {
+            seats = [];
+            return;
+        }
+        await Load(async () => seats = await Api.GetAsync<List<AdmissionSeatSummary>>($"api/admission/selection/seats?campusId={c}&academicYearId={year.Id}"), () => seats = []);
+    }
+
+    private async Task CampusChanged(Guid? id)
+    {
+        campusId = id;
+        seats = null;
+        await LoadSeatsAsync();
+    }
+
+    private static async Task Load(Func<Task> action, Action? onError = null)
+    {
+        try { await action(); }
+        catch (Exception ex) when (ex is ApiException or HttpRequestException) { onError?.Invoke(); }
+    }
+
+    private static string Initials(string name) =>
+        string.Concat(name.Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(2).Select(w => char.ToUpperInvariant(w[0])));
+
+    private static readonly string[] Palette = ["#1e88e5", "#00acc1", "#5e35b1", "#d81b60", "#fb8c00", "#43a047", "#6d4c41", "#3949ab"];
+
+    private static string AvatarColor(string name) => Palette[Math.Abs(name.Sum(c => c)) % Palette.Length];
+
+    private static string GroupColor(string group) => group switch
+    {
+        "Admission" => "#1e88e5",
+        "Students" => "#43a047",
+        "Academic setup" => "#fb8c00",
+        _ => "#5e35b1"
+    };
+
+    private static string Ago(DateTime utc)
+    {
+        var span = DateTime.UtcNow - utc;
+        return span.TotalMinutes < 1 ? "just now"
+            : span.TotalHours < 1 ? $"{(int)span.TotalMinutes} min ago"
+            : span.TotalDays < 1 ? $"{(int)span.TotalHours} h ago"
+            : span.TotalDays < 7 ? $"{(int)span.TotalDays} d ago"
+            : Format.Date(utc);
+    }
+}

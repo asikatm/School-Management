@@ -10,3 +10,6 @@ appsettings.*.local.json
 
 # Client specification (not for the repository)
 *.pdf
+
+# Walkthrough videos
+/Video/

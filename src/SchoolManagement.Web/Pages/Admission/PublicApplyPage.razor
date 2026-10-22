@@ -20,7 +20,7 @@
         <MudAlert Severity="Severity.Info" Class="mb-4">
             Fill in the form and save it as a draft. You will get a private link to come back, upload documents and submit the application.
         </MudAlert>
-        <ApplicationEditor Form="form" Campuses="campuses" Years="years" Classes="classes" ErrorFor="ErrorFor" ErrorPrefix="Application." />
+        <ApplicationEditor Form="form" Campuses="campuses" Years="years" Classes="classes" ErrorFor="ErrorFor" ErrorPrefix="Application." CompletenessChanged="StateHasChanged" />
         <div style="position:absolute;left:-10000px" aria-hidden="true">
             <label>Website <input type="text" tabindex="-1" autocomplete="off" @bind="website" /></label>
         </div>
@@ -45,7 +45,7 @@
 
         @if (app.Status == ApplicationStatus.Draft)
         {
-            <ApplicationEditor Form="form" Campuses="campuses" Years="years" Classes="classes" ErrorFor="ErrorFor" />
+            <ApplicationEditor Form="form" Campuses="campuses" Years="years" Classes="classes" ErrorFor="ErrorFor" CompletenessChanged="StateHasChanged" />
 
             <MudPaper Class="pa-4 mb-4">
                 <MudText Typo="Typo.h6" Class="mb-2">Documents</MudText>

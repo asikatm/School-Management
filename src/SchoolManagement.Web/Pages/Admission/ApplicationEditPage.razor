@@ -21,7 +21,8 @@ else if (!editable)
 else
 {
     <ApplicationEditor Form="form" Campuses="lookups.CampusOptions" Years="lookups.YearOptions" Classes="lookups.ClassOptions" ErrorFor="ErrorFor"
-                       SiblingHelp="@(Id is null ? null : "Re-enter the sibling's admission number when saving.")" />
+                       SiblingHelp="@(Id is null ? null : "Re-enter the sibling's admission number when saving.")"
+                       CompletenessChanged="StateHasChanged" />
     <div class="d-flex gap-2">
         <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Save" OnClick="Save" Disabled="@(Busy || !form.IsComplete)">
             @(Id is null ? "Create draft" : "Save changes")

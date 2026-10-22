@@ -200,6 +200,23 @@
 
     [Parameter] public string? SiblingHelp { get; set; }
 
+    /// <summary>
+    /// Raised when <see cref="ApplicationForm.IsComplete"/> flips. The page owns the Save button, and edits made
+    /// here only re-render this component, so without this the button keeps its first enabled/disabled state.
+    /// </summary>
+    [Parameter] public EventCallback CompletenessChanged { get; set; }
+
+    private bool? lastComplete;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        var complete = Form.IsComplete;
+        if (lastComplete == complete) return;
+        var notify = lastComplete is not null;
+        lastComplete = complete;
+        if (notify) await CompletenessChanged.InvokeAsync();
+    }
+
     private string? E(string field) => ErrorFor?.Invoke(ErrorPrefix + field);
     private bool Has(string field) => E(field) is not null;
 
