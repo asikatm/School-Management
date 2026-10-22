@@ -1,46 +1,141 @@
 @page "/login"
 @inject Session Session
 @inject NavigationManager Nav
+@inject IDialogService Dialogs
 
 <PageTitle>Sign in · Lighthouse School</PageTitle>
 
-<div class="login-page">
-    <MudPaper Elevation="4" Class="pa-8 login-card">
-        <div class="d-flex flex-column align-center mb-6">
-            <MudIcon Icon="@Icons.Material.Filled.School" Color="Color.Primary" Style="font-size:3.5rem" />
-            <MudText Typo="Typo.h5" Class="mt-2">Lighthouse International School</MudText>
-            <MudText Typo="Typo.body2" Color="Color.Secondary">School Management System</MudText>
+<div class="auth">
+    @* ---------- Brand panel ---------- *@
+    <section class="auth-brand">
+        <div class="auth-dots" aria-hidden="true"></div>
+        <div class="auth-glow auth-glow-1" aria-hidden="true"></div>
+        <div class="auth-glow auth-glow-2" aria-hidden="true"></div>
+
+        <div class="auth-brand-inner">
+            <div class="auth-logo-tile"><LighthouseLogo Class="auth-logo" /></div>
+            <h1 class="auth-school">Lighthouse International School</h1>
+            <p class="auth-address">
+                <MudIcon Icon="@Icons.Material.Filled.LocationOn" Size="Size.Small" />
+                Dhanmondi · Gulshan · Lalmatia, Dhaka
+            </p>
+            <div class="auth-motto"><span>Excellence with Islam</span></div>
+
+            <ul class="auth-features">
+                @foreach (var (icon, text) in Features)
+                {
+                    <li>
+                        <span class="auth-feature-icon"><MudIcon Icon="@icon" Size="Size.Small" /></span>
+                        <span>@text</span>
+                        <MudIcon Icon="@Icons.Material.Filled.Check" Size="Size.Small" Class="auth-feature-check" />
+                    </li>
+                }
+            </ul>
         </div>
 
-        <EditForm Model="model" OnValidSubmit="Submit">
-            <DataAnnotationsValidator />
-            <MudTextField @bind-Value="model.Login" For="() => model.Login" Label="User name, e-mail or phone"
-                          Variant="Variant.Outlined" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Person"
-                          Class="mb-4" AutoFocus="true" />
-            <MudTextField @bind-Value="model.Password" For="() => model.Password" Label="Password"
-                          InputType="@(showPassword ? InputType.Text : InputType.Password)" Variant="Variant.Outlined"
-                          Adornment="Adornment.End" AdornmentIcon="@(showPassword ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility)"
-                          OnAdornmentClick="() => showPassword = !showPassword" Class="mb-2" />
+        <svg class="auth-books" viewBox="0 0 360 220" aria-hidden="true">
+            <ellipse cx="170" cy="206" rx="170" ry="12" fill="#000" opacity=".18" />
+            <rect x="20" y="150" width="210" height="34" rx="5" fill="#2C5F8F" />
+            <rect x="20" y="150" width="210" height="8" rx="4" fill="#3B76AD" />
+            <rect x="226" y="150" width="8" height="34" fill="#E9E1C8" />
+            <rect x="34" y="114" width="190" height="34" rx="5" fill="#1F4A73" />
+            <rect x="34" y="114" width="190" height="8" rx="4" fill="#2C5F8F" />
+            <rect x="220" y="114" width="8" height="34" fill="#E9E1C8" />
+            <rect x="26" y="80" width="200" height="32" rx="5" fill="#3B76AD" />
+            <rect x="26" y="80" width="200" height="7" rx="4" fill="#4E8CC6" />
+            <rect x="222" y="80" width="8" height="32" fill="#E9E1C8" />
+            <path d="M170 196 C210 168 268 160 340 170 L340 196 C270 186 214 192 170 210 Z" fill="#F4EEDC" />
+            <path d="M176 192 C214 168 266 162 332 170" stroke="#C9BF9F" stroke-width="2" fill="none" />
+            <path d="M178 200 C216 178 268 172 332 180" stroke="#C9BF9F" stroke-width="2" fill="none" />
+        </svg>
+        <div class="auth-tagline">Empowering Minds,<br /><span>Inspiring Futures.</span></div>
 
-            @if (error is not null)
-            {
-                <MudAlert Severity="Severity.Error" Dense="true" Class="my-3">@error</MudAlert>
-            }
+        <svg class="auth-wave" viewBox="0 0 120 800" preserveAspectRatio="none" aria-hidden="true">
+            <path d="M120 0 H70 C20 160 110 280 60 420 C20 540 100 660 70 800 H120 Z" fill="#F2F6FB" />
+            <path d="M70 0 C20 160 110 280 60 420 C20 540 100 660 70 800" fill="none" stroke="#E0A100" stroke-width="4" opacity=".75" />
+        </svg>
+    </section>
 
-            <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary" FullWidth="true"
-                       Size="Size.Large" Disabled="busy" Class="mt-4">
-                @if (busy)
+    @* ---------- Sign-in card ---------- *@
+    <section class="auth-form-side">
+        <div class="auth-blob auth-blob-1" aria-hidden="true"></div>
+        <div class="auth-blob auth-blob-2" aria-hidden="true"></div>
+
+        <div class="auth-card">
+            <LighthouseLogo Class="auth-card-logo" />
+            <h2 class="auth-welcome">Welcome!</h2>
+            <p class="auth-hint">Please sign in to your account.</p>
+
+            <EditForm Model="model" OnValidSubmit="Submit" class="auth-fields">
+                <DataAnnotationsValidator />
+
+                <label class="auth-label" for="login">Username</label>
+                <div class="auth-input">
+                    <MudIcon Icon="@Icons.Material.Filled.Person" Size="Size.Small" />
+                    <InputText id="login" @bind-Value="model.Login" placeholder="User name, e-mail or phone" autocomplete="username" autofocus />
+                </div>
+                <ValidationMessage For="() => model.Login" class="auth-error-text" />
+
+                <label class="auth-label" for="password">Password</label>
+                <div class="auth-input">
+                    <MudIcon Icon="@Icons.Material.Filled.Lock" Size="Size.Small" />
+                    <InputText id="password" type="@(showPassword ? "text" : "password")" @bind-Value="model.Password" placeholder="Password" autocomplete="current-password" />
+                    <button type="button" class="auth-eye" @onclick="() => showPassword = !showPassword"
+                            aria-label="@(showPassword ? "Hide password" : "Show password")" title="@(showPassword ? "Hide password" : "Show password")">
+                        <MudIcon Icon="@(showPassword ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility)" Size="Size.Small" />
+                    </button>
+                </div>
+                <ValidationMessage For="() => model.Password" class="auth-error-text" />
+
+                <div class="auth-row">
+                    <label class="auth-check">
+                        <InputCheckbox @bind-Value="model.Remember" />
+                        <span>Remember me</span>
+                    </label>
+                    <button type="button" class="auth-link" @onclick="ForgotPassword">Forgot password?</button>
+                </div>
+
+                @if (error is not null)
                 {
-                    <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                    <div class="auth-error" role="alert"><MudIcon Icon="@Icons.Material.Filled.ErrorOutline" Size="Size.Small" /> @error</div>
                 }
-                Sign in
-            </MudButton>
-        </EditForm>
-    </MudPaper>
+
+                <button type="submit" class="auth-submit" disabled="@busy">
+                    @if (busy)
+                    {
+                        <MudProgressCircular Size="Size.Small" Indeterminate="true" Style="color:#fff" />
+                        <span>Signing in…</span>
+                    }
+                    else
+                    {
+                        <span>Log In</span>
+                        <MudIcon Icon="@Icons.Material.Filled.ArrowForward" Size="Size.Small" />
+                    }
+                </button>
+            </EditForm>
+
+            <div class="auth-divider"><MudIcon Icon="@Icons.Material.Filled.School" Size="Size.Small" /></div>
+            <div class="auth-footer">
+                Developed by <b>EMSL</b> <span class="sep">|</span> E-Medical Software Limited
+                <div>Version @Version</div>
+            </div>
+        </div>
+    </section>
 </div>
 
 @code {
     [SupplyParameterFromQuery] public string? ReturnUrl { get; set; }
+
+    private static readonly (string Icon, string Text)[] Features =
+    [
+        (Icons.Material.Filled.PersonAdd, "Enquiry, admission & enrolment"),
+        (Icons.Material.Filled.Badge, "Student records, ID cards & TC"),
+        (Icons.Material.Filled.ReceiptLong, "Offers, admission fees & invoices"),
+        (Icons.Material.Filled.VerifiedUser, "Secure, role-based access with audit trails")
+    ];
+
+    private static readonly string Version =
+        typeof(Login).Assembly.GetName().Version is { } v ? $"{v.Major}.{v.Minor}.{v.Build}" : "1.0.0";
 
     private readonly LoginModel model = new();
     private bool busy;
@@ -58,7 +153,7 @@
         error = null;
         try
         {
-            error = await Session.LoginAsync(model.Login.Trim(), model.Password);
+            error = await Session.LoginAsync(model.Login.Trim(), model.Password, model.Remember);
             if (error is null) Nav.NavigateTo(Session.MustChangePassword ? "change-password" : SafeReturnUrl(), replace: true);
         }
         catch (HttpRequestException)
@@ -71,6 +166,13 @@
         }
     }
 
+    // There is no self-service reset: passwords are reset by an administrator, who hands over a temporary one.
+    private Task ForgotPassword() =>
+        Dialogs.ShowMessageBox("Forgot your password?",
+            "Ask the school's IT administrator to reset it (Administration → Users → Reset password). " +
+            "You will receive a temporary password and choose a new one when you sign in.",
+            yesText: "OK");
+
     // Only local paths, so a crafted link cannot send the user to another site after sign-in.
     private string SafeReturnUrl() =>
         string.IsNullOrEmpty(ReturnUrl) || ReturnUrl.Contains("//") || ReturnUrl.Contains(':') || ReturnUrl.StartsWith("login") ? "" : ReturnUrl;
@@ -82,5 +184,7 @@
 
         [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Enter your password.")]
         public string Password { get; set; } = "";
+
+        public bool Remember { get; set; } = true;
     }
 }

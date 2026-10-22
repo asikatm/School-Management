@@ -6,7 +6,8 @@ using SchoolManagement.Web.Models;
 namespace SchoolManagement.Web.Services;
 
 /// <summary>
-/// The signed-in user: tokens (kept in localStorage so a reload stays signed in), profile and permissions.
+/// The signed-in user: tokens, profile and permissions. Tokens live in localStorage when the user ticked
+/// "Remember me" (survives closing the browser) and in sessionStorage otherwise (gone when the browser closes).
 /// Permission grants from the API look like "students.view@{campusId}" or "students.view@*".
 /// </summary>
 public sealed class Session(IJSRuntime js, HttpClient http)
@@ -15,6 +16,9 @@ public sealed class Session(IJSRuntime js, HttpClient http)
     private readonly SemaphoreSlim refreshLock = new(1, 1);
     private Tokens? tokens;
     private bool restored;
+    private bool remember = true;
+
+    private string Storage => remember ? "localStorage" : "sessionStorage";
 
     public MeResponse? Me { get; private set; }
     public bool IsSignedIn => tokens is not null && Me is not null;
@@ -35,6 +39,8 @@ public sealed class Session(IJSRuntime js, HttpClient http)
         try
         {
             var json = await js.InvokeAsync<string?>("localStorage.getItem", StorageKey);
+            remember = !string.IsNullOrEmpty(json);
+            if (!remember) json = await js.InvokeAsync<string?>("sessionStorage.getItem", StorageKey);
             if (string.IsNullOrEmpty(json)) return;
             tokens = JsonSerializer.Deserialize<Tokens>(json);
             if (tokens is null) return;
@@ -47,8 +53,9 @@ public sealed class Session(IJSRuntime js, HttpClient http)
     }
 
     /// <summary>Returns null on success or the error message to show.</summary>
-    public async Task<string?> LoginAsync(string login, string password)
+    public async Task<string?> LoginAsync(string login, string password, bool rememberMe = true)
     {
+        remember = rememberMe;
         var response = await http.PostAsJsonAsync("api/auth/login", new LoginRequest(login, password), ApiClient.Json);
         if (!response.IsSuccessStatusCode)
             return (await ApiClient.ReadErrorAsync(response)).Message;
@@ -82,8 +89,9 @@ public sealed class Session(IJSRuntime js, HttpClient http)
     /// <summary>Called after the password was changed; the API revoked every refresh token.</summary>
     public async Task SignInAgainAsync(string login, string password)
     {
+        var keep = remember;
         await ClearAsync();
-        await LoginAsync(login, password);
+        await LoginAsync(login, password, keep);
     }
 
     public async Task<bool> RefreshAsync(string? failedAccessToken)
@@ -135,14 +143,19 @@ public sealed class Session(IJSRuntime js, HttpClient http)
     private async Task SaveAsync(Tokens value)
     {
         tokens = value;
-        await js.InvokeVoidAsync("localStorage.setItem", StorageKey, JsonSerializer.Serialize(value));
+        await js.InvokeVoidAsync($"{Storage}.setItem", StorageKey, JsonSerializer.Serialize(value));
     }
 
     private async Task ClearAsync()
     {
         tokens = null;
         Me = null;
-        try { await js.InvokeVoidAsync("localStorage.removeItem", StorageKey); } catch { /* storage unavailable */ }
+        try
+        {
+            await js.InvokeVoidAsync("localStorage.removeItem", StorageKey);
+            await js.InvokeVoidAsync("sessionStorage.removeItem", StorageKey);
+        }
+        catch { /* storage unavailable */ }
         Changed?.Invoke();
     }
 

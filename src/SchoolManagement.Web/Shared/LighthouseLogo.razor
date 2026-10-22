@@ -1,0 +1,35 @@
+@* School emblem drawn in SVG so it stays sharp at any size and needs no image file. *@
+<svg class="@Class" viewBox="0 0 120 120" role="img" aria-label="Lighthouse International School" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+        <linearGradient id="lh-ring" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#F2C14E" />
+            <stop offset="1" stop-color="#C98F00" />
+        </linearGradient>
+        <linearGradient id="lh-beam" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0" stop-color="#FFE7A3" stop-opacity=".95" />
+            <stop offset="1" stop-color="#FFE7A3" stop-opacity="0" />
+        </linearGradient>
+    </defs>
+    <circle cx="60" cy="60" r="56" fill="#13315C" />
+    <circle cx="60" cy="60" r="56" fill="none" stroke="url(#lh-ring)" stroke-width="5" />
+    <circle cx="60" cy="60" r="47" fill="none" stroke="#F2C14E" stroke-opacity=".35" stroke-width="1.2" stroke-dasharray="2 4" />
+    @* light beams *@
+    <path d="M62 37 L104 26 L104 46 Z" fill="url(#lh-beam)" />
+    <path d="M58 37 L16 26 L16 46 Z" fill="url(#lh-beam)" transform="scale(1,1)" opacity=".75" />
+    @* lamp room *@
+    <path d="M52 33 L60 25 L68 33 Z" fill="#E0A100" />
+    <rect x="53" y="33" width="14" height="9" rx="1.5" fill="#FFE7A3" />
+    <rect x="50" y="42" width="20" height="3" rx="1" fill="#E0A100" />
+    @* tower with stripes *@
+    <path d="M53 45 L67 45 L72 88 L48 88 Z" fill="#FFFFFF" />
+    <path d="M51.2 61 L68.8 61 L69.9 70 L50.1 70 Z" fill="#C62828" />
+    <path d="M49.4 78 L70.6 78 L71.4 85 L48.6 85 Z" fill="#C62828" />
+    <rect x="57" y="50" width="6" height="7" rx="3" fill="#13315C" />
+    @* waves *@
+    <path d="M22 92 Q31 86 40 92 T58 92 T76 92 T94 92 T104 90" fill="none" stroke="#5EA8E8" stroke-width="3.2" stroke-linecap="round" />
+    <path d="M28 100 Q37 94 46 100 T64 100 T82 100 T96 98" fill="none" stroke="#5EA8E8" stroke-opacity=".6" stroke-width="2.6" stroke-linecap="round" />
+</svg>
+
+@code {
+    [Parameter] public string? Class { get; set; }
+}
