@@ -1,0 +1,133 @@
+@inherits AppPage
+@* Set or edit homework for a section (multipart: the attachment is optional). *@
+
+<MudDialog>
+    <DialogContent>
+        <MudGrid Spacing="2">
+            <MudItem xs="12">
+                <MudSelect T="Guid?" Label="Subject" @bind-Value="subjectId" Required="true" Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="@(Item is not null)"
+                           ToStringFunc="@(id => subjects.FirstOrDefault(s => s.Id == id)?.Name ?? "")">
+                    @foreach (var s in subjects)
+                    {
+                        <MudSelectItem T="Guid?" Value="s.Id">@s.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12">
+                <MudTextField @bind-Value="title" Label="Title" Required="true" MaxLength="200" Variant="Variant.Outlined" Margin="Margin.Dense"
+                              Error="HasError(nameof(title))" ErrorText="@ErrorFor(nameof(title))" />
+            </MudItem>
+            <MudItem xs="12">
+                <MudTextField @bind-Value="instructions" Label="Instructions" Lines="4" MaxLength="4000" Variant="Variant.Outlined" Margin="Margin.Dense" />
+            </MudItem>
+            <MudItem xs="6">
+                <MudDatePicker @bind-Date="dueDate" Label="Due date" MinDate="@LearningUi.NowLocal.Date" Variant="Variant.Outlined" Margin="Margin.Dense" DateFormat="dd MMM yyyy" />
+            </MudItem>
+            <MudItem xs="6">
+                <MudTimePicker @bind-Time="dueTime" Label="Due time" AmPm="true" Variant="Variant.Outlined" Margin="Margin.Dense" />
+            </MudItem>
+            <MudItem xs="6">
+                <MudNumericField T="decimal?" @bind-Value="maxMarks" Label="Maximum marks" Min="1" Max="1000" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                 HelperText="Leave empty when not marked" />
+            </MudItem>
+            <MudItem xs="6">
+                <MudNumericField T="decimal?" @bind-Value="penalty" Label="Late penalty %" Min="0" Max="100" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                 Disabled="@(!allowLate)" HelperText="Taken off a late hand-in's marks" />
+            </MudItem>
+            <MudItem xs="12" Class="d-flex flex-wrap gap-4">
+                <MudSwitch T="bool" @bind-Value="online" Color="Color.Primary" Label="Hand in online (files/photos)" />
+                <MudSwitch T="bool" @bind-Value="allowLate" Color="Color.Primary" Label="Accept late work" />
+            </MudItem>
+            @if (Item is null)
+            {
+                <MudItem xs="12">
+                    <MudSelect T="Guid?" Label="Also add to the term gradebook" @bind-Value="categoryId" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense"
+                               Disabled="@(maxMarks is null)" HelperText="@(maxMarks is null ? "Needs maximum marks" : "Marks given here flow into the gradebook")"
+                               ToStringFunc="@(id => categories.FirstOrDefault(c => c.Id == id)?.Name ?? "")">
+                        @foreach (var c in categories)
+                        {
+                            <MudSelectItem T="Guid?" Value="c.Id">@c.Name (@c.WeightPercent.ToString("0.#")%)</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+            }
+            <MudItem xs="12" Class="d-flex align-center gap-2">
+                <MudFileUpload T="IBrowserFile" @bind-Files="file" Accept=".pdf,.jpg,.jpeg,.png,.webp,.docx,.pptx,.xlsx">
+                    <ActivatorContent>
+                        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.AttachFile">Attachment</MudButton>
+                    </ActivatorContent>
+                </MudFileUpload>
+                <MudText Typo="Typo.body2">@(file is not null ? $"{file.Name} ({StudentChoices.Size(file.Size)})" : Item?.AttachmentName ?? "Optional · PDF, Office or image, max 10 MB")</MudText>
+            </MudItem>
+        </MudGrid>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => MudDialog.Cancel())">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Save"
+                   Disabled="@(Busy || subjectId is null || string.IsNullOrWhiteSpace(title) || dueDate is null || (SectionId ?? Item?.SectionId) is null)">
+            @(Item is null ? "Set homework" : "Save")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public Guid? SectionId { get; set; }
+    [Parameter] public Guid? YearGroupId { get; set; }
+    [Parameter] public Guid? SubjectId { get; set; }
+    [Parameter] public AssignmentView? Item { get; set; }
+
+    private List<SubjectView> subjects = [];
+    private List<CategoryView> categories = [];
+    private Guid? subjectId, categoryId;
+    private string? title, instructions;
+    private DateTime? dueDate = LearningUi.NowLocal.Date.AddDays(1);
+    private TimeSpan? dueTime = new(8, 0, 0);
+    private decimal? maxMarks, penalty;
+    private bool online = true, allowLate = true;
+    private IBrowserFile? file;
+
+    protected override async Task OnInitializedAsync()
+    {
+        subjectId = Item?.SubjectId ?? SubjectId;
+        if (Item is not null)
+        {
+            title = Item.Title;
+            instructions = Item.Instructions;
+            dueDate = Item.DueAtLocal.Date;
+            dueTime = Item.DueAtLocal.TimeOfDay;
+            maxMarks = Item.MaxMarks;
+            penalty = Item.LatePenaltyPercent;
+            online = Item.OnlineSubmission;
+            allowLate = Item.AllowLate;
+        }
+        await Run(async () =>
+        {
+            subjects = await LearningUi.SubjectsForClassAsync(Api, YearGroupId);
+            categories = await Api.GetAsync<List<CategoryView>>(ApiClient.Query("api/learning/gradebook/categories", ("yearGroupId", YearGroupId)));
+        });
+    }
+
+    private async Task Save()
+    {
+        if (file is { Size: > ApiClient.MaxUploadBytes })
+        {
+            Snackbar.Add("The file is larger than 10 MB.", Severity.Warning);
+            return;
+        }
+        var due = dueDate!.Value.Date + (dueTime ?? TimeSpan.FromHours(8));
+        // Field names match the API's AssignmentForm.
+        var fields = new Dictionary<string, string?>
+        {
+            ["SectionId"] = (Item?.SectionId ?? SectionId)!.Value.ToString(), ["SubjectId"] = subjectId!.Value.ToString(), ["Title"] = title!.Trim(),
+            ["Instructions"] = instructions, ["DueAtLocal"] = due.ToString("yyyy-MM-ddTHH:mm:ss"),
+            ["MaxMarks"] = maxMarks?.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["OnlineSubmission"] = online ? "true" : "false", ["AllowLate"] = allowLate ? "true" : "false",
+            ["LatePenaltyPercent"] = allowLate ? penalty?.ToString(System.Globalization.CultureInfo.InvariantCulture) : "0",
+            ["GradebookCategoryId"] = categoryId?.ToString()
+        };
+        var url = Item is null ? "api/learning/homework" : $"api/learning/homework/{Item.Id}";
+        if (await Run(() => Api.UploadAsync<AssignmentView>(url, file, "Attachment", fields), Item is null ? "Homework set; students and parents have been told." : "Homework saved."))
+            MudDialog.Close(DialogResult.Ok(true));
+    }
+}

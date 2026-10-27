@@ -1,0 +1,33 @@
+@inherits AppPage
+@* Pick the invigilator(s) of one room on one exam day. *@
+
+<MudDialog>
+    <DialogContent>
+        <MudSelect T="Guid" Label="Invigilators" MultiSelection="true" @bind-SelectedValues="chosen" Variant="Variant.Outlined" Margin="Margin.Dense"
+                   ToStringFunc="@(id => teachers.FirstOrDefault(t => t.Id == id)?.FullName ?? "")">
+            @foreach (var t in teachers)
+            {
+                <MudSelectItem T="Guid" Value="t.Id">@t.FullName</MudSelectItem>
+            }
+        </MudSelect>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => MudDialog.Cancel())">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => MudDialog.Close(DialogResult.Ok(chosen.ToList())))">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public Guid CampusId { get; set; }
+    [Parameter] public List<Guid> Selected { get; set; } = [];
+
+    private List<TeacherOption> teachers = [];
+    private IEnumerable<Guid> chosen = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        chosen = Selected;
+        await Run(async () => teachers = await Api.GetAsync<List<TeacherOption>>(ApiClient.Query("api/academics/teachers", ("campusId", CampusId))));
+    }
+}

@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Security.Cryptography;
 using Microsoft.Extensions.Options;
 using SchoolManagement.Infrastructure.Common;
@@ -16,8 +17,11 @@ public sealed record StoredFile(string Path, string FileName, string ContentType
 
 public interface IFileStorage
 {
-    /// <summary>Type-checks, scans and saves a file under <paramref name="folder"/>; returns its vault-relative path.</summary>
-    Task<StoredFile> SaveAsync(Stream content, string folder, string fileName, string contentType, CancellationToken ct);
+    /// <summary>
+    /// Type-checks, scans and saves a file under <paramref name="folder"/>; returns its vault-relative path.
+    /// <paramref name="allowOfficeDocuments"/> also accepts Word, PowerPoint and Excel files (learning resources).
+    /// </summary>
+    Task<StoredFile> SaveAsync(Stream content, string folder, string fileName, string contentType, CancellationToken ct, bool allowOfficeDocuments = false);
     Stream OpenRead(string path);
     void Delete(string path);
 }
@@ -35,7 +39,15 @@ public sealed class LocalFileStorage(IOptions<StorageOptions> options, IFileScan
 
     private string Root => options.Value.RootPath;
 
-    public async Task<StoredFile> SaveAsync(Stream content, string folder, string fileName, string contentType, CancellationToken ct)
+    // Office Open XML files are ZIP packages; the folder inside tells the kind apart.
+    private static readonly (string Ext, string ContentType, string Folder)[] Office =
+    [
+        (".docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "word/"),
+        (".pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation", "ppt/"),
+        (".xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "xl/"),
+    ];
+
+    public async Task<StoredFile> SaveAsync(Stream content, string folder, string fileName, string contentType, CancellationToken ct, bool allowOfficeDocuments = false)
     {
         var max = options.Value.MaxFileBytes;
         using var buffer = new MemoryStream();
@@ -44,7 +56,10 @@ public sealed class LocalFileStorage(IOptions<StorageOptions> options, IFileScan
         if (buffer.Length > max) throw new DomainException($"Files may be at most {max / (1024 * 1024)} MB.", "file_too_large");
 
         var bytes = buffer.ToArray();
-        var type = Detect(bytes) ?? throw new DomainException("Only PDF, JPEG, PNG or WebP files are accepted.", "file_type");
+        var type = Detect(bytes) ?? (allowOfficeDocuments ? DetectOffice(bytes) : null)
+                   ?? throw new DomainException(allowOfficeDocuments
+                       ? "Only PDF, Word, PowerPoint, Excel or image (JPEG, PNG, WebP) files are accepted."
+                       : "Only PDF, JPEG, PNG or WebP files are accepted.", "file_type");
 
         var relative = Path.Combine(folder, $"{Guid.NewGuid():N}{type.Ext}").Replace('\\', '/');
         var full = Resolve(relative);
@@ -93,6 +108,23 @@ public sealed class LocalFileStorage(IOptions<StorageOptions> options, IFileScan
             if (!bytes.StartsWith(t.Magic)) continue;
             if (t.Ext == ".webp" && (bytes.Length < 12 || !bytes.Slice(8, 4).SequenceEqual("WEBP"u8))) continue;
             return t;
+        }
+        return null;
+    }
+
+    private static (string Ext, string ContentType, byte[] Magic)? DetectOffice(byte[] bytes)
+    {
+        if (!bytes.AsSpan().StartsWith("PK\u0003\u0004"u8)) return null;
+        try
+        {
+            using var zip = new ZipArchive(new MemoryStream(bytes), ZipArchiveMode.Read);
+            if (zip.GetEntry("[Content_Types].xml") is null) return null;
+            foreach (var o in Office)
+                if (zip.Entries.Any(e => e.FullName.StartsWith(o.Folder, StringComparison.Ordinal)))
+                    return (o.Ext, o.ContentType, []);
+        }
+        catch (InvalidDataException)
+        {
         }
         return null;
     }

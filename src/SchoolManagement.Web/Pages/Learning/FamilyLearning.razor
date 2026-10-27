@@ -1,0 +1,230 @@
+@page "/portal/learning"
+@inherits AppPage
+
+<PageTitle>Homework, exams & results</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-1">Homework, exams & results</MudText>
+<MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-4">Homework and hand-in, the class diary, learning resources, the exam date sheet and admit card, and published report cards.</MudText>
+
+@if (students.Count == 0 && !Busy)
+{
+    <MudAlert Severity="Severity.Info">No student is linked to your account yet. Please contact the school office.</MudAlert>
+}
+else
+{
+    @if (students.Count > 1)
+    {
+        <MudChipSet T="Guid?" SelectedValue="current?.StudentId" SelectedValueChanged="Select" CheckMark="true" SelectionMode="SelectionMode.SingleSelection" Class="mb-3">
+            @foreach (var s in students)
+            {
+                <MudChip T="Guid?" Value="s.StudentId" Color="Color.Primary">@s.Name</MudChip>
+            }
+        </MudChipSet>
+    }
+    @if (current is not null)
+    {
+        <MudText Typo="Typo.subtitle1" Class="mb-2"><b>@current.Name</b> · @current.AdmissionNo · @(current.ClassName ?? "No class")</MudText>
+        <MudTabs Elevation="1" Rounded="true" ApplyEffectsToContainer="true" PanelClass="pa-4" ActivePanelIndexChanged="TabChanged">
+            <MudTabPanel Text="Homework" Icon="@Icons.Material.Filled.Assignment">
+                <div class="d-flex align-center mb-2">
+                    <MudSwitch T="bool" Value="past" ValueChanged="PastChanged" Color="Color.Primary" Label="Show older homework" />
+                </div>
+                @if (homework.Count == 0) { <MudText Color="Color.Secondary">No homework right now.</MudText> }
+                @foreach (var h in homework)
+                {
+                    <MudPaper Class="pa-3 mb-2" Outlined="true" Style="@(h.Overdue ? "border-left:4px solid #dc2626" : h.Status is null ? "border-left:4px solid #2563eb" : "")">
+                        <div class="d-flex flex-wrap align-center gap-2">
+                            <MudText Typo="Typo.subtitle1"><b>@h.SubjectName</b> · @h.Title</MudText>
+                            <MudSpacer />
+                            <MudChip T="string" Size="Size.Small" Color="LearningUi.Color(h.Status)">@LearningUi.Label(h.Status)</MudChip>
+                            @if (h.IsLate) { <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Outlined">Late</MudChip> }
+                        </div>
+                        <MudText Typo="Typo.caption" Class="d-block">Due @LearningUi.Due(h.DueAtLocal)@(h.MaxMarks is { } m ? $" · out of {m:0.##}" : "")@(h.OnlineSubmission ? "" : " · hand in at school")</MudText>
+                        @if (h.Instructions is not null) { <MudText Typo="Typo.body2" Class="mt-1" Style="white-space:pre-wrap">@h.Instructions</MudText> }
+                        @if (h.FinalMarks is not null || h.Feedback is not null)
+                        {
+                            <MudAlert Severity="Severity.Success" Dense="true" Class="mt-2">
+                                @(h.FinalMarks is { } fm ? $"Marks: {fm:0.##}{(h.MaxMarks is { } mx ? $" / {mx:0.##}" : "")}. " : "")@h.Feedback
+                            </MudAlert>
+                        }
+                        <div class="d-flex flex-wrap gap-2 mt-2">
+                            @if (h.HasAttachment)
+                            {
+                                <MudButton Size="Size.Small" StartIcon="@Icons.Material.Filled.AttachFile" OnClick="@(() => OpenFile($"{Base}/homework/{h.AssignmentId}/attachment"))">@h.AttachmentName</MudButton>
+                            }
+                            @if (h.SubmittedFileName is not null)
+                            {
+                                <MudButton Size="Size.Small" StartIcon="@Icons.Material.Filled.Description" OnClick="@(() => OpenFile($"{Base}/homework/{h.AssignmentId}/my-file"))">Handed in: @h.SubmittedFileName</MudButton>
+                            }
+                            @if (h.CanSubmit)
+                            {
+                                <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Upload" OnClick="() => Submit(h)">
+                                    @(h.Status is null ? "Hand in" : "Hand in again")
+                                </MudButton>
+                            }
+                        </div>
+                    </MudPaper>
+                }
+            </MudTabPanel>
+
+            <MudTabPanel Text="Class diary" Icon="@Icons.Material.Filled.EditNote">
+                <div class="d-flex align-center gap-2 mb-3">
+                    <MudIconButton Icon="@Icons.Material.Filled.ChevronLeft" OnClick="() => ShiftDay(-1)" />
+                    <MudDatePicker Date="diaryDate" DateChanged="DiaryDateChanged" Variant="Variant.Outlined" Margin="Margin.Dense" DateFormat="ddd, dd MMM yyyy" Style="max-width:200px" />
+                    <MudIconButton Icon="@Icons.Material.Filled.ChevronRight" OnClick="() => ShiftDay(1)" />
+                </div>
+                @if (digest is null) { <MudText Color="Color.Secondary">No class on this day.</MudText> }
+                else
+                {
+                    @if (digest.ClosedReason is not null) { <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">No school: @digest.ClosedReason.</MudAlert> }
+                    @if (digest.Entries.Count == 0) { <MudText Color="Color.Secondary" Class="mb-2">Nothing in the diary for this day.</MudText> }
+                    @foreach (var e in digest.Entries)
+                    {
+                        <MudPaper Class="pa-3 mb-2" Outlined="true">
+                            <MudText Typo="Typo.subtitle2"><b>@(e.SubjectName ?? "From the class teacher")</b></MudText>
+                            @if (e.Topics is not null) { <div><small class="mud-text-secondary">Topics</small><div>@e.Topics</div></div> }
+                            @if (e.Homework is not null) { <div><small class="mud-text-secondary">Homework</small><div>@e.Homework</div></div> }
+                            @if (e.Reminders is not null) { <div><small class="mud-text-secondary">Reminders</small><div>@e.Reminders</div></div> }
+                            @if (e.KitNotes is not null) { <div><small class="mud-text-secondary">Uniform / kit</small><div>@e.KitNotes</div></div> }
+                        </MudPaper>
+                    }
+                    @if (digest.DueNext.Count > 0)
+                    {
+                        <MudAlert Severity="Severity.Warning" Dense="true">Due next school day: @string.Join(", ", digest.DueNext.Select(h => $"{h.SubjectName} — {h.Title}"))</MudAlert>
+                    }
+                }
+            </MudTabPanel>
+
+            <MudTabPanel Text="Resources" Icon="@Icons.Material.Filled.LocalLibrary">
+                @if (resources.Count == 0) { <MudText Color="Color.Secondary">No resources shared with this class yet.</MudText> }
+                @foreach (var g in resources.GroupBy(r => r.SubjectName).OrderBy(g => g.Key))
+                {
+                    <MudText Typo="Typo.subtitle1" Class="mt-2"><b>@g.Key</b></MudText>
+                    @foreach (var r in g)
+                    {
+                        <div class="d-flex align-center gap-2 py-1">
+                            <MudIcon Icon="@LearningUi.Icon(r.Type)" Color="Color.Primary" Size="Size.Small" />
+                            <span>@r.Title <small class="mud-text-secondary">@Format.Enum(r.Type)@(r.Topic is null ? "" : $" · {r.Topic}")</small></span>
+                            <MudSpacer />
+                            @if (r.HasFile) { <MudButton Size="Size.Small" OnClick="@(() => OpenFile($"{Base}/resources/{r.Id}/file"))">Open</MudButton> }
+                            @if (r.Url is not null) { <MudButton Size="Size.Small" OnClick="() => Visit(r)">Open link</MudButton> }
+                        </div>
+                    }
+                }
+            </MudTabPanel>
+
+            <MudTabPanel Text="Exams" Icon="@Icons.Material.Filled.EventNote">
+                @if (exams.Count == 0) { <MudText Color="Color.Secondary">No exam date sheet has been published.</MudText> }
+                @foreach (var e in exams)
+                {
+                    <MudPaper Class="pa-3 mb-3" Outlined="true">
+                        <div class="d-flex flex-wrap align-center gap-2">
+                            <MudText Typo="Typo.subtitle1"><b>@e.Name</b>@(e.NameBn is null ? "" : $" · {e.NameBn}")</MudText>
+                            <MudSpacer />
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@(e.Room is null ? "Seat to be announced" : $"{e.Room}, seat {e.SeatNo}")</MudChip>
+                            <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Badge" OnClick="@(() => OpenFile($"{Base}/exams/{e.ExamId}/admit-card"))">Admit card</MudButton>
+                        </div>
+                        <MudSimpleTable Dense="true" Class="mt-2">
+                            <tbody>
+                                @foreach (var p in e.Papers)
+                                {
+                                    <tr><td style="white-space:nowrap">@p.Date.ToString("ddd dd MMM")</td><td style="white-space:nowrap">@ExamTime(p.StartTime) – @ExamTime(p.EndTime)</td><td>@p.SubjectName</td></tr>
+                                }
+                            </tbody>
+                        </MudSimpleTable>
+                    </MudPaper>
+                }
+            </MudTabPanel>
+
+            <MudTabPanel Text="Results" Icon="@Icons.Material.Filled.WorkspacePremium">
+                <div class="d-flex justify-end mb-2">
+                    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Print" OnClick="@(() => OpenFile($"{Base}/transcript"))" Disabled="@(results.Count == 0)">Transcript</MudButton>
+                </div>
+                <MudTable T="StudentResultSummary" Items="results" Dense="true" Elevation="0" Outlined="true">
+                    <HeaderContent><MudTh>Exam</MudTh><MudTh>%</MudTh><MudTh>Grade</MudTh><MudTh>GPA</MudTh><MudTh>Result</MudTh><MudTh></MudTh></HeaderContent>
+                    <RowTemplate>
+                        <MudTd>@context.ExamName<br /><small class="mud-text-secondary">@context.AcademicYear</small></MudTd>
+                        <MudTd>@context.Percent.ToString("0.##")</MudTd>
+                        <MudTd><b>@context.Grade</b></MudTd>
+                        <MudTd>@context.Gpa?.ToString("0.00")</MudTd>
+                        <MudTd>@(context.Passed ? "Passed" : "Not passed")</MudTd>
+                        <MudTd><MudButton Size="Size.Small" StartIcon="@Icons.Material.Filled.Print" OnClick="@(() => OpenFile($"{Base}/results/{context.ExamId}/report-card"))">Report card</MudButton></MudTd>
+                    </RowTemplate>
+                    <NoRecordsContent><MudText>No results have been published yet.</MudText></NoRecordsContent>
+                </MudTable>
+            </MudTabPanel>
+        </MudTabs>
+    }
+}
+
+@code {
+    [Inject] private IJSRuntime Js { get; set; } = default!;
+
+    private List<PortalStudent> students = [];
+    private PortalStudent? current;
+    private bool past;
+    private List<StudentHomework> homework = [];
+    private DateTime? diaryDate = LearningUi.NowLocal.Date;
+    private DailyDigest? digest;
+    private List<ResourceView> resources = [];
+    private List<PortalExam> exams = [];
+    private List<StudentResultSummary> results = [];
+
+    private string Base => $"api/portal/students/{current!.StudentId}";
+
+    private static string ExamTime(TimeOnly t) => t.ToString("hh:mm tt", System.Globalization.CultureInfo.InvariantCulture);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Run(async () => students = await Api.GetAsync<List<PortalStudent>>("api/portal/students"));
+        if (students.Count > 0) await Select(students[0].StudentId);
+    }
+
+    private async Task Select(Guid? id)
+    {
+        current = students.FirstOrDefault(s => s.StudentId == id);
+        if (current is null) return;
+        await LoadHomework();
+    }
+
+    // Each tab loads when opened.
+    private async Task TabChanged(int index)
+    {
+        switch (index)
+        {
+            case 0: await LoadHomework(); break;
+            case 1: await LoadDiary(); break;
+            case 2: await Run(async () => resources = await Api.GetAsync<List<ResourceView>>($"{Base}/resources")); break;
+            case 3: await Run(async () => exams = await Api.GetAsync<List<PortalExam>>($"{Base}/exams")); break;
+            case 4: await Run(async () => results = await Api.GetAsync<List<StudentResultSummary>>($"{Base}/results")); break;
+        }
+    }
+
+    private async Task LoadHomework() => await Run(async () => homework = await Api.GetAsync<List<StudentHomework>>(ApiClient.Query($"{Base}/homework", ("past", past))));
+
+    private async Task PastChanged(bool value) { past = value; await LoadHomework(); }
+
+    private async Task LoadDiary()
+    {
+        digest = null;
+        await Run(async () => digest = await Api.GetAsync<DailyDigest?>(ApiClient.Query($"{Base}/diary", ("date", DateOnly.FromDateTime(diaryDate!.Value)))));
+    }
+
+    private async Task DiaryDateChanged(DateTime? d) { diaryDate = d; await LoadDiary(); }
+
+    private async Task ShiftDay(int delta) { diaryDate = diaryDate!.Value.AddDays(delta); await LoadDiary(); }
+
+    private async Task Visit(ResourceView r)
+    {
+        ResourceLink? link = null;
+        if (await Run(async () => link = await Api.PostAsync<ResourceLink>($"{Base}/resources/{r.Id}/visit")) && link is not null)
+            await Js.InvokeVoidAsync("open", link.Url, "_blank", "noopener");
+    }
+
+    private async Task Submit(StudentHomework h)
+    {
+        var parameters = new DialogParameters<HomeworkSubmitDialog> { { x => x.Url, $"{Base}/homework/{h.AssignmentId}/submit" }, { x => x.Homework, h } };
+        var dialog = await Dialogs.ShowAsync<HomeworkSubmitDialog>($"Hand in: {h.Title}", parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (await dialog.Result is { Canceled: false }) await LoadHomework();
+    }
+}

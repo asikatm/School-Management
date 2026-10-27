@@ -3,8 +3,10 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using SchoolManagement.Domain.Academics;
 using SchoolManagement.Domain.Approvals;
+using SchoolManagement.Domain.Attendance;
 using SchoolManagement.Domain.Core;
 using SchoolManagement.Domain.Identity;
+using SchoolManagement.Domain.Learning;
 using SchoolManagement.Domain.Notifications;
 using SchoolManagement.Infrastructure.Numbering;
 using SchoolManagement.Infrastructure.Security;
@@ -26,6 +28,130 @@ public sealed class DataSeeder(AppDbContext db, IPasswordHasher hasher, IConfigu
             await SeedReferenceDataAsync(ct);
         // Later modules seed their own defaults into databases created by earlier releases.
         await SeedAcademicsAsync(ct);
+        await SeedAttendanceAsync(ct);
+        await SeedLearningAndExamsAsync(ct);
+    }
+
+    /// <summary>LRN and EXM defaults: gradebook categories and weights, exam and homework rules, and their message templates.</summary>
+    private async Task SeedLearningAndExamsAsync(CancellationToken ct)
+    {
+        if (!await db.Campuses.AnyAsync(ct)) return;
+
+        if (!await db.GradebookCategories.IgnoreQueryFilters().AnyAsync(ct))
+        {
+            var seq = 0;
+            foreach (var (name, weight) in new[] { ("Classwork", 30m), ("Homework", 20m), ("Quizzes", 20m), ("Projects", 15m), ("Practicals", 15m) })
+                db.GradebookCategories.Add(new GradebookCategory { Name = name, WeightPercent = weight, Sequence = seq++ });
+        }
+
+        await EnsureSettingAsync(SettingKeys.HomeworkReminderTime, "16:00", "LRN-02: the 'due tomorrow' homework reminder goes out after this time (local)", ct);
+        await EnsureSettingAsync(SettingKeys.HomeworkLatePenaltyPercent, "10", "LRN-02: default late-submission penalty (% of the marks) for new homework", ct);
+        await EnsureSettingAsync(SettingKeys.ExamDoubleEntry, "true", "EXM-03: marks must be entered twice (by different people) and match before approval", ct);
+        await EnsureSettingAsync(SettingKeys.ExamShowRank, "true", "EXM-06: show section/class rank and percentile on report cards", ct);
+        await EnsureSettingAsync(SettingKeys.ExamGpaZeroOnFail, "true", "EXM-04: on the GPA 5.00 scale a failed subject makes the overall GPA 0.00", ct);
+        await EnsureSettingAsync(SettingKeys.ExamMaxFailedForPromotion, "2", "SIS-05: more failed subjects than this in the final exam suggests repeating the year", ct);
+        await EnsureSettingAsync(SettingKeys.PrincipalName, "", "EXM-05: name printed under the principal's signature on report cards", ct);
+
+        await EnsureTemplateAsync(TemplateCodes.HomeworkAssigned, NotificationChannel.InApp, "en", "New homework: {{Subject}}",
+            "{{ChildName}} ({{ClassName}}) has new {{Subject}} homework: {{Title}}. Due {{Due}}.", ct);
+        await EnsureTemplateAsync(TemplateCodes.HomeworkAssigned, NotificationChannel.InApp, "bn", "নতুন বাড়ির কাজ: {{Subject}}",
+            "{{ChildName}} ({{ClassName}})-এর নতুন {{Subject}} বাড়ির কাজ: {{Title}}। জমার সময় {{Due}}।", ct);
+        await EnsureTemplateAsync(TemplateCodes.HomeworkDue, NotificationChannel.InApp, "en", "Homework due tomorrow",
+            "Reminder: {{ChildName}}'s {{Subject}} homework \"{{Title}}\" is due {{Due}} and has not been handed in yet.", ct);
+        await EnsureTemplateAsync(TemplateCodes.HomeworkDue, NotificationChannel.InApp, "bn", "আগামীকাল বাড়ির কাজ জমা",
+            "মনে করিয়ে দিচ্ছি: {{ChildName}}-এর {{Subject}} বাড়ির কাজ \"{{Title}}\" {{Due}}-এর মধ্যে জমা দিতে হবে, এখনও জমা হয়নি।", ct);
+        await EnsureTemplateAsync(TemplateCodes.ExamSchedulePublished, NotificationChannel.Sms, "en", null,
+            "{{Exam}} for {{ChildName}} ({{ClassName}}) starts {{Start}}. The date sheet and admit card are in the parent portal.", ct);
+        await EnsureTemplateAsync(TemplateCodes.ExamSchedulePublished, NotificationChannel.Sms, "bn", null,
+            "{{ChildName}} ({{ClassName}})-এর {{Exam}} শুরু {{Start}}। রুটিন ও প্রবেশপত্র অভিভাবক পোর্টালে দেখুন।", ct);
+        await EnsureTemplateAsync(TemplateCodes.ExamSchedulePublished, NotificationChannel.InApp, "en", "Exam schedule: {{Exam}}",
+            "{{Exam}} for {{ChildName}} starts {{Start}}. See the date sheet and admit card.", ct);
+        await EnsureTemplateAsync(TemplateCodes.ResultPublished, NotificationChannel.Sms, "en", null,
+            "{{Exam}} results of {{ChildName}} ({{ClassName}}) are published: {{Summary}}. See the report card in the parent portal.", ct);
+        await EnsureTemplateAsync(TemplateCodes.ResultPublished, NotificationChannel.Sms, "bn", null,
+            "{{ChildName}} ({{ClassName}})-এর {{Exam}} ফলাফল প্রকাশিত: {{Summary}}। রিপোর্ট কার্ড অভিভাবক পোর্টালে দেখুন।", ct);
+        await EnsureTemplateAsync(TemplateCodes.ResultPublished, NotificationChannel.InApp, "en", "Results: {{Exam}}",
+            "{{Exam}} results of {{ChildName}} are published: {{Summary}}.", ct);
+
+        await db.SaveChangesAsync(ct);
+    }
+
+    private async Task EnsureSettingAsync(string key, string value, string description, CancellationToken ct)
+    {
+        if (!await db.SystemSettings.AnyAsync(s => s.Key == key && s.CampusId == null, ct) && !db.SystemSettings.Local.Any(s => s.Key == key && s.CampusId == null))
+            db.SystemSettings.Add(new SystemSetting { Key = key, Value = value, Description = description });
+    }
+
+    private async Task EnsureTemplateAsync(string code, NotificationChannel channel, string lang, string? subject, string body, CancellationToken ct)
+    {
+        if (!await db.MessageTemplates.AnyAsync(t => t.Code == code && t.Channel == channel && t.Language == lang, ct))
+            db.MessageTemplates.Add(new MessageTemplate { Code = code, Channel = channel, Language = lang, Subject = subject, Body = body });
+    }
+
+    /// <summary>ATT defaults: leave types, the staff-leave approval chain, alert templates and attendance rules.</summary>
+    private async Task SeedAttendanceAsync(CancellationToken ct)
+    {
+        if (!await db.Campuses.AnyAsync(ct)) return;
+
+        if (!await db.LeaveTypes.IgnoreQueryFilters().AnyAsync(ct))
+        {
+            foreach (var (code, name, bn, days, paid, doc) in new[]
+                     {
+                         ("CL", "Casual leave", "নৈমিত্তিক ছুটি", 10m, true, false),
+                         ("SL", "Sick leave", "অসুস্থতাজনিত ছুটি", 14m, true, true),
+                         ("EL", "Earned leave", "অর্জিত ছুটি", 20m, true, false),
+                         ("ML", "Maternity leave", "মাতৃত্বকালীন ছুটি", 112m, true, true),
+                         ("UL", "Leave without pay", "বিনা বেতনে ছুটি", 0m, false, false)
+                     })
+                db.LeaveTypes.Add(new LeaveType { Code = code, Name = name, NameBn = bn, DaysPerYear = days, IsPaid = paid, RequiresDocument = doc });
+        }
+
+        if (!await db.ApprovalWorkflows.AnyAsync(w => w.RequestType == ApprovalTypes.StaffLeave, ct))
+        {
+            var roles = await db.Roles.ToDictionaryAsync(r => r.Name, r => r.Id, ct);
+            var wf = new ApprovalWorkflow { RequestType = ApprovalTypes.StaffLeave, Name = "Staff leave" };
+            wf.Steps.Add(new ApprovalStep
+            {
+                WorkflowId = wf.Id, Order = 1, Name = "Head of Section approval", ApproverRoleId = roles[RoleNames.HeadOfSection],
+                EscalateAfterHours = 24, EscalateToRoleId = roles[RoleNames.Principal]
+            });
+            db.ApprovalWorkflows.Add(wf);
+        }
+
+        await EnsureSettingAsync(SettingKeys.AttendanceAlertCutoff, "09:30", "ATT-03: absence/late SMS go out after this time (local), so late arrivals can be marked first", ct);
+        await EnsureSettingAsync(SettingKeys.AttendanceSendAlerts, "true", "ATT-03: send absence and late alerts to guardians", ct);
+        await EnsureSettingAsync(SettingKeys.AttendanceEditWindowHours, "48", "ATT-01: hours after the day in which the teacher who took the register may still change it", ct);
+        await EnsureSettingAsync(SettingKeys.AttendanceWarningPercent, "85", "ATT-05: guardians are warned when term attendance falls below this %", ct);
+        await EnsureSettingAsync(SettingKeys.AttendanceMinimumPercent, "75", "ATT-05: minimum term attendance % for exam eligibility", ct);
+        await EnsureSettingAsync(SettingKeys.PeriodWiseProgrammes, "IGCSE,IAL", "ATT-01: programme codes whose classes also take period-wise attendance", ct);
+        await EnsureSettingAsync(SettingKeys.StaffWorkStart, "07:30", "ATT-06: staff start time (local)", ct);
+        await EnsureSettingAsync(SettingKeys.StaffWorkEnd, "14:30", "ATT-06: staff finish time (local)", ct);
+        await EnsureSettingAsync(SettingKeys.StaffLateGraceMinutes, "10", "ATT-06: minutes after the start time before a punch counts as late", ct);
+        await EnsureSettingAsync(SettingKeys.StaffOvertimeAfterMinutes, "30", "ATT-06: minutes after the finish time before overtime is counted", ct);
+        await EnsureSettingAsync(SettingKeys.StaffGeofence, "", "ATT-06: campus location for mobile punch as 'latitude,longitude,radius metres' (set per campus; empty = no check)", ct);
+
+        await EnsureTemplateAsync(TemplateCodes.StudentAbsent, NotificationChannel.Sms, "en", null,
+            "{{ChildName}} ({{ClassName}}) is absent from school today, {{Date}}. Please inform the class teacher if this is unexpected.", ct);
+        await EnsureTemplateAsync(TemplateCodes.StudentAbsent, NotificationChannel.Sms, "bn", null,
+            "{{ChildName}} ({{ClassName}}) আজ {{Date}} স্কুলে অনুপস্থিত। অপ্রত্যাশিত হলে শ্রেণি শিক্ষককে জানান।", ct);
+        await EnsureTemplateAsync(TemplateCodes.StudentAbsent, NotificationChannel.InApp, "en", "Absent today",
+            "{{ChildName}} ({{ClassName}}) is marked absent on {{Date}}.", ct);
+        await EnsureTemplateAsync(TemplateCodes.StudentLate, NotificationChannel.Sms, "en", null,
+            "{{ChildName}} ({{ClassName}}) arrived late today, {{Date}}{{Arrival}}.", ct);
+        await EnsureTemplateAsync(TemplateCodes.StudentLate, NotificationChannel.Sms, "bn", null,
+            "{{ChildName}} ({{ClassName}}) আজ {{Date}} দেরিতে উপস্থিত হয়েছে{{Arrival}}।", ct);
+        await EnsureTemplateAsync(TemplateCodes.LowAttendance, NotificationChannel.Sms, "en", null,
+            "Attendance alert: {{ChildName}} ({{ClassName}}) has {{Percent}}% attendance in {{Term}}. The minimum for examinations is {{Minimum}}%.", ct);
+        await EnsureTemplateAsync(TemplateCodes.LowAttendance, NotificationChannel.Sms, "bn", null,
+            "উপস্থিতি সতর্কতা: {{Term}}-এ {{ChildName}} ({{ClassName}})-এর উপস্থিতি {{Percent}}%। পরীক্ষায় অংশ নিতে ন্যূনতম {{Minimum}}% প্রয়োজন।", ct);
+        await EnsureTemplateAsync(TemplateCodes.StudentLeaveDecided, NotificationChannel.Sms, "en", null,
+            "Leave for {{ChildName}} ({{From}}–{{To}}) has been {{Decision}}. {{Note}}", ct);
+        await EnsureTemplateAsync(TemplateCodes.StudentLeaveDecided, NotificationChannel.Sms, "bn", null,
+            "{{ChildName}}-এর ছুটি ({{From}}–{{To}}) {{DecisionBn}}। {{Note}}", ct);
+        await EnsureTemplateAsync(TemplateCodes.StudentLeaveDecided, NotificationChannel.InApp, "en", "Leave {{Decision}}",
+            "Leave for {{ChildName}} ({{From}}–{{To}}) has been {{Decision}}. {{Note}}", ct);
+
+        await db.SaveChangesAsync(ct);
     }
 
     private async Task SeedReferenceDataAsync(CancellationToken ct)
@@ -223,16 +349,39 @@ public sealed class DataSeeder(AppDbContext db, IPasswordHasher hasher, IConfigu
                 Permissions.Students.View, Permissions.Students.Create, Permissions.Students.Edit, Permissions.Students.Approve,
                 Permissions.Students.Export, Permissions.Students.Documents,
                 Permissions.Academic.View, Permissions.Academic.Manage, Permissions.Academic.Timetable, Permissions.Academic.Substitutions,
-                Permissions.Academic.Calendar
+                Permissions.Academic.Calendar,
+                Permissions.Attendance.View, Permissions.Attendance.Take, Permissions.Attendance.Edit, Permissions.Attendance.ApproveLeave,
+                Permissions.Attendance.Staff, Permissions.StaffLeave.Manage,
+                Permissions.Learning.View, Permissions.Learning.Teach, Permissions.Learning.Manage, Permissions.Learning.Moderate,
+                Permissions.Exams.View, Permissions.Exams.Manage, Permissions.Exams.Marks, Permissions.Exams.Moderate, Permissions.Notices.Manage
             ],
             [RoleNames.HeadOfSection] =
             [
                 Permissions.Settings.View, Permissions.Approvals.View, Permissions.Notifications.View, Permissions.Notifications.Send,
                 Permissions.Admission.View, Permissions.Students.View, Permissions.Students.Edit, Permissions.Students.Export,
-                Permissions.Academic.View, Permissions.Academic.Timetable, Permissions.Academic.Substitutions, Permissions.Academic.Calendar
+                Permissions.Academic.View, Permissions.Academic.Timetable, Permissions.Academic.Substitutions, Permissions.Academic.Calendar,
+                Permissions.Attendance.View, Permissions.Attendance.Take, Permissions.Attendance.Edit, Permissions.Attendance.ApproveLeave,
+                Permissions.Learning.View, Permissions.Learning.Teach, Permissions.Learning.Moderate,
+                Permissions.Exams.View, Permissions.Exams.Marks, Permissions.Exams.Moderate, Permissions.Notices.Manage
             ],
-            [RoleNames.ClassTeacher] = [Permissions.Settings.View, Permissions.Students.View, Permissions.Notifications.View, Permissions.Approvals.View, Permissions.Academic.View],
-            [RoleNames.SubjectTeacher] = [Permissions.Settings.View, Permissions.Students.View, Permissions.Notifications.View, Permissions.Academic.View],
+            [RoleNames.ClassTeacher] =
+            [
+                Permissions.Settings.View, Permissions.Students.View, Permissions.Notifications.View, Permissions.Approvals.View, Permissions.Academic.View,
+                Permissions.Attendance.View, Permissions.Attendance.Take,
+                Permissions.Learning.View, Permissions.Learning.Teach, Permissions.Exams.View, Permissions.Exams.Marks
+            ],
+            [RoleNames.SubjectTeacher] =
+            [
+                Permissions.Settings.View, Permissions.Students.View, Permissions.Notifications.View, Permissions.Academic.View,
+                Permissions.Attendance.View, Permissions.Attendance.Take,
+                Permissions.Learning.View, Permissions.Learning.Teach, Permissions.Exams.View, Permissions.Exams.Marks
+            ],
+            [RoleNames.ExamOfficer] =
+            [
+                Permissions.Settings.View, Permissions.Students.View, Permissions.Academic.View, Permissions.Attendance.View,
+                Permissions.Notifications.View, Permissions.Notifications.Send,
+                Permissions.Exams.View, Permissions.Exams.Manage, Permissions.Exams.Moderate, Permissions.Notices.Manage
+            ],
             [RoleNames.Accountant] =
             [
                 Permissions.Settings.View, Permissions.Admission.View, Permissions.Students.View,
@@ -246,8 +395,8 @@ public sealed class DataSeeder(AppDbContext db, IPasswordHasher hasher, IConfigu
             ],
             [RoleNames.Librarian] = [Permissions.Students.View, Permissions.Academic.View],
             [RoleNames.TransportInCharge] = [Permissions.Students.View, Permissions.Academic.View],
-            [RoleNames.Parent] = [],
-            [RoleNames.Student] = []
+            [RoleNames.Parent] = [Permissions.Portal.Parent],
+            [RoleNames.Student] = [Permissions.Portal.Student]
         };
 
         var roles = await db.Roles.IgnoreQueryFilters().Include(r => r.Permissions).ToListAsync(ct);
@@ -541,6 +690,24 @@ public static class SettingKeys
     public const string MaxTeacherPeriodsPerWeek = "Timetable:MaxTeacherPeriodsPerWeek";
     public const string MinTeacherPeriodsPerWeek = "Timetable:MinTeacherPeriodsPerWeek";
     public const string MaxConsecutivePeriods = "Timetable:MaxConsecutivePeriods";
+    public const string AttendanceAlertCutoff = "Attendance:AlertCutoff";
+    public const string AttendanceSendAlerts = "Attendance:SendAlerts";
+    public const string AttendanceEditWindowHours = "Attendance:EditWindowHours";
+    public const string AttendanceWarningPercent = "Attendance:WarningPercent";
+    public const string AttendanceMinimumPercent = "Attendance:MinimumPercent";
+    public const string PeriodWiseProgrammes = "Attendance:PeriodWiseProgrammes";
+    public const string StaffWorkStart = "StaffAttendance:WorkStart";
+    public const string StaffWorkEnd = "StaffAttendance:WorkEnd";
+    public const string StaffLateGraceMinutes = "StaffAttendance:LateGraceMinutes";
+    public const string StaffOvertimeAfterMinutes = "StaffAttendance:OvertimeAfterMinutes";
+    public const string StaffGeofence = "StaffAttendance:Geofence";
+    public const string HomeworkReminderTime = "Homework:ReminderTime";
+    public const string HomeworkLatePenaltyPercent = "Homework:LatePenaltyPercent";
+    public const string ExamDoubleEntry = "Exams:DoubleEntry";
+    public const string ExamShowRank = "Exams:ShowRank";
+    public const string ExamGpaZeroOnFail = "Exams:GpaZeroOnFail";
+    public const string ExamMaxFailedForPromotion = "Exams:MaxFailedForPromotion";
+    public const string PrincipalName = "ReportCard:PrincipalName";
 }
 
 public static class TemplateCodes
@@ -554,4 +721,12 @@ public static class TemplateCodes
     public const string EnrolmentWelcome = "SIS_ENROLMENT_WELCOME";
     public const string WaitlistPromoted = "ADM_WAITLIST_PROMOTED";
     public const string CoverAssigned = "ACA_COVER_ASSIGNED";
+    public const string StudentAbsent = "ATT_STUDENT_ABSENT";
+    public const string StudentLate = "ATT_STUDENT_LATE";
+    public const string LowAttendance = "ATT_LOW_ATTENDANCE";
+    public const string StudentLeaveDecided = "ATT_LEAVE_DECIDED";
+    public const string HomeworkAssigned = "LRN_HOMEWORK_ASSIGNED";
+    public const string HomeworkDue = "LRN_HOMEWORK_DUE";
+    public const string ExamSchedulePublished = "EXM_SCHEDULE_PUBLISHED";
+    public const string ResultPublished = "EXM_RESULT_PUBLISHED";
 }

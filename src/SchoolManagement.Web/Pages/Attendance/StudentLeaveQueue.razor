@@ -1,0 +1,101 @@
+@page "/attendance/leave"
+@inherits AppPage
+
+<PageTitle>Student leave</PageTitle>
+
+<div class="d-flex flex-wrap align-center gap-2 mb-1">
+    <MudText Typo="Typo.h4">Student leave</MudText>
+    <MudSpacer />
+    @if (Session.Has(P.Attendance.Take))
+    {
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="Apply">Record an application</MudButton>
+    }
+</div>
+<MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-4">
+    Applications from parents (portal) and the office. The class teacher decides; approved school days are marked as Leave and no absence SMS is sent.
+</MudText>
+
+<div class="d-flex flex-wrap gap-2 align-center mb-3">
+    <MudChipSet T="LeaveStatus?" SelectedValue="status" SelectedValueChanged="StatusChanged" CheckMark="true" SelectionMode="SelectionMode.SingleSelection">
+        <MudChip T="LeaveStatus?" Value="LeaveStatus.Pending" Color="Color.Warning">Pending</MudChip>
+        <MudChip T="LeaveStatus?" Value="LeaveStatus.Approved" Color="Color.Success">Approved</MudChip>
+        <MudChip T="LeaveStatus?" Value="LeaveStatus.Rejected" Color="Color.Error">Refused</MudChip>
+        <MudChip T="LeaveStatus?" Value="null">All</MudChip>
+    </MudChipSet>
+</div>
+
+<MudTable T="StudentLeaveView" Items="items" Dense="true" Hover="true" Elevation="1" Loading="Busy">
+    <HeaderContent>
+        <MudTh>Student</MudTh><MudTh>Class</MudTh><MudTh>Days</MudTh><MudTh>Reason</MudTh><MudTh>Applied</MudTh><MudTh>Status</MudTh><MudTh></MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd><b>@context.StudentName</b><br /><small>@context.AdmissionNo</small></MudTd>
+        <MudTd>@context.ClassName</MudTd>
+        <MudTd>
+            @Format.Date(context.FromDate)@(context.ToDate != context.FromDate ? $" – {Format.Date(context.ToDate)}" : "")
+            <br /><small>@context.SchoolDays school day(s)</small>
+        </MudTd>
+        <MudTd Style="max-width:320px">
+            @context.Reason
+            @if (context.HasAttachment)
+            {
+                <MudLink OnClick="() => OpenFile(AttachmentUrl(context))" Typo="Typo.caption" Class="d-block">📎 @context.AttachmentName</MudLink>
+            }
+        </MudTd>
+        <MudTd>@context.RequestedBy<br /><small>@Format.DateTime(context.RequestedAtUtc)</small></MudTd>
+        <MudTd>
+            <MudChip T="string" Size="Size.Small" Color="AttendanceUi.Color(context.Status)">@Format.Enum(context.Status)</MudChip>
+            @if (context.DecidedBy is not null)
+            {
+                <br /><small>@context.DecidedBy@(context.DecisionNote is null ? "" : $": {context.DecisionNote}")</small>
+            }
+        </MudTd>
+        <MudTd Style="white-space:nowrap;text-align:right">
+            @if (context.CanDecide)
+            {
+                <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Success" OnClick="() => Decide(context, true)" Disabled="Busy">Approve</MudButton>
+                <MudButton Size="Size.Small" Color="Color.Error" OnClick="() => Decide(context, false)" Disabled="Busy">Refuse</MudButton>
+            }
+        </MudTd>
+    </RowTemplate>
+    <NoRecordsContent><MudText>No applications.</MudText></NoRecordsContent>
+</MudTable>
+
+@code {
+    private LeaveStatus? status = LeaveStatus.Pending;
+    private List<StudentLeaveView> items = [];
+
+    protected override Task OnInitializedAsync() => Load();
+
+    private async Task StatusChanged(LeaveStatus? s) { status = s; await Load(); }
+
+    private async Task Load() =>
+        await Run(async () => items = await Api.GetAsync<List<StudentLeaveView>>(ApiClient.Query("api/attendance/leave", ("status", status))));
+
+    private static string AttachmentUrl(StudentLeaveView l) => $"api/attendance/leave/{l.Id}/attachment";
+
+    private async Task Apply()
+    {
+        var dialog = await Dialogs.ShowAsync<StudentLeaveApplyDialog>("Record a leave application", new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (await dialog.Result is { Canceled: false }) await Load();
+    }
+
+    private async Task Decide(StudentLeaveView l, bool approve)
+    {
+        string? note = null;
+        if (!approve)
+        {
+            var parameters = new DialogParameters<Students.ReasonDialog>
+            {
+                { x => x.Hint, $"The guardian of {l.StudentName} will receive this reason by SMS." },
+                { x => x.Label, "Reason for refusing" }, { x => x.ActionText, "Refuse leave" }
+            };
+            var dialog = await Dialogs.ShowAsync<Students.ReasonDialog>("Refuse leave", parameters);
+            if (await dialog.Result is not { Canceled: false, Data: string text }) return;
+            note = text;
+        }
+        if (await Run(() => Api.PostAsync<StudentLeaveView>($"api/attendance/leave/{l.Id}/decide", new LeaveDecisionRequest(approve, note)),
+                approve ? "Leave approved; the days are marked as Leave." : "Leave refused; the guardian has been told."))
+            await Load();
+    }
+}

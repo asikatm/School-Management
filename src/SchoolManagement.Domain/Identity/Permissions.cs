@@ -60,6 +60,73 @@ public static class Permissions
         public const string Manage = "backup.manage";
     }
 
+    public static class Attendance
+    {
+        public const string View = "attendance.view";
+
+        /// <summary>Take the register for one's own classes (class teacher, or teaching the section).</summary>
+        public const string Take = "attendance.take";
+
+        /// <summary>Take or change any section's register, including after the edit window.</summary>
+        public const string Edit = "attendance.edit";
+
+        /// <summary>Decide students' leave applications for any section (class teachers can always decide their own).</summary>
+        public const string ApproveLeave = "attendance.leave";
+
+        /// <summary>See and correct staff attendance.</summary>
+        public const string Staff = "attendance.staff";
+    }
+
+    public static class StaffLeave
+    {
+        /// <summary>Leave types, entitlements and every staff member's requests and balances.</summary>
+        public const string Manage = "staffleave.manage";
+    }
+
+    public static class Portal
+    {
+        /// <summary>Guardian self-service for their own children (PRT).</summary>
+        public const string Parent = "portal.parent";
+
+        /// <summary>A student's own homework, resources, timetable and published results (PRT).</summary>
+        public const string Student = "portal.student";
+    }
+
+    public static class Notices
+    {
+        /// <summary>Post, change and remove notices on the notice board.</summary>
+        public const string Manage = "notices.manage";
+    }
+
+    public static class Learning
+    {
+        /// <summary>See homework, class diaries, resources and gradebooks.</summary>
+        public const string View = "learning.view";
+
+        /// <summary>Set homework, write the diary, share resources and keep the gradebook for one's own classes.</summary>
+        public const string Teach = "learning.teach";
+
+        /// <summary>Do the above for any class, and set gradebook categories and weights.</summary>
+        public const string Manage = "learning.manage";
+
+        /// <summary>Moderate and approve term grades (head of department).</summary>
+        public const string Moderate = "learning.moderate";
+    }
+
+    public static class Exams
+    {
+        public const string View = "exams.view";
+
+        /// <summary>Exam office: schedules, date sheets, seating, admit cards, finalising and publishing results.</summary>
+        public const string Manage = "exams.manage";
+
+        /// <summary>Enter marks for the subjects one teaches, and report-card remarks as class teacher.</summary>
+        public const string Marks = "exams.marks";
+
+        /// <summary>Verify, moderate, approve and re-open mark sheets of any section.</summary>
+        public const string Moderate = "exams.moderate";
+    }
+
     public static class Academic
     {
         /// <summary>See curriculum, allocations, timetables and the calendar.</summary>
@@ -92,6 +159,7 @@ public static class RoleNames
     public const string SubjectTeacher = "Subject Teacher";
     public const string Accountant = "Accountant";
     public const string AdmissionOfficer = "Admission Officer";
+    public const string ExamOfficer = "Exam Officer";
     public const string Librarian = "Librarian";
     public const string TransportInCharge = "Transport In-charge";
     public const string Parent = "Parent";

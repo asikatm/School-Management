@@ -29,3 +29,16 @@ window.smFiles = {
         setTimeout(() => URL.revokeObjectURL(url), 60000);
     }
 };
+
+// Device location for the staff mobile punch (ATT-06). Resolves to null when denied or unavailable.
+window.smGeo = {
+    get: function () {
+        return new Promise(resolve => {
+            if (!navigator.geolocation) { resolve(null); return; }
+            navigator.geolocation.getCurrentPosition(
+                p => resolve({ latitude: p.coords.latitude, longitude: p.coords.longitude, accuracy: p.coords.accuracy }),
+                () => resolve(null),
+                { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 });
+        });
+    }
+};

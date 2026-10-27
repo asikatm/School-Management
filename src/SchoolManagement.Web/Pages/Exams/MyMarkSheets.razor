@@ -1,0 +1,32 @@
+@page "/exams/my-marks"
+@inherits AppPage
+
+<PageTitle>My mark sheets</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-1">My mark sheets</MudText>
+<MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-4">
+    Open mark sheets for the subjects you teach (moderators see every open sheet). Enter marks, then submit; a second person verifies them and the moderator approves.
+</MudText>
+
+<MudTable T="MyMarkSheet" Items="items" Dense="true" Hover="true" Elevation="1" Loading="Busy" OnRowClick="Open" RowStyle="cursor:pointer">
+    <HeaderContent>
+        <MudTh>Exam</MudTh><MudTh>Date</MudTh><MudTh>Class / section</MudTh><MudTh>Subject</MudTh><MudTh>Entered</MudTh><MudTh>Status</MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd>@context.ExamName</MudTd>
+        <MudTd>@Format.Date(context.Sheet.Date)</MudTd>
+        <MudTd>@context.Sheet.SectionLabel</MudTd>
+        <MudTd>@context.Sheet.SubjectName</MudTd>
+        <MudTd>@context.Sheet.Complete / @context.Sheet.Candidates</MudTd>
+        <MudTd><MudChip T="string" Size="Size.Small" Color="ExamUi.Color(context.Sheet.Status)">@Format.Enum(context.Sheet.Status)</MudChip></MudTd>
+    </RowTemplate>
+    <NoRecordsContent><MudText>No open mark sheets for you.</MudText></NoRecordsContent>
+</MudTable>
+
+@code {
+    private List<MyMarkSheet> items = [];
+
+    protected override async Task OnInitializedAsync() => await Run(async () => items = await Api.GetAsync<List<MyMarkSheet>>("api/exams/my-mark-sheets"));
+
+    private void Open(TableRowClickEventArgs<MyMarkSheet> e) => Nav.NavigateTo($"exams/marks/{e.Item!.Sheet.PaperId}/{e.Item.Sheet.SectionId}");
+}

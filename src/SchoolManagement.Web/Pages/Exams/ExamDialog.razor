@@ -1,0 +1,144 @@
+@inherits AppPage
+@* Create or edit an exam: year, term, campus, type, dates and the classes that sit it (with an optional grading scheme each). *@
+
+<MudDialog>
+    <DialogContent>
+        <MudGrid Spacing="2">
+            <MudItem xs="12" sm="6">
+                <MudSelect T="Guid?" Label="Academic year" Value="yearId" ValueChanged="YearChanged" Required="true" Variant="Variant.Outlined" Margin="Margin.Dense"
+                           Disabled="@(Item is not null)" ToStringFunc="@(id => years.FirstOrDefault(y => y.Id == id)?.Name ?? "")">
+                    @foreach (var y in years)
+                    {
+                        <MudSelectItem T="Guid?" Value="y.Id">@y.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudSelect T="Guid?" Label="Term" @bind-Value="termId" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense"
+                           HelperText="Needed for attendance on report cards and gradebook CA" ToStringFunc="@(id => Terms.FirstOrDefault(t => t.Id == id)?.Name ?? "")">
+                    @foreach (var t in Terms)
+                    {
+                        <MudSelectItem T="Guid?" Value="t.Id">@t.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="4"><MudTextField @bind-Value="code" Label="Code" Required="true" MaxLength="32" Variant="Variant.Outlined" Margin="Margin.Dense" Placeholder="T1-MID" /></MudItem>
+            <MudItem xs="12" sm="8"><MudTextField @bind-Value="name" Label="Name" Required="true" MaxLength="200" Variant="Variant.Outlined" Margin="Margin.Dense" Placeholder="Term 1 Mid-term Examination" /></MudItem>
+            <MudItem xs="12"><MudTextField @bind-Value="nameBn" Label="Name (বাংলা)" MaxLength="200" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+            <MudItem xs="12" sm="6">
+                <MudSelect T="ExamType" Label="Type" @bind-Value="type" Variant="Variant.Outlined" Margin="Margin.Dense">
+                    @foreach (var t in Enum.GetValues<ExamType>())
+                    {
+                        <MudSelectItem T="ExamType" Value="t">@Format.Enum(t)</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudSelect T="Guid?" Label="Campus" @bind-Value="campusId" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense" Placeholder="All campuses"
+                           ToStringFunc="@(id => campuses.FirstOrDefault(c => c.Id == id)?.Name ?? "")">
+                    @foreach (var c in campuses)
+                    {
+                        <MudSelectItem T="Guid?" Value="c.Id">@c.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12">
+                <MudDateRangePicker @bind-DateRange="range" Label="Exam dates" DateFormat="dd MMM yyyy" Variant="Variant.Outlined" Margin="Margin.Dense" />
+            </MudItem>
+            <MudItem xs="12">
+                <MudText Typo="Typo.subtitle2" Class="mb-1">Classes</MudText>
+                @foreach (var c in classes)
+                {
+                    var chosen = selected.ContainsKey(c.Id);
+                    <div class="d-flex align-center gap-2">
+                        <MudCheckBox T="bool" Value="chosen" ValueChanged="v => Toggle(c.Id, v)" Label="@c.Name" Dense="true" Style="min-width:200px" />
+                        @if (chosen)
+                        {
+                            <MudSelect T="Guid?" Value="selected[c.Id]" ValueChanged="v => selected[c.Id] = v" Clearable="true" Margin="Margin.Dense" Placeholder="Programme's grading"
+                                       ToStringFunc="@(id => schemes.FirstOrDefault(s => s.Id == id)?.Name ?? "")" Style="max-width:260px">
+                                @foreach (var s in schemes)
+                                {
+                                    <MudSelectItem T="Guid?" Value="s.Id">@s.Name</MudSelectItem>
+                                }
+                            </MudSelect>
+                        }
+                    </div>
+                }
+            </MudItem>
+        </MudGrid>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => MudDialog.Cancel())">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Save"
+                   Disabled="@(Busy || yearId is null || string.IsNullOrWhiteSpace(code) || string.IsNullOrWhiteSpace(name) || range.Start is null || selected.Count == 0)">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public Guid? AcademicYearId { get; set; }
+    [Parameter] public ExamView? Item { get; set; }
+
+    private List<AcademicYearView> years = [];
+    private List<StudentCampusOption> campuses = [];
+    private List<StudentYearGroupOption> classes = [];
+    private List<GradingSchemeView> schemes = [];
+    private Guid? yearId, termId, campusId;
+    private string? code, name, nameBn;
+    private ExamType type = ExamType.MidTerm;
+    private DateRange range = new();
+    private Dictionary<Guid, Guid?> selected = [];
+
+    private IReadOnlyList<TermView> Terms => years.FirstOrDefault(y => y.Id == yearId)?.Terms ?? [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Run(async () =>
+        {
+            years = await Api.GetAsync<List<AcademicYearView>>("api/academic-years");
+            campuses = await StudentLookups.CampusesAsync(Api);
+            classes = await StudentLookups.YearGroupsAsync(Api);
+            schemes = await Api.GetAsync<List<GradingSchemeView>>("api/grading-schemes");
+        });
+        if (Item is not null)
+        {
+            yearId = Item.AcademicYearId;
+            termId = Item.TermId;
+            campusId = Item.CampusId;
+            code = Item.Code;
+            name = Item.Name;
+            nameBn = Item.NameBn;
+            type = Item.Type;
+            range = new DateRange(Item.StartDate.ToDateTime(TimeOnly.MinValue), Item.EndDate.ToDateTime(TimeOnly.MinValue));
+            selected = Item.Classes.ToDictionary(c => c.YearGroupId, c => c.GradingSchemeId);
+        }
+        else
+        {
+            yearId = AcademicYearId ?? years.FirstOrDefault(y => y.IsCurrent)?.Id;
+            termId = Terms.FirstOrDefault(t => t.StartDate <= LearningUi.Today && t.EndDate >= LearningUi.Today)?.Id;
+        }
+    }
+
+    private void YearChanged(Guid? id)
+    {
+        yearId = id;
+        termId = null;
+    }
+
+    private void Toggle(Guid yearGroupId, bool on)
+    {
+        if (on) selected[yearGroupId] = null;
+        else selected.Remove(yearGroupId);
+    }
+
+    private async Task Save()
+    {
+        var request = new ExamRequest(yearId!.Value, termId, campusId, code!.Trim(), name!.Trim(), nameBn, type, DateOnly.FromDateTime(range.Start!.Value),
+            DateOnly.FromDateTime((range.End ?? range.Start).Value), selected.Select(s => new ExamClassRequest(s.Key, s.Value)).ToList());
+        ExamView? saved = null;
+        var ok = await Run(async () => saved = Item is null
+            ? await Api.PostAsync<ExamView>("api/exams", request)
+            : await Api.PutAsync<ExamView>($"api/exams/{Item.Id}", request), "Exam saved.");
+        if (ok) MudDialog.Close(DialogResult.Ok(saved));
+    }
+}

@@ -1,0 +1,48 @@
+@inherits AppPage
+@* Hand in homework from the portal: a written answer and/or a file or photo. *@
+
+<MudDialog>
+    <DialogContent>
+        @if (Homework.DueAtLocal < LearningUi.NowLocal)
+        {
+            <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-3">
+                The deadline has passed; this will be marked late@(Homework.LatePenaltyPercent > 0 ? $" and {Homework.LatePenaltyPercent:0.#}% is taken off the marks" : "").
+            </MudAlert>
+        }
+        <MudTextField @bind-Value="text" Label="Answer / note to the teacher" Lines="5" MaxLength="4000" Variant="Variant.Outlined" Margin="Margin.Dense" />
+        <div class="d-flex align-center gap-2 mt-3">
+            <MudFileUpload T="IBrowserFile" @bind-Files="file" Accept=".pdf,.jpg,.jpeg,.png,.webp,.docx,.pptx,.xlsx">
+                <ActivatorContent>
+                    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.PhotoCamera">File or photo</MudButton>
+                </ActivatorContent>
+            </MudFileUpload>
+            <MudText Typo="Typo.body2">@(file is null ? "PDF, Office file or photo, max 10 MB" : $"{file.Name} ({StudentChoices.Size(file.Size)})")</MudText>
+        </div>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => MudDialog.Cancel())">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Save" Disabled="@(Busy || (file is null && string.IsNullOrWhiteSpace(text)))">Hand in</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter, EditorRequired] public string Url { get; set; } = "";
+    [Parameter, EditorRequired] public StudentHomework Homework { get; set; } = default!;
+
+    private string? text;
+    private IBrowserFile? file;
+
+    protected override void OnInitialized() => text = Homework.SubmittedText;
+
+    private async Task Save()
+    {
+        if (file is { Size: > ApiClient.MaxUploadBytes })
+        {
+            Snackbar.Add("The file is larger than 10 MB.", Severity.Warning);
+            return;
+        }
+        if (await Run(() => Api.UploadAsync<StudentHomework>(Url, file, "File", new Dictionary<string, string?> { ["Text"] = text }), "Homework handed in."))
+            MudDialog.Close(DialogResult.Ok(true));
+    }
+}

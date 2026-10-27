@@ -1,0 +1,147 @@
+@inherits AppPage
+@* EXM-10: pass %, grade distribution, subject/section/teacher/campus comparisons, heat map, top performers, at-risk list. *@
+
+<div class="d-flex flex-wrap align-center gap-2 mb-3">
+    <MudSelect T="Guid?" Label="Compare with (e.g. last year's same exam)" Value="compareId" ValueChanged="CompareChanged" Clearable="true" Variant="Variant.Outlined"
+               Margin="Margin.Dense" Style="max-width:360px" ToStringFunc="@(id => others.FirstOrDefault(e => e.Id == id) is { } e ? $"{e.Name} ({e.AcademicYear})" : "")">
+        @foreach (var e in others)
+        {
+            <MudSelectItem T="Guid?" Value="e.Id">@e.Name (@e.AcademicYear)</MudSelectItem>
+        }
+    </MudSelect>
+</div>
+
+@if (data is not null)
+{
+    @if (data.Preview)
+    {
+        <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">Preview from the marks entered so far; finalise the results for the final figures.</MudAlert>
+    }
+    <MudGrid Spacing="2" Class="mb-3">
+        @Stat("Candidates", data.Candidates.ToString(), null)
+        @Stat("Passed", data.Passed.ToString(), null)
+        @Stat("Pass rate", $"{data.PassPercent:0.#}%", data.ComparePassPercent is { } cp ? $"{data.CompareExamName}: {cp:0.#}%" : null)
+        @Stat("Average", $"{data.Average:0.#}%", data.CompareAverage is { } ca ? $"{data.CompareExamName}: {ca:0.#}%" : null)
+    </MudGrid>
+
+    <MudText Typo="Typo.h6" Class="mb-2">Subjects</MudText>
+    <MudSimpleTable Dense="true" Outlined="true" Class="mb-4">
+        <thead><tr><th>Subject</th><th>Candidates</th><th>Average</th>@if (data.CompareExamName is not null) { <th>Compared</th> }<th>Pass %</th><th>Highest</th><th>Lowest</th><th>Grades</th></tr></thead>
+        <tbody>
+            @foreach (var s in data.Subjects)
+            {
+                <tr>
+                    <td><b>@s.Name</b></td><td>@s.Candidates</td><td>@s.Average.ToString("0.#")</td>
+                    @if (data.CompareExamName is not null)
+                    {
+                        <td>@(s.CompareAverage is { } c ? $"{c:0.#} ({s.Average - c:+0.#;-0.#;0})" : "—")</td>
+                    }
+                    <td>@s.PassPercent.ToString("0.#")</td><td>@s.Highest.ToString("0.#")</td><td>@s.Lowest.ToString("0.#")</td>
+                    <td>@string.Join("  ", s.Grades.Select(g => $"{g.Grade}:{g.Count}"))</td>
+                </tr>
+            }
+        </tbody>
+    </MudSimpleTable>
+
+    @if (data.Heatmap.Count > 0)
+    {
+        var heatSections = data.Heatmap.Select(h => h.Section).Distinct().ToList();
+        var heatSubjects = data.Heatmap.Select(h => h.Subject).Distinct().OrderBy(s => s).ToList();
+        <MudText Typo="Typo.h6" Class="mb-2">Average % by section and subject</MudText>
+        <div style="overflow-x:auto" class="mb-4">
+            <table class="heat">
+                <tr><th></th>@foreach (var s in heatSubjects) { <th>@s</th> }</tr>
+                @foreach (var sec in heatSections)
+                {
+                    <tr>
+                        <th style="text-align:left">@sec</th>
+                        @foreach (var sub in heatSubjects)
+                        {
+                            var cell = data.Heatmap.FirstOrDefault(h => h.Section == sec && h.Subject == sub);
+                            <td style="@(cell is null ? "" : ExamUi.Heat(cell.Average))">@cell?.Average.ToString("0")</td>
+                        }
+                    </tr>
+                }
+            </table>
+        </div>
+    }
+
+    <MudGrid Spacing="3">
+        <MudItem xs="12" md="4">@Groups("Sections", data.Sections)</MudItem>
+        <MudItem xs="12" md="4">@Groups("Teachers", data.Teachers)</MudItem>
+        <MudItem xs="12" md="4">@Groups("Campuses", data.Campuses)</MudItem>
+        <MudItem xs="12" md="6">
+            <MudText Typo="Typo.h6" Class="mb-2">Top performers</MudText>
+            <MudSimpleTable Dense="true" Outlined="true">
+                <tbody>
+                    @foreach (var (t, i) in data.TopPerformers.Select((t, i) => (t, i)))
+                    {
+                        <tr><td>@(i + 1)</td><td><b>@t.Name</b> <small>@t.AdmissionNo</small></td><td><small>@t.ClassLabel</small></td><td>@t.Percent.ToString("0.##")%</td><td>@t.Grade</td><td>@t.Gpa?.ToString("0.00")</td></tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+        </MudItem>
+        <MudItem xs="12" md="6">
+            <MudText Typo="Typo.h6" Class="mb-2">Failed / at risk (@data.AtRisk.Count)</MudText>
+            <MudSimpleTable Dense="true" Outlined="true">
+                <tbody>
+                    @foreach (var a in data.AtRisk.Take(30))
+                    {
+                        <tr><td><b>@a.Name</b> <small>@a.AdmissionNo</small></td><td><small>@a.ClassLabel</small></td><td>@a.Percent.ToString("0.#")%</td><td><small>@string.Join(", ", a.FailedSubjects)</small></td></tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+        </MudItem>
+    </MudGrid>
+    <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-3 d-block">
+        Topic-level (weak-topic) analysis needs marks per question, which come with the question bank (LRN-06, phase 2).
+    </MudText>
+}
+
+<style>
+    .heat { border-collapse: collapse; font-size: 13px; }
+    .heat th, .heat td { border: 1px solid var(--mud-palette-lines-default); padding: 4px 8px; text-align: center; white-space: nowrap; }
+</style>
+
+@code {
+    [Parameter, EditorRequired] public ExamView Exam { get; set; } = default!;
+
+    private ResultAnalysis? data;
+    private List<ExamView> others = [];
+    private Guid? compareId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Run(async () => others = (await Api.GetAsync<List<ExamView>>("api/exams")).Where(e => e.Id != Exam.Id).ToList());
+        await Load();
+    }
+
+    private async Task CompareChanged(Guid? id) { compareId = id; await Load(); }
+
+    private async Task Load() => await Run(async () => data = await Api.GetAsync<ResultAnalysis>(ApiClient.Query($"api/exams/{Exam.Id}/analysis", ("compareExamId", compareId))));
+
+    private static RenderFragment Stat(string label, string value, string? note) => __builder =>
+    {
+        <MudItem xs="6" md="3">
+            <MudPaper Class="pa-3" Outlined="true">
+                <MudText Typo="Typo.caption" Color="Color.Secondary">@label</MudText>
+                <MudText Typo="Typo.h5"><b>@value</b></MudText>
+                @if (note is not null) { <MudText Typo="Typo.caption">@note</MudText> }
+            </MudPaper>
+        </MudItem>
+    };
+
+    private static RenderFragment Groups(string title, IReadOnlyList<GroupAnalysis> rows) => __builder =>
+    {
+        <MudText Typo="Typo.h6" Class="mb-2">@title</MudText>
+        <MudSimpleTable Dense="true" Outlined="true">
+            <thead><tr><th></th><th>N</th><th>Avg</th><th>Pass %</th></tr></thead>
+            <tbody>
+                @foreach (var g in rows)
+                {
+                    <tr><td>@g.Name</td><td>@g.Candidates</td><td>@g.Average.ToString("0.#")</td><td>@g.PassPercent.ToString("0.#")</td></tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    };
+}

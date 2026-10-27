@@ -1,0 +1,85 @@
+@inherits AppPage
+@* School-default or per-class gradebook categories; the weights must add up to 100%. *@
+
+<MudDialog>
+    <DialogContent>
+        <MudSelect T="Guid?" Label="Applies to" Value="yearGroupId" ValueChanged="ScopeChanged" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-3"
+                   Placeholder="School default" ToStringFunc="@(id => classes.FirstOrDefault(c => c.Id == id)?.Name ?? "")"
+                   HelperText="A class with its own set uses it instead of the school default">
+            @foreach (var c in classes)
+            {
+                <MudSelectItem T="Guid?" Value="c.Id">@c.Name</MudSelectItem>
+            }
+        </MudSelect>
+        @if (yearGroupId is not null && inherited)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">This class uses the school default. Saving creates its own set.</MudAlert>
+        }
+        @foreach (var row in rows)
+        {
+            <div class="d-flex gap-2 align-center mb-1">
+                <MudTextField @bind-Value="row.Name" Label="Category" MaxLength="100" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                <MudNumericField T="decimal" @bind-Value="row.Weight" Label="Weight %" Min="0" Max="100" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:120px" />
+                <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" OnClick="() => rows.Remove(row)" title="Remove" />
+            </div>
+        }
+        <div class="d-flex align-center mt-2">
+            <MudButton StartIcon="@Icons.Material.Filled.Add" OnClick="@(() => rows.Add(new Row()))">Add category</MudButton>
+            <MudSpacer />
+            <MudText Color="@(rows.Sum(r => r.Weight) == 100 ? Color.Success : Color.Error)">Total @rows.Sum(r => r.Weight).ToString("0.#")%</MudText>
+        </div>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => MudDialog.Cancel())">Cancel</MudButton>
+        @if (yearGroupId is not null && !inherited)
+        {
+            <MudButton Color="Color.Warning" OnClick="UseDefault" Disabled="Busy">Use school default</MudButton>
+        }
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Save" Disabled="@(Busy || rows.Sum(r => r.Weight) != 100 || rows.Any(r => string.IsNullOrWhiteSpace(r.Name)))">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public Guid? YearGroupId { get; set; }
+
+    private List<StudentYearGroupOption> classes = [];
+    private Guid? yearGroupId;
+    private bool inherited;
+    private List<Row> rows = [];
+
+    private sealed class Row
+    {
+        public string Name { get; set; } = "";
+        public decimal Weight { get; set; }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        yearGroupId = YearGroupId;
+        await Run(async () => classes = await StudentLookups.YearGroupsAsync(Api));
+        await Load();
+    }
+
+    private async Task ScopeChanged(Guid? id) { yearGroupId = id; await Load(); }
+
+    private async Task Load() => await Run(async () =>
+    {
+        var list = await Api.GetAsync<List<CategoryView>>(ApiClient.Query("api/learning/gradebook/categories", ("yearGroupId", yearGroupId)));
+        inherited = yearGroupId is not null && list.All(c => c.YearGroupId is null);
+        rows = list.Select(c => new Row { Name = c.Name, Weight = c.WeightPercent }).ToList();
+    });
+
+    private async Task Save()
+    {
+        var request = new CategoriesRequest(yearGroupId, rows.Select(r => new CategoryRequest(r.Name.Trim(), r.Weight)).ToList());
+        if (await Run(() => Api.PutAsync<List<CategoryView>>("api/learning/gradebook/categories", request), "Categories saved."))
+            MudDialog.Close(DialogResult.Ok(true));
+    }
+
+    private async Task UseDefault()
+    {
+        if (await Run(() => Api.PutAsync<List<CategoryView>>("api/learning/gradebook/categories", new CategoriesRequest(yearGroupId, [])), "The class now uses the school default."))
+            MudDialog.Close(DialogResult.Ok(true));
+    }
+}

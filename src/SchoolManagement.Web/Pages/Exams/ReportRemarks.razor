@@ -1,0 +1,92 @@
+@page "/exams/{Id:guid}/remarks"
+@inherits AppPage
+
+<PageTitle>Report card remarks</PageTitle>
+
+<div class="d-flex flex-wrap align-center gap-2 mb-1">
+    <MudIconButton Icon="@Icons.Material.Filled.ArrowBack" Href="@($"exams/{Id}")" title="Back" />
+    <MudText Typo="Typo.h4">Report card remarks</MudText>
+</div>
+<MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-4">
+    The class teacher writes remarks, conduct and co-curricular notes; the exam office adds the principal's remark. They print on the bilingual report card.
+</MudText>
+
+@if (view is not null)
+{
+    <MudText Typo="Typo.h6" Class="mb-2">@view.SectionLabel</MudText>
+    @if (!view.CanEditTeacher && !view.CanEditPrincipal)
+    {
+        <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">Only the class teacher of this section or the exam office can write these remarks (and not after publication).</MudAlert>
+    }
+    <MudSimpleTable Dense="true" Outlined="true">
+        <thead><tr><th style="width:50px">Roll</th><th>Student</th><th>Class teacher's remark</th><th style="width:170px">Conduct</th><th>Co-curricular</th><th>Principal's remark</th></tr></thead>
+        <tbody>
+            @foreach (var r in rows)
+            {
+                <tr>
+                    <td>@r.RollNo</td>
+                    <td><b>@r.Name</b><br /><small class="mud-text-secondary">@r.AdmissionNo</small></td>
+                    <td><MudTextField @bind-Value="r.TeacherRemark" Lines="2" MaxLength="1000" Margin="Margin.Dense" Disabled="@(!view.CanEditTeacher)" /></td>
+                    <td>
+                        <MudSelect T="Conduct?" @bind-Value="r.Conduct" Clearable="true" Margin="Margin.Dense" Disabled="@(!view.CanEditTeacher)">
+                            @foreach (var c in Enum.GetValues<Conduct>())
+                            {
+                                <MudSelectItem T="Conduct?" Value="c">@Format.Enum(c)</MudSelectItem>
+                            }
+                        </MudSelect>
+                    </td>
+                    <td><MudTextField @bind-Value="r.CoCurricular" Lines="2" MaxLength="1000" Margin="Margin.Dense" Disabled="@(!view.CanEditTeacher)" /></td>
+                    <td><MudTextField @bind-Value="r.PrincipalRemark" Lines="2" MaxLength="1000" Margin="Margin.Dense" Disabled="@(!view.CanEditPrincipal)" /></td>
+                </tr>
+            }
+        </tbody>
+    </MudSimpleTable>
+    @if (view.CanEditTeacher || view.CanEditPrincipal)
+    {
+        <div class="d-flex justify-end mt-3">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Save" OnClick="Save" Disabled="Busy">Save remarks</MudButton>
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+    [SupplyParameterFromQuery(Name = "section")] public Guid? SectionId { get; set; }
+
+    private RemarksView? view;
+    private List<Row> rows = [];
+
+    private sealed class Row
+    {
+        public Guid StudentId { get; init; }
+        public string Name { get; init; } = "";
+        public string AdmissionNo { get; init; } = "";
+        public int? RollNo { get; init; }
+        public string? TeacherRemark { get; set; }
+        public string? PrincipalRemark { get; set; }
+        public Conduct? Conduct { get; set; }
+        public string? CoCurricular { get; set; }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (SectionId is null) return;
+        await Run(async () => Show(await Api.GetAsync<RemarksView>(ApiClient.Query($"api/exams/{Id}/remarks", ("sectionId", SectionId)))));
+    }
+
+    private void Show(RemarksView v)
+    {
+        rows = v.Students.Select(s => new Row
+        {
+            StudentId = s.StudentId, Name = s.Name, AdmissionNo = s.AdmissionNo, RollNo = s.RollNo, TeacherRemark = s.TeacherRemark, PrincipalRemark = s.PrincipalRemark,
+            Conduct = s.Conduct, CoCurricular = s.CoCurricular
+        }).ToList();
+        view = v;
+    }
+
+    private async Task Save()
+    {
+        var request = new SaveRemarksRequest(rows.Select(r => new RemarkInput(r.StudentId, r.TeacherRemark, r.PrincipalRemark, r.Conduct, r.CoCurricular)).ToList());
+        await Run(async () => Show(await Api.PostAsync<RemarksView>(ApiClient.Query($"api/exams/{Id}/remarks", ("sectionId", SectionId)), request)), "Remarks saved.");
+    }
+}

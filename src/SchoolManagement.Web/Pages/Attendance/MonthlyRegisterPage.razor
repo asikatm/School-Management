@@ -1,0 +1,81 @@
+@page "/attendance/monthly"
+@inherits AppPage
+
+<PageTitle>Monthly register</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-1">Monthly register</MudText>
+<MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-4">
+    P present · A absent · L late · LV leave · grey = weekend or holiday. Late counts as attended; leave counts as a day missed.
+</MudText>
+
+<MudPaper Class="pa-4 mb-4" Elevation="1">
+    <MudGrid Spacing="2">
+        <StudentClassPicker @bind-CampusId="campusId" @bind-AcademicYearId="yearId" @bind-YearGroupId="yearGroupId" @bind-SectionId="sectionId"
+                            Changed="Load" SectionRequired="true" Md="2" />
+        <MudItem xs="12" sm="6" md="2">
+            <MudDatePicker Date="month" DateChanged="MonthChanged" Label="Month" OpenTo="OpenTo.Month" FixDay="1" DateFormat="MMMM yyyy"
+                           Variant="Variant.Outlined" Margin="Margin.Dense" />
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+@if (data is not null)
+{
+    <MudText Typo="Typo.h6" Class="mb-2">@data.SectionLabel · @(new DateTime(data.Year, data.Month, 1).ToString("MMMM yyyy"))</MudText>
+    <div style="overflow-x:auto">
+        <table class="att-grid">
+            <thead>
+                <tr>
+                    <th class="name">Student</th>
+                    @for (var i = 0; i < data.Days.Count; i++)
+                    {
+                        <th class="@(data.SchoolDays[i] ? "" : "off")">@data.Days[i].Day<br /><small>@data.Days[i].DayOfWeek.ToString()[..2]</small></th>
+                    }
+                    <th>P</th><th>A</th><th>L</th><th>LV</th><th>%</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var r in data.Students)
+                {
+                    <tr>
+                        <td class="name">@(r.RollNo is { } roll ? $"{roll}. " : "")@r.Name</td>
+                        @foreach (var c in r.Days)
+                        {
+                            <td style="@AttendanceUi.CodeStyle(c)">@(c == "-" ? "" : c)</td>
+                        }
+                        <td>@r.Present</td><td>@r.Absent</td><td>@r.Late</td><td>@r.Leave</td>
+                        <td style="font-weight:600;@(r.Percent < 75 ? "color:#dc2626" : r.Percent < 85 ? "color:#b45309" : "")">@r.Percent.ToString("0.#")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    @if (data.Students.Count == 0)
+    {
+        <MudText Class="mt-2">No students in this section this month.</MudText>
+    }
+}
+
+<style>
+    .att-grid { border-collapse: collapse; font-size: 12px; }
+    .att-grid th, .att-grid td { border: 1px solid var(--mud-palette-lines-default); padding: 3px 5px; text-align: center; min-width: 26px; }
+    .att-grid th { background: var(--mud-palette-background-gray); font-weight: 600; }
+    .att-grid th.off { color: #94a3b8; }
+    .att-grid .name { text-align: left; white-space: nowrap; min-width: 180px; position: sticky; left: 0; background: var(--mud-palette-surface); }
+</style>
+
+@code {
+    private Guid? campusId, yearId, yearGroupId, sectionId;
+    private DateTime? month = new(DateTime.UtcNow.AddHours(6).Year, DateTime.UtcNow.AddHours(6).Month, 1);
+    private MonthlyRegister? data;
+
+    private async Task MonthChanged(DateTime? m) { month = m; await Load(); }
+
+    private async Task Load()
+    {
+        data = null;
+        if (sectionId is null || month is null) return;
+        await Run(async () => data = await Api.GetAsync<MonthlyRegister>(ApiClient.Query("api/attendance/monthly",
+            ("sectionId", sectionId), ("year", month.Value.Year), ("month", month.Value.Month))));
+    }
+}

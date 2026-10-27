@@ -1,0 +1,45 @@
+@page "/learning/moderation"
+@inherits AppPage
+
+<PageTitle>Gradebook moderation</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-1">Gradebook moderation</MudText>
+<MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-4">Term gradebooks submitted by teachers. Open one to review, adjust and approve it, or return it with a note.</MudText>
+
+<MudChipSet T="ModerationStatus?" SelectedValue="status" SelectedValueChanged="StatusChanged" CheckMark="true" SelectionMode="SelectionMode.SingleSelection" Class="mb-3">
+    <MudChip T="ModerationStatus?" Value="ModerationStatus.Submitted" Color="Color.Info">Waiting</MudChip>
+    <MudChip T="ModerationStatus?" Value="ModerationStatus.Approved" Color="Color.Success">Approved</MudChip>
+    <MudChip T="ModerationStatus?" Value="ModerationStatus.Returned" Color="Color.Warning">Returned</MudChip>
+    <MudChip T="ModerationStatus?" Value="null">All</MudChip>
+</MudChipSet>
+
+<MudTable T="ModerationQueueRow" Items="items" Dense="true" Hover="true" Elevation="1" Loading="Busy" OnRowClick="Open" RowStyle="cursor:pointer">
+    <HeaderContent>
+        <MudTh>Class</MudTh><MudTh>Subject</MudTh><MudTh>Term</MudTh><MudTh>Columns</MudTh><MudTh>Average</MudTh><MudTh>Submitted</MudTh><MudTh>Status</MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd>@context.SectionLabel</MudTd>
+        <MudTd>@context.SubjectName</MudTd>
+        <MudTd>@context.TermName</MudTd>
+        <MudTd>@context.Items</MudTd>
+        <MudTd>@(context.ClassAverage?.ToString("0.#") ?? "—")%</MudTd>
+        <MudTd>@context.SubmittedBy<br /><small>@Format.DateTime(context.SubmittedAtUtc)</small></MudTd>
+        <MudTd><MudChip T="string" Size="Size.Small" Color="LearningUi.Color(context.Status)">@Format.Enum(context.Status)</MudChip></MudTd>
+    </RowTemplate>
+    <NoRecordsContent><MudText>Nothing to moderate.</MudText></NoRecordsContent>
+</MudTable>
+
+@code {
+    private ModerationStatus? status = ModerationStatus.Submitted;
+    private List<ModerationQueueRow> items = [];
+
+    protected override Task OnInitializedAsync() => Load();
+
+    private async Task StatusChanged(ModerationStatus? s) { status = s; await Load(); }
+
+    private async Task Load() =>
+        await Run(async () => items = await Api.GetAsync<List<ModerationQueueRow>>(ApiClient.Query("api/learning/gradebook/moderation", ("status", status))));
+
+    private void Open(TableRowClickEventArgs<ModerationQueueRow> e) =>
+        Nav.NavigateTo($"learning/gradebook?campus={e.Item!.CampusId}&section={e.Item.SectionId}&subject={e.Item.SubjectId}&term={e.Item.TermId}");
+}

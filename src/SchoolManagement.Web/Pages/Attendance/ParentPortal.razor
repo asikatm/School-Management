@@ -1,0 +1,164 @@
+@page "/portal"
+@inherits AppPage
+
+<PageTitle>My children</PageTitle>
+
+<div class="d-flex flex-wrap align-center gap-2 mb-1">
+    <MudText Typo="Typo.h4">My children</MudText>
+</div>
+<MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-4">Attendance at a glance, and leave applications to the class teacher.</MudText>
+
+@if (children.Count == 0 && !Busy)
+{
+    <MudAlert Severity="Severity.Info">No students are linked to your account yet. Please contact the school office.</MudAlert>
+}
+
+<MudGrid Spacing="3" Class="mb-4">
+    @foreach (var c in children)
+    {
+        <MudItem xs="12" sm="6" md="4">
+            <MudCard Elevation="1" Style="@(selected?.StudentId == c.StudentId ? "outline:2px solid var(--mud-palette-primary)" : "")">
+                <MudCardContent>
+                    <MudText Typo="Typo.h6">@c.Name</MudText>
+                    <MudText Typo="Typo.caption">@c.AdmissionNo · @(c.ClassName ?? "No class")</MudText>
+                    <div class="d-flex flex-wrap gap-2 mt-3 align-center">
+                        <MudChip T="string" Size="Size.Small" Color="AttendanceUi.Color(c.Today)">Today: @(c.Today is { } t ? Format.Enum(t) : "not marked yet")</MudChip>
+                        @if (c.TermPercent is { } pct)
+                        {
+                            <MudChip T="string" Size="Size.Small" Color="@(pct < 75 ? Color.Error : pct < 85 ? Color.Warning : Color.Success)" Variant="Variant.Outlined">
+                                @c.TermName: @pct.ToString("0.#")%
+                            </MudChip>
+                        }
+                        @if (c.PendingLeave > 0) { <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Text">@c.PendingLeave leave pending</MudChip> }
+                    </div>
+                </MudCardContent>
+                <MudCardActions>
+                    <MudButton Size="Size.Small" OnClick="() => Select(c)">Attendance</MudButton>
+                    <MudButton Size="Size.Small" Color="Color.Primary" StartIcon="@Icons.Material.Filled.EventBusy" OnClick="() => Apply(c)">Apply for leave</MudButton>
+                </MudCardActions>
+            </MudCard>
+        </MudItem>
+    }
+</MudGrid>
+
+@if (selected is not null && month is not null)
+{
+    <MudPaper Class="pa-4 mb-4" Elevation="1">
+        <div class="d-flex flex-wrap align-center gap-2 mb-3">
+            <MudText Typo="Typo.h6">@selected.Name</MudText>
+            <MudSpacer />
+            <MudIconButton Icon="@Icons.Material.Filled.ChevronLeft" OnClick="() => Shift(-1)" />
+            <MudText>@(new DateTime(month.Year, month.Month, 1).ToString("MMMM yyyy"))</MudText>
+            <MudIconButton Icon="@Icons.Material.Filled.ChevronRight" OnClick="() => Shift(1)" />
+        </div>
+        <div class="d-flex flex-wrap gap-2 mb-3">
+            <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Text">Present @month.Present</MudChip>
+            <MudChip T="string" Size="Size.Small" Color="Color.Error" Variant="Variant.Text">Absent @month.Absent</MudChip>
+            <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Text">Late @month.Late</MudChip>
+            <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Text">Leave @month.Leave</MudChip>
+            <MudChip T="string" Size="Size.Small" Variant="Variant.Text">Attendance @month.Percent.ToString("0.#")%</MudChip>
+        </div>
+        <div class="cal">
+            @foreach (var d in new[] { "Sat", "Sun", "Mon", "Tue", "Wed", "Thu", "Fri" })
+            {
+                <div class="cal-head">@d</div>
+            }
+            @for (var i = 0; i < ((int)month.Days[0].Date.DayOfWeek + 1) % 7; i++)
+            {
+                <div></div>
+            }
+            @foreach (var d in month.Days)
+            {
+                <div class="cal-day" style="@AttendanceUi.CodeStyle(d.Code)" title="@(d.Remarks ?? "")">
+                    <span class="n">@d.Date.Day</span>
+                    <span>@(d.Code == "-" ? "" : d.Code)@(d.ArrivalTime is { } at ? $" {at:HH:mm}" : "")</span>
+                </div>
+            }
+        </div>
+    </MudPaper>
+}
+
+<MudTable T="StudentLeaveView" Items="leave" Dense="true" Hover="true" Elevation="1">
+    <ToolBarContent><MudText Typo="Typo.h6">Leave applications</MudText></ToolBarContent>
+    <HeaderContent><MudTh>Child</MudTh><MudTh>Days</MudTh><MudTh>Reason</MudTh><MudTh>Status</MudTh><MudTh></MudTh></HeaderContent>
+    <RowTemplate>
+        <MudTd>@context.StudentName</MudTd>
+        <MudTd>@Format.Date(context.FromDate)@(context.ToDate != context.FromDate ? $" – {Format.Date(context.ToDate)}" : "")</MudTd>
+        <MudTd>
+            @context.Reason
+            @if (context.HasAttachment)
+            {
+                <MudLink OnClick="() => OpenFile(AttachmentUrl(context))" Typo="Typo.caption" Class="d-block">📎 @context.AttachmentName</MudLink>
+            }
+        </MudTd>
+        <MudTd>
+            <MudChip T="string" Size="Size.Small" Color="AttendanceUi.Color(context.Status)">@Format.Enum(context.Status)</MudChip>
+            @if (context.DecisionNote is not null) { <small>@context.DecisionNote</small> }
+        </MudTd>
+        <MudTd Style="text-align:right">
+            @if (context.Status == LeaveStatus.Pending || (context.Status == LeaveStatus.Approved && context.FromDate > AttendanceUi.Today))
+            {
+                <MudButton Size="Size.Small" Color="Color.Error" OnClick="() => Cancel(context)" Disabled="Busy">Withdraw</MudButton>
+            }
+        </MudTd>
+    </RowTemplate>
+    <NoRecordsContent><MudText>No leave applications yet.</MudText></NoRecordsContent>
+</MudTable>
+
+<style>
+    .cal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; max-width: 560px; }
+    .cal-head { text-align: center; font-size: 12px; font-weight: 600; color: var(--mud-palette-text-secondary); }
+    .cal-day { border: 1px solid var(--mud-palette-lines-default); border-radius: 6px; min-height: 52px; padding: 4px 6px; display: flex; flex-direction: column;
+               font-size: 12px; font-weight: 600; }
+    .cal-day .n { font-weight: 400; opacity: .7; }
+</style>
+
+@code {
+    private List<ChildSummary> children = [];
+    private List<StudentLeaveView> leave = [];
+    private ChildSummary? selected;
+    private ChildMonth? month;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Load();
+        if (children.Count > 0) await Select(children[0]);
+    }
+
+    private async Task Load() => await Run(async () =>
+    {
+        children = await Api.GetAsync<List<ChildSummary>>("api/portal/children");
+        leave = await Api.GetAsync<List<StudentLeaveView>>("api/portal/leave");
+    });
+
+    private async Task Select(ChildSummary c)
+    {
+        selected = c;
+        var today = AttendanceUi.Today;
+        await LoadMonth(today.Year, today.Month);
+    }
+
+    private async Task Shift(int delta)
+    {
+        var d = new DateOnly(month!.Year, month.Month, 1).AddMonths(delta);
+        await LoadMonth(d.Year, d.Month);
+    }
+
+    private async Task LoadMonth(int year, int m) =>
+        await Run(async () => month = await Api.GetAsync<ChildMonth>(ApiClient.Query($"api/portal/children/{selected!.StudentId}/attendance", ("year", year), ("month", m))));
+
+    private static string AttachmentUrl(StudentLeaveView l) => $"api/portal/leave/{l.Id}/attachment";
+
+    private async Task Apply(ChildSummary c)
+    {
+        var parameters = new DialogParameters<StudentLeaveApplyDialog> { { x => x.StudentId, c.StudentId }, { x => x.StudentName, c.Name }, { x => x.Portal, true } };
+        var dialog = await Dialogs.ShowAsync<StudentLeaveApplyDialog>("Apply for leave", parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (await dialog.Result is { Canceled: false }) await Load();
+    }
+
+    private async Task Cancel(StudentLeaveView l)
+    {
+        if (!await Confirm("Withdraw application", $"Withdraw the leave application for {l.StudentName}?", "Withdraw")) return;
+        if (await Run(() => Api.PostAsync($"api/portal/leave/{l.Id}/cancel"), "Application withdrawn.")) await Load();
+    }
+}

@@ -1,0 +1,180 @@
+@page "/attendance/staff"
+@inherits AppPage
+
+<PageTitle>Staff attendance</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-1">Staff attendance</MudText>
+<MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-4">
+    Punches from the biometric device and the mobile app. Late, early leaving and overtime follow the campus working hours in Settings.
+</MudText>
+
+<div class="d-flex flex-wrap gap-2 align-center mb-3">
+    <MudSelect T="Guid?" Value="campusId" ValueChanged="CampusChanged" Label="Campus" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:260px"
+               ToStringFunc="@(id => campuses.FirstOrDefault(c => c.Id == id)?.Name ?? "")">
+        @foreach (var c in campuses)
+        {
+            <MudSelectItem T="Guid?" Value="@c.Id">@c.Name</MudSelectItem>
+        }
+    </MudSelect>
+</div>
+
+<MudTabs Elevation="1" Rounded="true" ApplyEffectsToContainer="true" PanelClass="pa-4">
+    <MudTabPanel Text="Day register" Icon="@Icons.Material.Filled.Today">
+        <div class="d-flex flex-wrap gap-2 align-center mb-3">
+            <MudDatePicker Date="date" DateChanged="DateChanged" Label="Date" MaxDate="@DateTime.UtcNow.AddHours(6).Date" Variant="Variant.Outlined" Margin="Margin.Dense"
+                           DateFormat="ddd, dd MMM yyyy" Style="max-width:220px" />
+            <MudSpacer />
+            @foreach (var g in day.GroupBy(d => d.Status).OrderBy(g => g.Key))
+            {
+                <MudChip T="string" Size="Size.Small" Color="AttendanceUi.Color(g.Key)" Variant="Variant.Text">@(g.Key is { } k ? Format.Enum(k) : "Not in yet"): @g.Count()</MudChip>
+            }
+        </div>
+        <MudTable T="StaffDayView" Items="day" Dense="true" Hover="true" Elevation="0" Filter="Match">
+            <ToolBarContent>
+                <MudTextField @bind-Value="search" Placeholder="Search staff" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                              Immediate="true" Margin="Margin.Dense" Style="max-width:280px" />
+            </ToolBarContent>
+            <HeaderContent>
+                <MudTh>Staff</MudTh><MudTh>Status</MudTh><MudTh>In</MudTh><MudTh>Out</MudTh><MudTh>Late</MudTh><MudTh>Left early</MudTh><MudTh>Overtime</MudTh><MudTh>Source</MudTh><MudTh></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd><b>@context.Name</b></MudTd>
+                <MudTd>
+                    @if (context.Status is { } st)
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="AttendanceUi.Color(st)">@Format.Enum(st)</MudChip>
+                    }
+                    else { <small class="mud-text-secondary">not in yet</small> }
+                    @if (context.LeaveType is not null) { <small>@context.LeaveType</small> }
+                </MudTd>
+                <MudTd>@Format.Time(context.CheckInUtc)</MudTd>
+                <MudTd>@Format.Time(context.CheckOutUtc)</MudTd>
+                <MudTd><span style="@(context.LateMinutes > 0 ? "color:#b45309;font-weight:600" : "")">@AttendanceUi.Minutes(context.LateMinutes)</span></MudTd>
+                <MudTd>@AttendanceUi.Minutes(context.EarlyLeaveMinutes)</MudTd>
+                <MudTd>@AttendanceUi.Minutes(context.OvertimeMinutes)</MudTd>
+                <MudTd>
+                    @(context.Source is { } s ? Format.Enum(s) : "")
+                    @if (context.WithinGeofence == true) { <MudIcon Icon="@Icons.Material.Filled.LocationOn" Size="Size.Small" Color="Color.Success" Title="Punched on campus" /> }
+                    @if (context.Note is not null) { <br /><small>@context.Note</small> }
+                </MudTd>
+                <MudTd><MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" OnClick="() => Edit(context)" title="Correct" /></MudTd>
+            </RowTemplate>
+            <NoRecordsContent><MudText>No staff on this campus.</MudText></NoRecordsContent>
+        </MudTable>
+
+        @if (editing is not null)
+        {
+            <MudPaper Outlined="true" Class="pa-4 mt-3">
+                <MudText Typo="Typo.subtitle1" Class="mb-2">Correct @editing.Name · @Format.Date(editing.Date)</MudText>
+                <div class="d-flex flex-wrap gap-3 align-center">
+                    <MudSelect T="StaffAttendanceStatus" @bind-Value="edit.Status" Label="Status" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:160px">
+                        @foreach (var s in Enum.GetValues<StaffAttendanceStatus>())
+                        {
+                            <MudSelectItem T="StaffAttendanceStatus" Value="s">@Format.Enum(s)</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <MudTimePicker @bind-Time="edit.In" Label="In" AmPm="true" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:140px"
+                                   Disabled="@(edit.Status != StaffAttendanceStatus.Present)" />
+                    <MudTimePicker @bind-Time="edit.Out" Label="Out" AmPm="true" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:140px"
+                                   Disabled="@(edit.Status != StaffAttendanceStatus.Present)" />
+                    <MudTextField @bind-Value="edit.Note" Label="Note" Placeholder="e.g. Forgot to punch" Variant="Variant.Outlined" Margin="Margin.Dense" Style="min-width:240px" />
+                    <MudButton OnClick="() => editing = null">Cancel</MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveEdit" Disabled="Busy">Save</MudButton>
+                </div>
+            </MudPaper>
+        }
+    </MudTabPanel>
+
+    <MudTabPanel Text="Monthly summary" Icon="@Icons.Material.Filled.CalendarMonth">
+        <div class="d-flex flex-wrap gap-2 align-center mb-3">
+            <MudDatePicker Date="month" DateChanged="MonthChanged" Label="Month" OpenTo="OpenTo.Month" FixDay="1" DateFormat="MMMM yyyy"
+                           Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:200px" />
+            <MudText Typo="Typo.caption">Counted up to yesterday. These totals feed payroll deductions and overtime.</MudText>
+        </div>
+        <MudTable T="StaffMonthlyRow" Items="monthly" Dense="true" Hover="true" Elevation="0">
+            <HeaderContent>
+                <MudTh>Staff</MudTh><MudTh>School days</MudTh><MudTh>Present</MudTh><MudTh>Absent</MudTh><MudTh>Leave</MudTh><MudTh>Late (days)</MudTh>
+                <MudTh>Late total</MudTh><MudTh>Left early</MudTh><MudTh>Overtime</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd><b>@context.Name</b></MudTd>
+                <MudTd>@context.SchoolDays</MudTd>
+                <MudTd>@context.Present</MudTd>
+                <MudTd><span style="@(context.Absent > 0 ? "color:#dc2626;font-weight:600" : "")">@context.Absent</span></MudTd>
+                <MudTd>@context.Leave</MudTd>
+                <MudTd>@context.LateDays</MudTd>
+                <MudTd>@AttendanceUi.Minutes(context.LateMinutes)</MudTd>
+                <MudTd>@AttendanceUi.Minutes(context.EarlyLeaveMinutes)</MudTd>
+                <MudTd>@AttendanceUi.Minutes(context.OvertimeMinutes)</MudTd>
+            </RowTemplate>
+        </MudTable>
+    </MudTabPanel>
+</MudTabs>
+
+@code {
+    private List<StudentCampusOption> campuses = [];
+    private Guid? campusId;
+    private DateTime? date = DateTime.UtcNow.AddHours(6).Date;
+    private DateTime? month = new(DateTime.UtcNow.AddHours(6).Year, DateTime.UtcNow.AddHours(6).Month, 1);
+    private List<StaffDayView> day = [];
+    private List<StaffMonthlyRow> monthly = [];
+    private string? search;
+    private StaffDayView? editing;
+    private EditModel edit = new();
+
+    private sealed class EditModel
+    {
+        public StaffAttendanceStatus Status { get; set; }
+        public TimeSpan? In { get; set; }
+        public TimeSpan? Out { get; set; }
+        public string? Note { get; set; }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Run(async () => campuses = await StudentLookups.CampusesAsync(Api));
+        campusId = campuses.FirstOrDefault()?.Id;
+        await LoadAll();
+    }
+
+    private async Task CampusChanged(Guid? id) { campusId = id; await LoadAll(); }
+    private async Task DateChanged(DateTime? d) { date = d; await LoadDay(); }
+    private async Task MonthChanged(DateTime? m) { month = m; await LoadMonth(); }
+
+    private async Task LoadAll() { await LoadDay(); await LoadMonth(); }
+
+    private async Task LoadDay()
+    {
+        editing = null;
+        if (campusId is null || date is null) return;
+        await Run(async () => day = await Api.GetAsync<List<StaffDayView>>(ApiClient.Query("api/staff-attendance/day", ("campusId", campusId), ("date", DateOnly.FromDateTime(date.Value)))));
+    }
+
+    private async Task LoadMonth()
+    {
+        if (campusId is null || month is null) return;
+        await Run(async () => monthly = await Api.GetAsync<List<StaffMonthlyRow>>(ApiClient.Query("api/staff-attendance/monthly",
+            ("campusId", campusId), ("year", month.Value.Year), ("month", month.Value.Month))));
+    }
+
+    private bool Match(StaffDayView d) => string.IsNullOrWhiteSpace(search) || d.Name.Contains(search, StringComparison.OrdinalIgnoreCase);
+
+    private void Edit(StaffDayView d)
+    {
+        editing = d;
+        edit = new EditModel
+        {
+            Status = d.Status ?? StaffAttendanceStatus.Present,
+            In = d.CheckInUtc is { } i ? (i + TimeSpan.FromHours(6)).TimeOfDay : null,
+            Out = d.CheckOutUtc is { } o ? (o + TimeSpan.FromHours(6)).TimeOfDay : null,
+            Note = d.Note
+        };
+    }
+
+    private async Task SaveEdit()
+    {
+        var request = new StaffCorrection(editing!.UserId, campusId!.Value, editing.Date, edit.Status,
+            edit.In is { } i ? TimeOnly.FromTimeSpan(i) : null, edit.Out is { } o ? TimeOnly.FromTimeSpan(o) : null, edit.Note);
+        if (await Run(() => Api.PutAsync<StaffDayView>("api/staff-attendance/day", request), "Attendance corrected.")) await LoadDay();
+    }
+}

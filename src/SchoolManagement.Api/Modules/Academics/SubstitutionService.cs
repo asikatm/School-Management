@@ -134,6 +134,7 @@ public sealed class SubstitutionService(
         var absentToday = await db.Substitutions.AsNoTracking()
             .Where(s => s.Date == date && s.Status == SubstitutionStatus.Assigned && s.AbsentTeacherUserId != null)
             .Select(s => s.AbsentTeacherUserId!.Value).Distinct().ToListAsync(ct);
+        absentToday.AddRange(await Attendance.StaffLeaveService.OnLeave(db, date).Distinct().ToListAsync(ct)); // ATT-07
         var qualified = await db.TeacherAllocations.IgnoreQueryFilters().AsNoTracking()
             .Where(a => a.AcademicYearId == slot.AcademicYearId && a.SubjectId == slot.SubjectId)
             .Select(a => a.TeacherUserId).Distinct().ToListAsync(ct);

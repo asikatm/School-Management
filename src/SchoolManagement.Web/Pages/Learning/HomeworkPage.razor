@@ -1,0 +1,99 @@
+@page "/learning/homework"
+@inherits AppPage
+
+<PageTitle>Homework</PageTitle>
+
+<div class="d-flex flex-wrap align-center gap-2 mb-1">
+    <MudText Typo="Typo.h4">Homework</MudText>
+    <MudSpacer />
+    @if (Session.Has(P.Learning.Teach))
+    {
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="Create" Disabled="@(sectionId is null)">Set homework</MudButton>
+    }
+</div>
+<MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-4">
+    Post work with a due time and attachments. Students and parents see it in the portal, hand it in online and get a reminder the day before it is due.
+</MudText>
+
+<MudPaper Class="pa-4 mb-4" Elevation="1">
+    <MudGrid Spacing="2">
+        <StudentClassPicker @bind-CampusId="campusId" @bind-AcademicYearId="yearId" @bind-YearGroupId="yearGroupId" @bind-SectionId="sectionId"
+                            Changed="ClassChanged" Md="2" />
+        <MudItem xs="12" sm="6" md="2">
+            <MudSelect T="Guid?" Label="Subject" Value="subjectId" ValueChanged="SubjectChanged" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense"
+                       ToStringFunc="@(id => subjects.FirstOrDefault(s => s.Id == id)?.Name ?? "")">
+                @foreach (var s in subjects)
+                {
+                    <MudSelectItem T="Guid?" Value="s.Id">@s.Name</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="2" Class="d-flex align-center">
+            <MudSwitch T="bool" Value="mine" ValueChanged="MineChanged" Color="Color.Primary" Label="Set by me" />
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+<MudTable T="AssignmentView" Items="items" Dense="true" Hover="true" Elevation="1" Loading="Busy" OnRowClick="Open" RowStyle="cursor:pointer">
+    <HeaderContent>
+        <MudTh>Due</MudTh><MudTh>Class</MudTh><MudTh>Subject</MudTh><MudTh>Homework</MudTh><MudTh>Handed in</MudTh><MudTh>Marked</MudTh><MudTh>Set by</MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd Style="white-space:nowrap">
+            @LearningUi.Due(context.DueAtLocal)
+            @if (context.DueAtLocal < LearningUi.NowLocal) { <br /><MudChip T="string" Size="Size.Small" Variant="Variant.Text">Past due</MudChip> }
+        </MudTd>
+        <MudTd>@context.SectionLabel</MudTd>
+        <MudTd>@context.SubjectName</MudTd>
+        <MudTd>
+            <b>@context.Title</b>
+            <div class="d-flex flex-wrap gap-1 mt-1">
+                @if (context.MaxMarks is { } max) { <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">/@max.ToString("0.##")</MudChip> }
+                @if (!context.OnlineSubmission) { <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">Checked in class</MudChip> }
+                @if (context.InGradebook) { <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Outlined">Gradebook</MudChip> }
+                @if (context.HasAttachment) { <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.AttachFile">@context.AttachmentName</MudChip> }
+            </div>
+        </MudTd>
+        <MudTd>@context.Submitted / @context.Students</MudTd>
+        <MudTd>@context.Graded</MudTd>
+        <MudTd>@context.PostedBy</MudTd>
+    </RowTemplate>
+    <NoRecordsContent><MudText>@(sectionId is null && !mine ? "Choose a class, or switch on \"Set by me\"." : "No homework.")</MudText></NoRecordsContent>
+</MudTable>
+
+@code {
+    private Guid? campusId, yearId, yearGroupId, sectionId, subjectId;
+    private bool mine;
+    private List<SubjectView> subjects = [];
+    private List<AssignmentView> items = [];
+
+    protected override void OnInitialized() => mine = Session.Has(P.Learning.Teach) && !Session.Has(P.Learning.Manage);
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task ClassChanged()
+    {
+        await Run(async () => subjects = await LearningUi.SubjectsForClassAsync(Api, yearGroupId));
+        if (subjectId is { } s && subjects.All(x => x.Id != s)) subjectId = null;
+        await Load();
+    }
+
+    private async Task SubjectChanged(Guid? id) { subjectId = id; await Load(); }
+    private async Task MineChanged(bool value) { mine = value; await Load(); }
+
+    private async Task Load()
+    {
+        if (sectionId is null && !mine) { items = []; return; }
+        await Run(async () => items = await Api.GetAsync<List<AssignmentView>>(ApiClient.Query("api/learning/homework",
+            ("sectionId", sectionId), ("subjectId", subjectId), ("mine", mine ? true : null))));
+    }
+
+    private void Open(TableRowClickEventArgs<AssignmentView> e) => Nav.NavigateTo($"learning/homework/{e.Item!.Id}");
+
+    private async Task Create()
+    {
+        var parameters = new DialogParameters<HomeworkDialog> { { x => x.SectionId, sectionId }, { x => x.YearGroupId, yearGroupId }, { x => x.SubjectId, subjectId } };
+        var dialog = await Dialogs.ShowAsync<HomeworkDialog>("Set homework", parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (await dialog.Result is { Canceled: false }) await Load();
+    }
+}

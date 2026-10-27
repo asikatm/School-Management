@@ -1,0 +1,117 @@
+@inherits AppPage
+@* EXM-01: the exam's papers, clash check and publication of the date sheet. *@
+
+@{ var editable = Session.Has(P.Exams.Manage) && Exam.ResultStatus == ResultStatus.NotReady; }
+<div class="d-flex flex-wrap align-center gap-2 mb-3">
+    @if (editable)
+    {
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="() => EditPaper(null)">Add paper</MudButton>
+    }
+    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.CompareArrows" OnClick="CheckClashes">Check clashes</MudButton>
+    <MudSpacer />
+    @if (Session.Has(P.Exams.Manage))
+    {
+        @if (Exam.SchedulePublished)
+        {
+            <MudButton Color="Color.Warning" StartIcon="@Icons.Material.Filled.VisibilityOff" OnClick="() => Publish(false)" Disabled="Busy">Hide from portal & website</MudButton>
+        }
+        else
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Success" StartIcon="@Icons.Material.Filled.Publish" OnClick="() => Publish(true)" Disabled="@(Busy || papers.Count == 0)">Publish date sheet</MudButton>
+        }
+    }
+</div>
+
+@if (clashes is not null)
+{
+    @if (clashes.Count == 0)
+    {
+        <MudAlert Severity="Severity.Success" Dense="true" Class="mb-3">No clashes: no student has two papers at the same time.</MudAlert>
+    }
+    else
+    {
+        <MudAlert Severity="Severity.Error" Class="mb-3">
+            <b>@clashes.Count clash(es)</b>
+            @foreach (var c in clashes)
+            {
+                <div>@Format.Date(c.Date) · @c.ClassName: @c.FirstSubject (@c.FirstTime) and @c.SecondSubject (@c.SecondTime) — @c.Students student(s), e.g. @string.Join(", ", c.Examples)</div>
+            }
+        </MudAlert>
+    }
+}
+
+<MudTable T="PaperView" Items="papers" Dense="true" Hover="true" Elevation="0" Outlined="true" Loading="Busy" GroupBy="grouping" GroupHeaderStyle="background:var(--mud-palette-background-gray)">
+    <HeaderContent>
+        <MudTh>Time</MudTh><MudTh>Class</MudTh><MudTh>Subject</MudTh><MudTh>Components</MudTh><MudTh>Candidates</MudTh><MudTh></MudTh>
+    </HeaderContent>
+    <GroupHeaderTemplate>
+        <MudTh colspan="6"><b>@(((DateOnly)context.Key!).ToString("dddd, dd MMMM yyyy"))</b></MudTh>
+    </GroupHeaderTemplate>
+    <RowTemplate>
+        <MudTd Style="white-space:nowrap">@ExamUi.Time(context.StartTime) – @ExamUi.Time(context.EndTime)</MudTd>
+        <MudTd>@context.ClassName</MudTd>
+        <MudTd><b>@context.SubjectName</b> <small class="mud-text-secondary">@context.SubjectCode</small></MudTd>
+        <MudTd>
+            @foreach (var c in context.Components)
+            {
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="@(c.FromGradebook ? Color.Info : Color.Default)">
+                    @c.Name /@c.MaxMarks.ToString("0.##") · @c.WeightPercent.ToString("0.#")%@(c.FromGradebook ? " · gradebook" : "")
+                </MudChip>
+            }
+        </MudTd>
+        <MudTd>@context.Candidates</MudTd>
+        <MudTd Style="text-align:right;white-space:nowrap">
+            @if (editable)
+            {
+                <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" OnClick="() => EditPaper(context)" title="Edit" />
+                <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" OnClick="() => DeletePaper(context)" title="Delete" />
+            }
+        </MudTd>
+    </RowTemplate>
+    <NoRecordsContent><MudText>No papers yet. Add one per class and subject.</MudText></NoRecordsContent>
+</MudTable>
+
+@code {
+    [Parameter, EditorRequired] public ExamView Exam { get; set; } = default!;
+    [Parameter] public EventCallback Changed { get; set; }
+
+    private List<PaperView> papers = [];
+    private List<ExamClash>? clashes;
+    private readonly TableGroupDefinition<PaperView> grouping = new() { Selector = p => p.Date };
+
+    protected override Task OnInitializedAsync() => Load();
+
+    private async Task Load() => await Run(async () => papers = await Api.GetAsync<List<PaperView>>($"api/exams/{Exam.Id}/papers"));
+
+    private async Task CheckClashes() => await Run(async () => clashes = await Api.GetAsync<List<ExamClash>>($"api/exams/{Exam.Id}/clashes"));
+
+    private async Task EditPaper(PaperView? p)
+    {
+        var parameters = new DialogParameters<PaperDialog> { { x => x.Exam, Exam }, { x => x.Item, p } };
+        var dialog = await Dialogs.ShowAsync<PaperDialog>(p is null ? "Add paper" : "Edit paper", parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (await dialog.Result is { Canceled: false })
+        {
+            await Load();
+            clashes = null;
+            await Changed.InvokeAsync();
+        }
+    }
+
+    private async Task DeletePaper(PaperView p)
+    {
+        if (!await Confirm("Delete paper", $"Remove {p.ClassName} {p.SubjectName} from the date sheet?", "Delete")) return;
+        if (await Run(() => Api.DeleteAsync($"api/exams/papers/{p.Id}"), "Paper removed."))
+        {
+            await Load();
+            await Changed.InvokeAsync();
+        }
+    }
+
+    private async Task Publish(bool publish)
+    {
+        if (publish && !await Confirm("Publish date sheet", "The date sheet and admit cards become visible in the portal and on the website, and guardians receive an SMS (first time only).", "Publish")) return;
+        if (await Run(() => Api.PostAsync<ExamView>(ApiClient.Query($"api/exams/{Exam.Id}/schedule/publish", ("publish", publish))),
+                publish ? "Date sheet published; guardians have been told." : "Date sheet hidden."))
+            await Changed.InvokeAsync();
+    }
+}

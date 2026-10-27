@@ -301,6 +301,12 @@ else if (loading)
 
     protected override async Task OnInitializedAsync()
     {
+        // Students have their own home: the student portal.
+        if (Session.Me?.User.UserType == "Student")
+        {
+            Nav.NavigateTo("student", replace: true);
+            return;
+        }
         // Each widget loads on its own; a failing one shows "—" instead of breaking the page.
         var header = Task.WhenAll(
             Load(async () => today = await Api.GetAsync<LocalizationToday>("api/localization/today")),

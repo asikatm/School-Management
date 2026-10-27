@@ -1,0 +1,164 @@
+@inherits AppPage
+@* EXM-02: seating plan by room, invigilators per exam day, seat lookup and admit cards. *@
+
+@{ var manage = Session.Has(P.Exams.Manage); }
+<MudGrid Spacing="2" Class="mb-2">
+    <MudItem xs="12" sm="6" md="3">
+        <MudSelect T="Guid?" Label="Campus" Value="campusId" ValueChanged="CampusChanged" Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="@(Exam.CampusId is not null)"
+                   ToStringFunc="@(id => campuses.FirstOrDefault(c => c.Id == id)?.Name ?? "")">
+            @foreach (var c in campuses)
+            {
+                <MudSelectItem T="Guid?" Value="c.Id">@c.Name</MudSelectItem>
+            }
+        </MudSelect>
+    </MudItem>
+    @if (manage)
+    {
+        <MudItem xs="12" sm="6" md="5">
+            <MudSelect T="Guid" Label="Exam rooms (in seating order)" MultiSelection="true" @bind-SelectedValues="roomIds" Variant="Variant.Outlined" Margin="Margin.Dense"
+                       ToStringFunc="@(id => rooms.FirstOrDefault(r => r.Id == id) is { } r ? $"{r.Name} ({r.Capacity})" : "")">
+                @foreach (var r in rooms)
+                {
+                    <MudSelectItem T="Guid" Value="r.Id">@r.Name · @Format.Enum(r.Type) · @r.Capacity seats</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" md="4" Class="d-flex align-center gap-2">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.EventSeat" OnClick="Generate" Disabled="@(Busy || campusId is null || !roomIds.Any())">Generate seating</MudButton>
+            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.PersonSearch" OnClick="AutoInvigilators" Disabled="@(Busy || seating is not { Seated: > 0 })">Assign invigilators</MudButton>
+        </MudItem>
+    }
+</MudGrid>
+
+@if (seating is not null)
+{
+    <div class="d-flex flex-wrap align-center gap-2 mb-3">
+        <MudChip T="string" Variant="Variant.Text" Color="@(seating.Seated == seating.Candidates ? Color.Success : Color.Warning)">Seated @seating.Seated / @seating.Candidates</MudChip>
+        <MudSpacer />
+        <MudTextField T="string" @bind-Value="lookup" Placeholder="Find a seat: admission no or name" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:280px"
+                      OnKeyUp="@(e => e.Key == "Enter" ? Lookup() : Task.CompletedTask)" Adornment="Adornment.End" AdornmentIcon="@Icons.Material.Filled.Search" OnAdornmentClick="Lookup" />
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Badge" OnClick="() => AdmitCards(null)" Disabled="@(campusId is null)">Admit cards (campus)</MudButton>
+        <MudSelect T="Guid?" Label="… or one section" Value="null" ValueChanged="AdmitCards" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:220px"
+                   ToStringFunc="@(id => sections.FirstOrDefault(s => s.Id == id) is { } s ? $"{s.YearGroupName} - {s.Name}" : "")">
+            @foreach (var s in sections)
+            {
+                <MudSelectItem T="Guid?" Value="s.Id">@s.YearGroupName - @s.Name</MudSelectItem>
+            }
+        </MudSelect>
+    </div>
+
+    @if (found is not null)
+    {
+        <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3" ShowCloseIcon="true" CloseIconClicked="() => found = null">
+            @if (found.Count == 0) { <span>No candidate matches.</span> }
+            @foreach (var f in found)
+            {
+                <div><b>@f.Name</b> (@f.AdmissionNo, @f.ClassLabel): @(f.Room is null ? "not seated" : $"{f.Room}, seat {f.SeatNo}")</div>
+            }
+        </MudAlert>
+    }
+
+    <MudGrid Spacing="3">
+        @foreach (var room in seating.Rooms)
+        {
+            <MudItem xs="12" md="6" lg="4">
+                <MudPaper Class="pa-3" Outlined="true">
+                    <div class="d-flex align-center mb-2">
+                        <MudText Typo="Typo.subtitle1"><b>@room.RoomName</b></MudText>
+                        <MudSpacer />
+                        <MudText Typo="Typo.caption">@room.Seats.Count / @room.Capacity seats</MudText>
+                    </div>
+                    @foreach (var day in seating.Days)
+                    {
+                        var on = room.Invigilators.Where(i => i.Date == day).ToList();
+                        <div class="d-flex align-center gap-1">
+                            <MudText Typo="Typo.caption" Style="min-width:84px">@day.ToString("ddd dd MMM")</MudText>
+                            <MudText Typo="Typo.caption"><b>@(on.Count == 0 ? "—" : string.Join(", ", on.Select(i => i.Name)))</b></MudText>
+                            @if (manage)
+                            {
+                                <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" OnClick="() => EditInvigilators(room, day)" title="Change invigilator" />
+                            }
+                        </div>
+                    }
+                    <MudSimpleTable Dense="true" Class="mt-2" Style="max-height:280px;overflow-y:auto">
+                        <thead><tr><th>Seat</th><th>Student</th><th>Class</th></tr></thead>
+                        <tbody>
+                            @foreach (var s in room.Seats)
+                            {
+                                <tr><td>@s.SeatNo</td><td>@s.Name <small class="mud-text-secondary">@s.AdmissionNo</small></td><td><small>@s.ClassLabel</small></td></tr>
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                </MudPaper>
+            </MudItem>
+        }
+    </MudGrid>
+    @if (seating.Rooms.Count == 0)
+    {
+        <MudAlert Severity="Severity.Info">No seating plan yet. Choose the exam rooms and generate it; students are interleaved by section so neighbours differ.</MudAlert>
+    }
+}
+
+@code {
+    [Parameter, EditorRequired] public ExamView Exam { get; set; } = default!;
+
+    private List<StudentCampusOption> campuses = [];
+    private List<RoomView> rooms = [];
+    private List<StudentSectionOption> sections = [];
+    private Guid? campusId;
+    private IEnumerable<Guid> roomIds = [];
+    private SeatingView? seating;
+    private string? lookup;
+    private List<SeatLookup>? found;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Run(async () => campuses = await StudentLookups.CampusesAsync(Api));
+        await CampusChanged(Exam.CampusId ?? campuses.FirstOrDefault()?.Id);
+    }
+
+    private async Task CampusChanged(Guid? id)
+    {
+        campusId = id;
+        seating = null;
+        if (id is null) return;
+        await Run(async () =>
+        {
+            rooms = (await Api.GetAsync<List<RoomView>>(ApiClient.Query("api/academics/rooms", ("campusId", id)))).Where(r => r.IsActive).ToList();
+            sections = (await StudentLookups.SectionsAsync(Api, id, Exam.AcademicYearId, null)).Where(s => Exam.Classes.Any(c => c.YearGroupId == s.YearGroupId)).ToList();
+            seating = await Api.GetAsync<SeatingView>(ApiClient.Query($"api/exams/{Exam.Id}/seating", ("campusId", id)));
+        });
+        roomIds = seating?.Rooms.Select(r => r.RoomId).ToList() ?? [];
+    }
+
+    private async Task Generate()
+    {
+        if (seating is { Seated: > 0 } && !await Confirm("Regenerate seating", "The current seating plan for this campus will be replaced.", "Regenerate")) return;
+        await Run(async () => seating = await Api.PostAsync<SeatingView>($"api/exams/{Exam.Id}/seating", new SeatingRequest(campusId!.Value, roomIds.ToList())), "Seating plan generated.");
+    }
+
+    private async Task AutoInvigilators() =>
+        await Run(async () => seating = await Api.PostAsync<SeatingView>(ApiClient.Query($"api/exams/{Exam.Id}/invigilators/auto", ("campusId", campusId))),
+            "Invigilators assigned (teachers on leave are skipped).");
+
+    private async Task EditInvigilators(RoomSeating room, DateOnly day)
+    {
+        var parameters = new DialogParameters<InvigilatorDialog>
+        {
+            { x => x.CampusId, campusId!.Value }, { x => x.Selected, room.Invigilators.Where(i => i.Date == day).Select(i => i.UserId).ToList() }
+        };
+        var dialog = await Dialogs.ShowAsync<InvigilatorDialog>($"{room.RoomName} · {day:ddd dd MMM}", parameters, new DialogOptions { MaxWidth = MaxWidth.ExtraSmall, FullWidth = true });
+        if (await dialog.Result is not { Canceled: false, Data: List<Guid> users }) return;
+        await Run(async () => seating = await Api.PutAsync<SeatingView>($"api/exams/{Exam.Id}/invigilators", new InvigilatorRequest(campusId!.Value, day, room.RoomId, users)),
+            "Invigilator saved.");
+    }
+
+    private async Task Lookup()
+    {
+        if (string.IsNullOrWhiteSpace(lookup)) return;
+        await Run(async () => found = await Api.GetAsync<List<SeatLookup>>(ApiClient.Query($"api/exams/{Exam.Id}/seat", ("q", lookup))));
+    }
+
+    private async Task AdmitCards(Guid? sectionId) =>
+        await OpenFile(ApiClient.Query($"api/exams/{Exam.Id}/admit-cards", ("campusId", sectionId is null ? campusId : null), ("sectionId", sectionId)));
+}

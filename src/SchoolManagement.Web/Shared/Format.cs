@@ -11,6 +11,7 @@ public static partial class Format
     public static string Date(DateOnly? d) => d?.ToString("dd MMM yyyy", CultureInfo.InvariantCulture) ?? "—";
     public static string Date(DateTime? utc) => utc is null ? "—" : (utc.Value + Dhaka).ToString("dd MMM yyyy", CultureInfo.InvariantCulture);
     public static string DateTime(DateTime? utc) => utc is null ? "—" : (utc.Value + Dhaka).ToString("dd MMM yyyy, hh:mm tt", CultureInfo.InvariantCulture);
+    public static string Time(DateTime? utc) => utc is null ? "—" : (utc.Value + Dhaka).ToString("hh:mm tt", CultureInfo.InvariantCulture);
     public static string Money(decimal? amount) => amount is null ? "—" : "৳ " + amount.Value.ToString("#,##0.00", CultureInfo.InvariantCulture);
 
     /// <summary>"AwaitingApproval" → "Awaiting approval".</summary>

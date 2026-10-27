@@ -1,0 +1,111 @@
+@inherits AppPage
+@* A date-sheet paper: class, subject, date and time, and its marked components (written, practical, oral, CA). *@
+
+<MudDialog>
+    <DialogContent>
+        <MudGrid Spacing="2">
+            <MudItem xs="12" sm="6">
+                <MudSelect T="Guid?" Label="Class" Value="yearGroupId" ValueChanged="ClassChanged" Required="true" Variant="Variant.Outlined" Margin="Margin.Dense"
+                           Disabled="@(Item is not null)" ToStringFunc="@(id => Exam.Classes.FirstOrDefault(c => c.YearGroupId == id)?.ClassName ?? "")">
+                    @foreach (var c in Exam.Classes)
+                    {
+                        <MudSelectItem T="Guid?" Value="c.YearGroupId">@c.ClassName</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudSelect T="Guid?" Label="Subject" @bind-Value="subjectId" Required="true" Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="@(Item is not null)"
+                           ToStringFunc="@(id => subjects.FirstOrDefault(s => s.Id == id)?.Name ?? Item?.SubjectName ?? "")">
+                    @foreach (var s in subjects)
+                    {
+                        <MudSelectItem T="Guid?" Value="s.Id">@s.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="4">
+                <MudDatePicker @bind-Date="date" Label="Date" MinDate="@Exam.StartDate.ToDateTime(TimeOnly.MinValue)" MaxDate="@Exam.EndDate.ToDateTime(TimeOnly.MinValue)"
+                               Variant="Variant.Outlined" Margin="Margin.Dense" DateFormat="dd MMM yyyy" />
+            </MudItem>
+            <MudItem xs="6" sm="4"><MudTimePicker @bind-Time="start" Label="Starts" AmPm="true" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+            <MudItem xs="6" sm="4"><MudTimePicker @bind-Time="end" Label="Ends" AmPm="true" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+            <MudItem xs="12">
+                <MudText Typo="Typo.subtitle2">Components</MudText>
+                <MudText Typo="Typo.caption" Color="Color.Secondary">Each is marked out of its maximum; weights (adding up to 100%) combine them into the subject %.</MudText>
+                @foreach (var c in components)
+                {
+                    <div class="d-flex flex-wrap gap-2 align-center mt-1">
+                        <MudTextField @bind-Value="c.Name" Label="Name" MaxLength="64" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:160px" />
+                        <MudNumericField T="decimal" @bind-Value="c.MaxMarks" Label="Out of" Min="1" Max="1000" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:100px" />
+                        <MudNumericField T="decimal" @bind-Value="c.Weight" Label="Weight %" Min="0" Max="100" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:110px" />
+                        <MudCheckBox T="bool" @bind-Value="c.FromGradebook" Label="From gradebook" Dense="true" Disabled="@(Exam.TermId is null)" />
+                        <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" OnClick="() => components.Remove(c)" Disabled="@(components.Count == 1)" title="Remove" />
+                    </div>
+                }
+                <div class="d-flex align-center mt-1">
+                    <MudButton StartIcon="@Icons.Material.Filled.Add" OnClick="@(() => components.Add(new Comp { Name = "", MaxMarks = 20, Weight = 0 }))">Add component</MudButton>
+                    <MudSpacer />
+                    <MudText Typo="Typo.body2" Color="@(components.Sum(c => c.Weight) == 100 ? Color.Success : Color.Error)">Weights @components.Sum(c => c.Weight).ToString("0.#")%</MudText>
+                </div>
+            </MudItem>
+        </MudGrid>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => MudDialog.Cancel())">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Save"
+                   Disabled="@(Busy || yearGroupId is null || subjectId is null || date is null || start is null || end is null || components.Sum(c => c.Weight) != 100 || components.Any(c => string.IsNullOrWhiteSpace(c.Name)))">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter, EditorRequired] public ExamView Exam { get; set; } = default!;
+    [Parameter] public PaperView? Item { get; set; }
+
+    private List<SubjectView> subjects = [];
+    private Guid? yearGroupId, subjectId;
+    private DateTime? date;
+    private TimeSpan? start = new(9, 0, 0), end = new(11, 0, 0);
+    private List<Comp> components = [new() { Name = "Written", MaxMarks = 100, Weight = 100 }];
+
+    private sealed class Comp
+    {
+        public string Name { get; set; } = "";
+        public decimal MaxMarks { get; set; }
+        public decimal Weight { get; set; }
+        public bool FromGradebook { get; set; }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        date = Exam.StartDate.ToDateTime(TimeOnly.MinValue);
+        if (Item is not null)
+        {
+            yearGroupId = Item.YearGroupId;
+            subjectId = Item.SubjectId;
+            date = Item.Date.ToDateTime(TimeOnly.MinValue);
+            start = Item.StartTime.ToTimeSpan();
+            end = Item.EndTime.ToTimeSpan();
+            components = Item.Components.Select(c => new Comp { Name = c.Name, MaxMarks = c.MaxMarks, Weight = c.WeightPercent, FromGradebook = c.FromGradebook }).ToList();
+        }
+        else if (Exam.Classes.Count == 1) yearGroupId = Exam.Classes[0].YearGroupId;
+        await LoadSubjects();
+    }
+
+    private async Task ClassChanged(Guid? id)
+    {
+        yearGroupId = id;
+        await LoadSubjects();
+    }
+
+    private async Task LoadSubjects() => await Run(async () => subjects = await LearningUi.SubjectsForClassAsync(Api, yearGroupId));
+
+    private async Task Save()
+    {
+        var request = new PaperRequest(yearGroupId!.Value, subjectId!.Value, DateOnly.FromDateTime(date!.Value), TimeOnly.FromTimeSpan(start!.Value), TimeOnly.FromTimeSpan(end!.Value),
+            components.Select(c => new ComponentRequest(c.Name.Trim(), c.MaxMarks, c.Weight, c.FromGradebook)).ToList());
+        var ok = Item is null
+            ? await Run(() => Api.PostAsync<PaperView>($"api/exams/{Exam.Id}/papers", request), "Paper added.")
+            : await Run(() => Api.PutAsync<PaperView>($"api/exams/papers/{Item.Id}", request), "Paper saved.");
+        if (ok) MudDialog.Close(DialogResult.Ok(true));
+    }
+}

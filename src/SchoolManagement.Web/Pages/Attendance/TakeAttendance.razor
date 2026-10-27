@@ -1,0 +1,199 @@
+@page "/attendance"
+@inherits AppPage
+
+<PageTitle>Take attendance</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-1">Take attendance</MudText>
+<MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-4">
+    Choose the class and day, mark each student and save. Absent and late students' guardians get an SMS after the morning cut-off.
+</MudText>
+
+<MudPaper Class="pa-4 mb-4" Elevation="1">
+    <MudGrid Spacing="2">
+        <StudentClassPicker @bind-CampusId="campusId" @bind-AcademicYearId="yearId" @bind-YearGroupId="yearGroupId" @bind-SectionId="sectionId"
+                            Changed="Load" SectionRequired="true" Md="2" />
+        <MudItem xs="12" sm="6" md="2">
+            <MudDatePicker Date="date" DateChanged="DateChanged" Label="Date" MaxDate="@DateTime.UtcNow.AddHours(6).Date" Variant="Variant.Outlined"
+                           Margin="Margin.Dense" DateFormat="ddd, dd MMM yyyy" />
+        </MudItem>
+        @if (register?.PeriodWise == true)
+        {
+            <MudItem xs="12" sm="6" md="2">
+                <MudSelect T="int?" Value="periodNo" ValueChanged="PeriodChanged" Label="Register" Variant="Variant.Outlined" Margin="Margin.Dense">
+                    <MudSelectItem T="int?" Value="null">Daily register</MudSelectItem>
+                    @foreach (var p in register.Periods)
+                    {
+                        <MudSelectItem T="int?" Value="p.PeriodNo">@(p.Taken ? "✓ " : "")@p.Name · @p.StartTime.ToString("HH:mm")@(p.SubjectName is null ? "" : $" · {p.SubjectName}")</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+        }
+    </MudGrid>
+</MudPaper>
+
+@if (sectionId is null)
+{
+    <MudAlert Severity="Severity.Info">Choose a section to open its register.</MudAlert>
+}
+else if (register is not null)
+{
+    @if (register.ClosedReason is not null)
+    {
+        <MudAlert Severity="Severity.Info" Class="mb-3">No register on @Format.Date(register.Date): @register.ClosedReason.</MudAlert>
+    }
+    else
+    {
+        <div class="d-flex flex-wrap align-center gap-2 mb-3">
+            <MudText Typo="Typo.h6">@register.SectionLabel · @register.Date.ToString("ddd, dd MMM yyyy")@(periodNo is null ? "" : $" · {register.Periods.FirstOrDefault(p => p.PeriodNo == periodNo)?.Name}")</MudText>
+            <MudSpacer />
+            @foreach (var m in AttendanceUi.Marks)
+            {
+                <MudChip T="string" Size="Size.Small" Color="AttendanceUi.Color(m)" Variant="Variant.Text">@Format.Enum(m): @marks.Values.Count(x => x.Mark == m)</MudChip>
+            }
+            <MudChip T="string" Size="Size.Small" Variant="Variant.Text">Unmarked: @marks.Values.Count(x => x.Mark is null)</MudChip>
+        </div>
+
+        @if (register.Taken)
+        {
+            <MudAlert Severity="Severity.Success" Dense="true" Class="mb-3">Taken by @register.TakenBy at @Format.DateTime(register.TakenAtUtc).</MudAlert>
+        }
+        @if (!register.CanEdit && register.EditBlockedReason is not null)
+        {
+            <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-3">@register.EditBlockedReason</MudAlert>
+        }
+
+        @if (register.Students.Count == 0)
+        {
+            <MudAlert Severity="Severity.Info">No students are enrolled in this section on that day.</MudAlert>
+        }
+        else
+        {
+            @if (register.CanEdit)
+            {
+                <div class="d-flex gap-2 mb-2">
+                    <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.DoneAll" OnClick="AllPresent">Mark the rest present</MudButton>
+                </div>
+            }
+            <MudSimpleTable Dense="true" Hover="true" Outlined="true">
+                <thead>
+                    <tr><th style="width:60px">Roll</th><th>Student</th><th style="width:300px">Mark</th>
+                        @if (periodNo is null) { <th style="width:130px">Arrived</th><th>Remarks</th> }
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var s in register.Students)
+                    {
+                        if (!marks.TryGetValue(s.StudentId, out var entry)) continue;
+                        <tr>
+                            <td>@s.RollNo</td>
+                            <td>
+                                <b>@s.Name</b> <small class="mud-text-secondary">@s.AdmissionNo</small>
+                                @if (s.OnApprovedLeave) { <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Outlined">Approved leave</MudChip> }
+                            </td>
+                            <td>
+                                <MudToggleGroup T="AttendanceMark?" Value="entry.Mark" ValueChanged="v => entry.Mark = v" Disabled="@(!register.CanEdit)"
+                                                Size="Size.Small" Color="AttendanceUi.Color(entry.Mark)" SelectedClass="@($"att-sel-{entry.Mark?.ToString().ToLowerInvariant()}")">
+                                    @foreach (var m in AttendanceUi.Marks)
+                                    {
+                                        <MudToggleItem T="AttendanceMark?" Value="m" Text="@AttendanceUi.Short(m)" />
+                                    }
+                                </MudToggleGroup>
+                            </td>
+                            @if (periodNo is null)
+                            {
+                                <td>
+                                    @if (entry.Mark == AttendanceMark.Late)
+                                    {
+                                        <MudTimePicker Time="entry.Arrival" TimeChanged="t => entry.Arrival = t" Margin="Margin.Dense" Disabled="@(!register.CanEdit)"
+                                                       AmPm="true" Placeholder="Time" />
+                                    }
+                                </td>
+                                <td><MudTextField @bind-Value="entry.Remarks" Margin="Margin.Dense" Disabled="@(!register.CanEdit)" MaxLength="300" /></td>
+                            }
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+            @if (register.CanEdit)
+            {
+                <div class="d-flex justify-end mt-3">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Save" OnClick="Save"
+                               Disabled="@(Busy || marks.Values.Any(m => m.Mark is null))">@(register.Taken ? "Update register" : "Save register")</MudButton>
+                </div>
+            }
+        }
+    }
+}
+
+<style>
+    .att-sel-present { background: #16a34a !important; color: #fff !important; }
+    .att-sel-absent { background: #dc2626 !important; color: #fff !important; }
+    .att-sel-late { background: #d97706 !important; color: #fff !important; }
+    .att-sel-leave { background: #2563eb !important; color: #fff !important; }
+    .att-sel-present *, .att-sel-absent *, .att-sel-late *, .att-sel-leave * { color: #fff !important; font-weight: 700; }
+</style>
+
+@code {
+    [SupplyParameterFromQuery(Name = "section")] public Guid? SectionQuery { get; set; }
+    [SupplyParameterFromQuery(Name = "campus")] public Guid? CampusQuery { get; set; }
+    [SupplyParameterFromQuery(Name = "date")] public string? DateQuery { get; set; }
+
+    private Guid? campusId, yearId, yearGroupId, sectionId;
+    private DateTime? date = DateTime.UtcNow.AddHours(6).Date;
+    private int? periodNo;
+    private RegisterView? register;
+    private Dictionary<Guid, Entry> marks = [];
+
+    private sealed class Entry
+    {
+        public AttendanceMark? Mark { get; set; }
+        public TimeSpan? Arrival { get; set; }
+        public string? Remarks { get; set; }
+    }
+
+    protected override void OnInitialized()
+    {
+        // Set before the picker's first await so its section list keeps this choice.
+        sectionId = SectionQuery;
+        campusId = CampusQuery;
+        if (DateOnly.TryParse(DateQuery, out var d)) date = d.ToDateTime(TimeOnly.MinValue);
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (sectionId is not null) await Load();
+    }
+
+    private async Task DateChanged(DateTime? d) { date = d; await Load(); }
+    private async Task PeriodChanged(int? p) { periodNo = p; await Load(); }
+
+    private async Task Load()
+    {
+        register = null;
+        marks = [];
+        if (sectionId is null || date is null) return;
+        await Run(async () =>
+        {
+            var loaded = await Api.GetAsync<RegisterView>(ApiClient.Query("api/attendance/register",
+                ("sectionId", sectionId), ("date", DateOnly.FromDateTime(date.Value)), ("periodNo", periodNo)));
+            // Set the marks with the register so a render in between never sees one without the other.
+            marks = loaded.Students.ToDictionary(s => s.StudentId, s => new Entry { Mark = s.Mark, Arrival = s.ArrivalTime?.ToTimeSpan(), Remarks = s.Remarks });
+            register = loaded;
+        });
+        if (register is { PeriodWise: false }) periodNo = null;
+    }
+
+    private void AllPresent()
+    {
+        foreach (var e in marks.Values.Where(e => e.Mark is null)) e.Mark = AttendanceMark.Present;
+    }
+
+    private async Task Save()
+    {
+        var request = new SaveRegisterRequest(register!.SectionId, register.Date, periodNo,
+            marks.Select(m => new MarkEntry(m.Key, m.Value.Mark!.Value, m.Value.Arrival is { } t ? TimeOnly.FromTimeSpan(t) : null,
+                string.IsNullOrWhiteSpace(m.Value.Remarks) ? null : m.Value.Remarks.Trim())).ToList());
+        if (await Run(() => Api.PostAsync<RegisterView>("api/attendance/register", request), "Register saved."))
+            await Load();
+    }
+}

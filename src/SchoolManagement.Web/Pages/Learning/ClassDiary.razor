@@ -1,0 +1,171 @@
+@page "/learning/diary"
+@inherits AppPage
+
+<PageTitle>Class diary</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-1">Class diary</MudText>
+<MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-4">
+    What was taught today, homework, reminders and uniform/kit notes. Parents read it as a daily digest in the portal.
+</MudText>
+
+<MudPaper Class="pa-4 mb-4" Elevation="1">
+    <MudGrid Spacing="2">
+        <StudentClassPicker @bind-CampusId="campusId" @bind-AcademicYearId="yearId" @bind-YearGroupId="yearGroupId" @bind-SectionId="sectionId"
+                            Changed="ClassChanged" SectionRequired="true" Md="2" />
+        <MudItem xs="12" sm="6" md="2">
+            <MudDatePicker Date="date" DateChanged="DateChanged" Label="Date" Variant="Variant.Outlined" Margin="Margin.Dense" DateFormat="ddd, dd MMM yyyy" />
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+@if (sectionId is null)
+{
+    <MudAlert Severity="Severity.Info">Choose a section to open its diary.</MudAlert>
+}
+else if (digest is not null)
+{
+    @if (digest.ClosedReason is not null)
+    {
+        <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">No school: @digest.ClosedReason.</MudAlert>
+    }
+    <MudGrid Spacing="3">
+        <MudItem xs="12" md="8">
+            @if (digest.Entries.Count == 0)
+            {
+                <MudAlert Severity="Severity.Normal" Variant="Variant.Outlined" Class="mb-3">Nothing written for @Format.Date(digest.Date) yet.</MudAlert>
+            }
+            @foreach (var e in digest.Entries)
+            {
+                <MudPaper Class="pa-3 mb-3" Elevation="1">
+                    <div class="d-flex align-center gap-2">
+                        <MudText Typo="Typo.subtitle1"><b>@(e.SubjectName ?? "General note")</b></MudText>
+                        <MudSpacer />
+                        <MudText Typo="Typo.caption">@e.PostedBy · @Format.Time(e.PostedAtUtc)</MudText>
+                        @if (e.CanEdit)
+                        {
+                            <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" OnClick="() => EditEntry(e)" title="Edit" />
+                            <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" OnClick="() => DeleteEntry(e)" title="Delete" />
+                        }
+                    </div>
+                    @Line("Topics covered", e.Topics)
+                    @Line("Homework", e.Homework)
+                    @Line("Reminders", e.Reminders)
+                    @Line("Uniform / kit", e.KitNotes)
+                </MudPaper>
+            }
+
+            @if (digest.CanWrite)
+            {
+                <MudPaper Class="pa-4" Elevation="1">
+                    <MudText Typo="Typo.h6" Class="mb-2">@(editing is null ? "Add to the diary" : "Edit entry")</MudText>
+                    <MudGrid Spacing="2">
+                        <MudItem xs="12" sm="6">
+                            <MudSelect T="Guid?" Label="Subject" @bind-Value="form.SubjectId" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                       Placeholder="General note" ToStringFunc="@(id => subjects.FirstOrDefault(s => s.Id == id)?.Name ?? "")">
+                                @foreach (var s in subjects)
+                                {
+                                    <MudSelectItem T="Guid?" Value="s.Id">@s.Name</MudSelectItem>
+                                }
+                            </MudSelect>
+                        </MudItem>
+                        <MudItem xs="12"><MudTextField @bind-Value="form.Topics" Label="Topics covered" Lines="2" MaxLength="2000" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                        <MudItem xs="12"><MudTextField @bind-Value="form.Homework" Label="Homework" Lines="2" MaxLength="2000" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                        <MudItem xs="12" sm="6"><MudTextField @bind-Value="form.Reminders" Label="Reminders" MaxLength="1000" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                        <MudItem xs="12" sm="6"><MudTextField @bind-Value="form.KitNotes" Label="Uniform / kit notes" MaxLength="500" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                    </MudGrid>
+                    <div class="d-flex justify-end gap-2 mt-3">
+                        @if (editing is not null) { <MudButton OnClick="CancelEdit">Cancel</MudButton> }
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveEntry" Disabled="Busy">@(editing is null ? "Add" : "Save")</MudButton>
+                    </div>
+                </MudPaper>
+            }
+        </MudItem>
+        <MudItem xs="12" md="4">
+            <MudPaper Class="pa-3 mb-3" Elevation="1">
+                <MudText Typo="Typo.subtitle1" Class="mb-2"><b>Homework set today</b></MudText>
+                @if (digest.HomeworkSet.Count == 0) { <MudText Typo="Typo.body2" Color="Color.Secondary">None</MudText> }
+                @foreach (var h in digest.HomeworkSet)
+                {
+                    <MudLink Href="@($"learning/homework/{h.AssignmentId}")" Class="d-block">@h.SubjectName: @h.Title</MudLink>
+                    <MudText Typo="Typo.caption" Class="d-block mb-1">Due @LearningUi.Due(h.DueAtLocal)</MudText>
+                }
+            </MudPaper>
+            <MudPaper Class="pa-3" Elevation="1">
+                <MudText Typo="Typo.subtitle1" Class="mb-2"><b>Due next school day</b></MudText>
+                @if (digest.DueNext.Count == 0) { <MudText Typo="Typo.body2" Color="Color.Secondary">None</MudText> }
+                @foreach (var h in digest.DueNext)
+                {
+                    <MudLink Href="@($"learning/homework/{h.AssignmentId}")" Class="d-block">@h.SubjectName: @h.Title</MudLink>
+                    <MudText Typo="Typo.caption" Class="d-block mb-1">@LearningUi.Due(h.DueAtLocal)</MudText>
+                }
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    private Guid? campusId, yearId, yearGroupId, sectionId;
+    private DateTime? date = LearningUi.NowLocal.Date;
+    private DailyDigest? digest;
+    private List<SubjectView> subjects = [];
+    private DiaryEntryView? editing;
+    private EntryForm form = new();
+
+    private sealed class EntryForm
+    {
+        public Guid? SubjectId { get; set; }
+        public string? Topics { get; set; }
+        public string? Homework { get; set; }
+        public string? Reminders { get; set; }
+        public string? KitNotes { get; set; }
+    }
+
+    private static RenderFragment Line(string label, string? text) => __builder =>
+    {
+        if (text is null) return;
+        <div class="mt-1"><small class="mud-text-secondary">@label</small><div style="white-space:pre-wrap">@text</div></div>
+    };
+
+    private async Task ClassChanged()
+    {
+        await Run(async () => subjects = await LearningUi.SubjectsForClassAsync(Api, yearGroupId));
+        await Load();
+    }
+
+    private async Task DateChanged(DateTime? d) { date = d; await Load(); }
+
+    private async Task Load()
+    {
+        digest = null;
+        CancelEdit();
+        if (sectionId is null || date is null) return;
+        await Run(async () => digest = await Api.GetAsync<DailyDigest>(ApiClient.Query("api/learning/diary", ("sectionId", sectionId), ("date", DateOnly.FromDateTime(date.Value)))));
+    }
+
+    private void EditEntry(DiaryEntryView e)
+    {
+        editing = e;
+        form = new EntryForm { SubjectId = e.SubjectId, Topics = e.Topics, Homework = e.Homework, Reminders = e.Reminders, KitNotes = e.KitNotes };
+    }
+
+    private void CancelEdit()
+    {
+        editing = null;
+        form = new EntryForm();
+    }
+
+    private async Task SaveEntry()
+    {
+        var request = new DiaryEntryRequest(sectionId!.Value, DateOnly.FromDateTime(date!.Value), form.SubjectId, form.Topics, form.Homework, form.Reminders, form.KitNotes);
+        var ok = editing is null
+            ? await Run(() => Api.PostAsync<DiaryEntryView>("api/learning/diary", request), "Added to the diary.")
+            : await Run(() => Api.PutAsync<DiaryEntryView>($"api/learning/diary/{editing.Id}", request), "Diary entry saved.");
+        if (ok) await Load();
+    }
+
+    private async Task DeleteEntry(DiaryEntryView e)
+    {
+        if (!await Confirm("Delete entry", "Remove this diary entry?", "Delete")) return;
+        if (await Run(() => Api.DeleteAsync($"api/learning/diary/{e.Id}"), "Entry removed.")) await Load();
+    }
+}

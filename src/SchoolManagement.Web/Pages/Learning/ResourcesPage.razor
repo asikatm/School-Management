@@ -1,0 +1,165 @@
+@page "/learning/resources"
+@inherits AppPage
+
+<PageTitle>Learning resources</PageTitle>
+
+<div class="d-flex flex-wrap align-center gap-2 mb-1">
+    <MudText Typo="Typo.h4">Learning resources</MudText>
+    <MudSpacer />
+    @if (Session.HasAny(P.Learning.Teach, P.Learning.Manage))
+    {
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Upload" OnClick="() => Edit(null)">Share a resource</MudButton>
+    }
+</div>
+<MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-4">
+    Notes, slides, videos and past papers by subject and class. "Students & parents" resources appear in the portal; every download is counted.
+</MudText>
+
+<MudPaper Class="pa-4 mb-4" Elevation="1">
+    <MudGrid Spacing="2">
+        <MudItem xs="12" sm="6" md="3">
+            <MudSelect T="Guid?" Label="Class" Value="yearGroupId" ValueChanged="ClassChanged" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense"
+                       ToStringFunc="@(id => classes.FirstOrDefault(c => c.Id == id)?.Name ?? "")">
+                @foreach (var c in classes)
+                {
+                    <MudSelectItem T="Guid?" Value="c.Id">@c.Name</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <MudSelect T="Guid?" Label="Subject" Value="subjectId" ValueChanged="SubjectChanged" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense"
+                       ToStringFunc="@(id => subjects.FirstOrDefault(s => s.Id == id)?.Name ?? "")">
+                @foreach (var s in subjects)
+                {
+                    <MudSelectItem T="Guid?" Value="s.Id">@s.Name</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="2">
+            <MudSelect T="ResourceType?" Label="Type" Value="type" ValueChanged="TypeChanged" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense">
+                @foreach (var t in Enum.GetValues<ResourceType>())
+                {
+                    <MudSelectItem T="ResourceType?" Value="t">@Format.Enum(t)</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="4">
+            <MudTextField T="string" @bind-Value="search" Label="Search title or topic" Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="false"
+                          OnBlur="Load" OnKeyUp="@(e => e.Key == "Enter" ? Load() : Task.CompletedTask)" Adornment="Adornment.End" AdornmentIcon="@Icons.Material.Filled.Search" />
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+<MudTable T="ResourceView" Items="items" Dense="true" Hover="true" Elevation="1" Loading="Busy">
+    <HeaderContent>
+        <MudTh>Resource</MudTh><MudTh>Subject</MudTh><MudTh>For</MudTh><MudTh>Shared by</MudTh><MudTh>Downloads</MudTh><MudTh></MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd>
+            <div class="d-flex align-center gap-2">
+                <MudIcon Icon="@LearningUi.Icon(context.Type)" Color="Color.Primary" />
+                <div>
+                    <b>@context.Title</b> <small class="mud-text-secondary">@Format.Enum(context.Type)@(context.Topic is null ? "" : $" · {context.Topic}")</small>
+                    @if (context.Description is not null) { <div><small>@context.Description</small></div> }
+                </div>
+            </div>
+        </MudTd>
+        <MudTd>@context.SubjectName</MudTd>
+        <MudTd>
+            @(context.SectionLabel ?? context.ClassName ?? "All classes")
+            <br /><MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="@(context.Audience == ResourceAudience.Staff ? Color.Warning : Color.Success)">
+                @(context.Audience == ResourceAudience.Staff ? "Staff only" : "Students & parents")
+            </MudChip>
+        </MudTd>
+        <MudTd>@context.SharedBy<br /><small>@Format.Date(context.SharedAtUtc)</small></MudTd>
+        <MudTd><MudLink OnClick="() => ShowDownloads(context)">@context.Downloads</MudLink></MudTd>
+        <MudTd Style="white-space:nowrap;text-align:right">
+            @if (context.HasFile)
+            {
+                <MudButton Size="Size.Small" StartIcon="@Icons.Material.Filled.Download" OnClick="() => OpenResource(context)">@LearningUi.Size(context.FileSize)</MudButton>
+            }
+            @if (context.Url is not null)
+            {
+                <MudButton Size="Size.Small" StartIcon="@Icons.Material.Filled.OpenInNew" OnClick="() => Visit(context)">Open link</MudButton>
+            }
+            @if (context.CanEdit)
+            {
+                <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" OnClick="() => Edit(context)" title="Edit" />
+                <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" OnClick="() => Delete(context)" title="Delete" />
+            }
+        </MudTd>
+    </RowTemplate>
+    <NoRecordsContent><MudText>No resources yet.</MudText></NoRecordsContent>
+</MudTable>
+
+@code {
+    [Inject] private IJSRuntime Js { get; set; } = default!;
+
+    private List<StudentYearGroupOption> classes = [];
+    private List<SubjectView> subjects = [];
+    private Guid? yearGroupId, subjectId;
+    private ResourceType? type;
+    private string? search;
+    private List<ResourceView> items = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Run(async () =>
+        {
+            classes = await StudentLookups.YearGroupsAsync(Api);
+            subjects = await LearningUi.SubjectsForClassAsync(Api, null);
+        });
+        await Load();
+    }
+
+    private async Task ClassChanged(Guid? id)
+    {
+        yearGroupId = id;
+        await Run(async () => subjects = await LearningUi.SubjectsForClassAsync(Api, id));
+        await Load();
+    }
+
+    private async Task SubjectChanged(Guid? id) { subjectId = id; await Load(); }
+    private async Task TypeChanged(ResourceType? t) { type = t; await Load(); }
+
+    private async Task Load() =>
+        await Run(async () => items = await Api.GetAsync<List<ResourceView>>(ApiClient.Query("api/learning/resources",
+            ("yearGroupId", yearGroupId), ("subjectId", subjectId), ("type", type), ("search", search))));
+
+    private async Task OpenResource(ResourceView r)
+    {
+        await OpenFile($"api/learning/resources/{r.Id}/file");
+        await Load();
+    }
+
+    private async Task Visit(ResourceView r)
+    {
+        ResourceLink? link = null;
+        if (await Run(async () => link = await Api.PostAsync<ResourceLink>($"api/learning/resources/{r.Id}/visit")) && link is not null)
+        {
+            await Js.InvokeVoidAsync("open", link.Url, "_blank", "noopener");
+            await Load();
+        }
+    }
+
+    private async Task Edit(ResourceView? r)
+    {
+        var parameters = new DialogParameters<ResourceDialog> { { x => x.Item, r }, { x => x.YearGroupId, yearGroupId }, { x => x.SubjectId, subjectId } };
+        var dialog = await Dialogs.ShowAsync<ResourceDialog>(r is null ? "Share a resource" : "Edit resource", parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (await dialog.Result is { Canceled: false }) await Load();
+    }
+
+    private async Task Delete(ResourceView r)
+    {
+        if (!await Confirm("Delete resource", $"Delete \"{r.Title}\"?", "Delete")) return;
+        if (await Run(() => Api.DeleteAsync($"api/learning/resources/{r.Id}"), "Resource deleted.")) await Load();
+    }
+
+    private async Task ShowDownloads(ResourceView r)
+    {
+        List<ResourceDownloadView> rows = [];
+        if (!await Run(async () => rows = await Api.GetAsync<List<ResourceDownloadView>>($"api/learning/resources/{r.Id}/downloads"))) return;
+        var text = rows.Count == 0 ? "Nobody has opened it yet." : string.Join("\n", rows.Take(30).Select(d => $"{Format.DateTime(d.AtUtc)} — {d.User ?? "?"}"));
+        await Dialogs.ShowMessageBox($"Downloads: {r.Title}", (MarkupString)$"<pre style=\"white-space:pre-wrap;font-family:inherit\">{System.Net.WebUtility.HtmlEncode(text)}</pre>");
+    }
+}

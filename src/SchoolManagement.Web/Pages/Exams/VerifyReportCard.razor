@@ -1,0 +1,46 @@
+@page "/public/verify/{Code}"
+@inherits AppPage
+@using SchoolManagement.Web.Pages.Admission
+
+<PageTitle>Verify report card · Lighthouse School</PageTitle>
+
+<PublicShell Subtitle="Report card verification · রিপোর্ট কার্ড যাচাই">
+    @if (result is null)
+    {
+        <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+    }
+    else if (!result.Found)
+    {
+        <MudAlert Severity="Severity.Error">@result.Message</MudAlert>
+    }
+    else
+    {
+        <MudPaper Class="pa-6">
+            <MudAlert Severity="@(result.Intact ? Severity.Success : Severity.Error)" Class="mb-4">@result.Message</MudAlert>
+            <MudSimpleTable Dense="true">
+                <tbody>
+                    <tr><td>School</td><td><b>@result.School</b></td></tr>
+                    <tr><td>Student</td><td><b>@result.StudentName</b> (@result.AdmissionNo)</td></tr>
+                    <tr><td>Class</td><td>@result.ClassName</td></tr>
+                    <tr><td>Examination</td><td>@result.ExamName · @result.AcademicYear</td></tr>
+                    <tr><td>Result</td><td><b>@result.Percent?.ToString("0.##")%</b> · grade @result.Grade@(result.Gpa is { } g ? $" · GPA {g:0.00}" : "") · @(result.Passed == true ? "Passed" : "Not passed")</td></tr>
+                    <tr><td>Issued</td><td>@Format.DateTime(result.IssuedAtUtc)</td></tr>
+                    <tr><td>Code</td><td>@Code</td></tr>
+                </tbody>
+            </MudSimpleTable>
+            <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-3 d-block">Compare these details with the printed card. If anything differs, contact the school office.</MudText>
+        </MudPaper>
+    }
+</PublicShell>
+
+@code {
+    [Parameter] public string Code { get; set; } = "";
+
+    private VerificationView? result;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!await Run(async () => result = await Api.GetAsync<VerificationView>($"api/public/verify/{Uri.EscapeDataString(Code)}")))
+            result = new VerificationView(false, false, "The verification service is not available. Try again later.", null, null, null, null, null, null, null, null, null, null, null);
+    }
+}

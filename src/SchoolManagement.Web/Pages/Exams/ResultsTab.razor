@@ -1,0 +1,147 @@
+@inherits AppPage
+@* EXM-04/05/06: tabulation sheet, finalising into report cards, remarks, embargoed publication. *@
+
+@{ var manage = Session.Has(P.Exams.Manage); }
+@if (tab is not null)
+{
+    var sections = tab.Students.Select(s => (s.SectionId, s.SectionLabel)).Distinct().OrderBy(s => s.SectionLabel).ToList();
+    <div class="d-flex flex-wrap align-center gap-2 mb-3">
+        <MudSelect T="Guid?" Label="Section" Value="sectionId" ValueChanged="v => sectionId = v" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:240px"
+                   Placeholder="All sections" ToStringFunc="@(id => sections.FirstOrDefault(s => s.SectionId == id).SectionLabel ?? "")">
+            @foreach (var s in sections)
+            {
+                <MudSelectItem T="Guid?" Value="s.SectionId">@s.SectionLabel</MudSelectItem>
+            }
+        </MudSelect>
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.RateReview" Disabled="@(sectionId is null)"
+                   Href="@($"exams/{Exam.Id}/remarks?section={sectionId}")">Remarks & conduct</MudButton>
+        @if (Exam.ResultStatus != ResultStatus.NotReady)
+        {
+            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Print" OnClick="ReportCards">Report cards@(sectionId is null ? " (all)" : "")</MudButton>
+        }
+        <MudSpacer />
+        @if (manage)
+        {
+            @switch (Exam.ResultStatus)
+            {
+                case ResultStatus.NotReady:
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Lock" OnClick="Finalise" Disabled="@(Busy || tab.PendingSheets.Count > 0)">Finalise results</MudButton>
+                    break;
+                case ResultStatus.Finalised:
+                    <MudButton Color="Color.Warning" OnClick="Unfinalise" Disabled="Busy">Re-open results</MudButton>
+                    <MudDatePicker @bind-Date="publishDate" Label="Publish on" Variant="Variant.Outlined" Margin="Margin.Dense" MinDate="@LearningUi.NowLocal.Date" Style="max-width:150px" DateFormat="dd MMM yyyy" />
+                    <MudTimePicker @bind-Time="publishTime" Label="at" AmPm="true" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:120px" />
+                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="Schedule" Disabled="@(Busy || publishDate is null)">Schedule</MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Success" StartIcon="@Icons.Material.Filled.Publish" OnClick="PublishNow" Disabled="Busy">Publish now</MudButton>
+                    break;
+                default:
+                    <MudButton Color="Color.Warning" StartIcon="@Icons.Material.Filled.Undo" OnClick="Withdraw" Disabled="Busy">Withdraw publication</MudButton>
+                    break;
+            }
+        }
+    </div>
+
+    @if (Exam.ResultStatus == ResultStatus.Scheduled)
+    {
+        <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">Results are embargoed until @Format.DateTime(Exam.PublishAtUtc); they publish and guardians are told automatically.</MudAlert>
+    }
+    else if (Exam.ResultStatus == ResultStatus.Published)
+    {
+        <MudAlert Severity="Severity.Success" Dense="true" Class="mb-3">Published @Format.DateTime(Exam.PublishedAtUtc). Parents and students see report cards in the portal; the QR on each card verifies it.</MudAlert>
+    }
+    @if (tab.Preview)
+    {
+        <MudAlert Severity="@(tab.PendingSheets.Count > 0 ? Severity.Warning : Severity.Info)" Dense="true" Class="mb-3">
+            Preview from the marks entered so far.
+            @if (tab.PendingSheets.Count > 0) { <span> @tab.PendingSheets.Count mark sheet(s) still need approval before finalising: @string.Join(", ", tab.PendingSheets.Take(8))@(tab.PendingSheets.Count > 8 ? " …" : "").</span> }
+        </MudAlert>
+    }
+
+    <div style="overflow-x:auto">
+        <MudSimpleTable Dense="true" Hover="true" Outlined="true">
+            <thead>
+                <tr>
+                    <th>Student</th><th>Section</th>
+                    @foreach (var s in tab.Subjects) { <th style="text-align:center" title="@s.Name">@s.Code</th> }
+                    <th style="text-align:center">%</th><th style="text-align:center">Grade</th><th style="text-align:center">GPA</th><th>Result</th>
+                    <th style="text-align:center" title="Position in section (in class)">Position</th><th style="text-align:center">Attendance</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var r in tab.Students.Where(r => sectionId is null || r.SectionId == sectionId))
+                {
+                    <tr>
+                        <td><b>@r.Name</b> <small class="mud-text-secondary">@r.AdmissionNo</small></td>
+                        <td><small>@r.SectionLabel</small></td>
+                        @foreach (var h in tab.Subjects)
+                        {
+                            var s = r.Subjects.FirstOrDefault(x => x.SubjectId == h.SubjectId);
+                            <td style="text-align:center;@(s is { Passed: false } ? "color:#b91c1c;font-weight:600" : "")" title="@(s?.Percent?.ToString("0.##"))">
+                                @(s is null ? "" : s.Status ?? s.Grade ?? s.Percent?.ToString("0") ?? "…")
+                            </td>
+                        }
+                        <td style="text-align:center">@(r.Complete ? r.Percent.ToString("0.##") : "…")</td>
+                        <td style="text-align:center"><b>@r.Grade</b></td>
+                        <td style="text-align:center">@r.Gpa?.ToString("0.00")</td>
+                        <td>@(!r.Complete ? "Incomplete" : r.Passed ? "Passed" : $"Failed {r.FailedSubjects}")</td>
+                        <td style="text-align:center">@r.SectionRank@(r.ClassRank is null || r.ClassRank == r.SectionRank ? "" : $" (class {r.ClassRank})")</td>
+                        <td style="text-align:center">@(r.AttendancePercent is { } att ? $"{att:0}%" : "—")</td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public ExamView Exam { get; set; } = default!;
+    [Parameter] public EventCallback Changed { get; set; }
+
+    private TabulationView? tab;
+    private Guid? sectionId;
+    private DateTime? publishDate;
+    private TimeSpan? publishTime = new(16, 0, 0);
+
+    protected override Task OnParametersSetAsync() => Load();
+
+    private async Task Load() => await Run(async () => tab = await Api.GetAsync<TabulationView>($"api/exams/{Exam.Id}/results"));
+
+    private async Task After(Func<Task> action, string message)
+    {
+        if (await Run(action, message))
+        {
+            await Changed.InvokeAsync();
+            await Load();
+        }
+    }
+
+    private async Task Finalise()
+    {
+        if (!await Confirm("Finalise results", "Grades, GPA, ranks and attendance are calculated and frozen into signed report cards. Families do not see them until you publish.", "Finalise")) return;
+        await After(() => Api.PostAsync<TabulationView>($"api/exams/{Exam.Id}/results/finalise"), "Results finalised.");
+    }
+
+    private async Task Unfinalise() => await After(() => Api.PostAsync<ExamView>($"api/exams/{Exam.Id}/results/unfinalise"), "Results re-opened; mark sheets can be re-opened now.");
+
+    private async Task PublishNow()
+    {
+        if (!await Confirm("Publish results", "Report cards become visible in the portal and every guardian gets an SMS with the result.", "Publish")) return;
+        await After(() => Api.PostAsync<ExamView>($"api/exams/{Exam.Id}/results/publish", new PublishRequest(null)), "Results published; guardians have been told.");
+    }
+
+    private async Task Schedule()
+    {
+        // The school works in Dhaka time (UTC+6).
+        var local = publishDate!.Value.Date + (publishTime ?? TimeSpan.Zero);
+        await After(() => Api.PostAsync<ExamView>($"api/exams/{Exam.Id}/results/publish", new PublishRequest(DateTime.SpecifyKind(local.AddHours(-6), DateTimeKind.Utc))),
+            $"Results will publish on {local:dd MMM yyyy, hh:mm tt}.");
+    }
+
+    private async Task Withdraw()
+    {
+        if (!await Confirm("Withdraw results", "Report cards disappear from the portal until you publish again.", "Withdraw")) return;
+        await After(() => Api.PostAsync<ExamView>($"api/exams/{Exam.Id}/results/withdraw"), "Publication withdrawn.");
+    }
+
+    private async Task ReportCards() => await OpenFile(ApiClient.Query($"api/exams/{Exam.Id}/report-cards", ("sectionId", sectionId)));
+}

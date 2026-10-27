@@ -1,0 +1,81 @@
+@inherits AppPage
+@* A leave application for a student — from the office (pick the student) or the parent portal (child given). *@
+
+<MudDialog>
+    <DialogContent>
+        @if (StudentId is null)
+        {
+            <MudAutocomplete T="StudentListItem" @bind-Value="student" SearchFunc="Search" Label="Student" Placeholder="Admission no, name or guardian phone"
+                             ToStringFunc="@(s => s is null ? "" : $"{s.Name} ({s.AdmissionNo})")" MinCharacters="2" DebounceInterval="300"
+                             Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-3" AdornmentIcon="@Icons.Material.Filled.Search" />
+        }
+        else if (StudentName is not null)
+        {
+            <MudText Typo="Typo.subtitle1" Class="mb-3">Leave for <b>@StudentName</b></MudText>
+        }
+        <MudDateRangePicker @bind-DateRange="range" Label="Days" DateFormat="dd MMM yyyy" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-3"
+                            MinDate="@DateTime.UtcNow.AddHours(6).Date.AddDays(-7)" HelperText="Weekends and holidays inside the range are not counted" />
+        <MudTextField @bind-Value="reason" Label="Reason" Lines="3" MaxLength="1000" Required="true" Immediate="true" Variant="Variant.Outlined" Margin="Margin.Dense"
+                      Placeholder="e.g. Fever — doctor advised rest" />
+        <div class="d-flex align-center gap-2 mt-3">
+            <MudFileUpload T="IBrowserFile" @bind-Files="file" Accept=".pdf,.jpg,.jpeg,.png,.webp">
+                <ActivatorContent>
+                    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.AttachFile">Medical note / letter</MudButton>
+                </ActivatorContent>
+            </MudFileUpload>
+            <MudText Typo="Typo.body2">@(file is null ? "Optional · PDF or photo, max 10 MB" : $"{file.Name} ({StudentChoices.Size(file.Size)})")</MudText>
+        </div>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => MudDialog.Cancel())">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Save"
+                   Disabled="@(Busy || (StudentId ?? student?.Id) is null || range.Start is null || string.IsNullOrWhiteSpace(reason))">Submit</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public Guid? StudentId { get; set; }
+    [Parameter] public string? StudentName { get; set; }
+    /// <summary>Submit through the parent portal instead of the office endpoint.</summary>
+    [Parameter] public bool Portal { get; set; }
+
+    private StudentListItem? student;
+    private DateRange range = new(DateTime.UtcNow.AddHours(6).Date, DateTime.UtcNow.AddHours(6).Date);
+    private string? reason;
+    private IBrowserFile? file;
+
+    private async Task<IEnumerable<StudentListItem>> Search(string text, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return [];
+        try
+        {
+            return (await Api.GetAsync<PagedResult<StudentListItem>>(ApiClient.Query("api/students", ("search", text.Trim()), ("pageSize", 20)))).Items;
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Describe(), Severity.Error);
+            return [];
+        }
+    }
+
+    private async Task Save()
+    {
+        if (file is { Size: > ApiClient.MaxUploadBytes })
+        {
+            Snackbar.Add("The file is larger than 10 MB.", Severity.Warning);
+            return;
+        }
+        var id = StudentId ?? student!.Id;
+        // Field names match the API's StudentLeaveForm.
+        var fields = new Dictionary<string, string?>
+        {
+            ["FromDate"] = range.Start!.Value.ToString("yyyy-MM-dd"),
+            ["ToDate"] = (range.End ?? range.Start).Value.ToString("yyyy-MM-dd"),
+            ["Reason"] = reason!.Trim()
+        };
+        var url = Portal ? $"api/portal/children/{id}/leave" : $"api/attendance/leave/{id}";
+        if (await Run(() => Api.UploadAsync<StudentLeaveView>(url, file, "Attachment", fields), "Leave application submitted."))
+            MudDialog.Close(DialogResult.Ok(true));
+    }
+}

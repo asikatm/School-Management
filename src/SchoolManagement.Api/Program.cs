@@ -7,6 +7,9 @@ using Microsoft.OpenApi;
 using Scalar.AspNetCore;
 using SchoolManagement.Api.Modules.Admission;
 using SchoolManagement.Api.Modules.Admission.Services;
+using SchoolManagement.Api.Modules.Attendance;
+using SchoolManagement.Api.Modules.Exams;
+using SchoolManagement.Api.Modules.Learning;
 using SchoolManagement.Api.Modules.Students.Services;
 using SchoolManagement.Infrastructure;
 using SchoolManagement.Infrastructure.Approvals;
@@ -78,6 +81,35 @@ builder.Services.AddScoped<SchoolManagement.Api.Modules.Academics.AcademicLookup
 builder.Services.AddScoped<SchoolManagement.Api.Modules.Academics.TimetableService>();
 builder.Services.AddScoped<SchoolManagement.Api.Modules.Academics.SubstitutionService>();
 
+builder.Services.AddScoped<SchoolDays>();
+builder.Services.AddScoped<GuardianNotifier>();
+builder.Services.AddScoped<AttendanceService>();
+builder.Services.AddScoped<StudentLeaveService>();
+builder.Services.AddScoped<WarningLetterBuilder>();
+builder.Services.AddScoped<StaffAttendanceService>();
+builder.Services.AddScoped<StaffLeaveService>();
+builder.Services.AddScoped<IApprovalHandler, StaffLeaveApprovalHandler>();
+builder.Services.AddSingleton<IScheduledJob, AttendanceAlertJob>();
+builder.Services.AddSingleton<IScheduledJob, AttendanceWarningJob>();
+
+builder.Services.AddScoped<ClassRoster>();
+builder.Services.AddScoped<TeachingAccess>();
+builder.Services.AddScoped<PortalAccess>();
+builder.Services.AddScoped<HomeworkService>();
+builder.Services.AddScoped<DiaryService>();
+builder.Services.AddScoped<ResourceService>();
+builder.Services.AddScoped<GradebookService>();
+builder.Services.AddSingleton<IScheduledJob, HomeworkReminderJob>();
+
+builder.Services.AddScoped<AttendanceHistory>();
+builder.Services.AddScoped<SchoolManagement.Api.Modules.Communication.NoticeService>();
+builder.Services.AddScoped<Grading>();
+builder.Services.AddScoped<ExamService>();
+builder.Services.AddScoped<MarkService>();
+builder.Services.AddScoped<ResultService>();
+builder.Services.AddScoped<IPromotionRule, ExamResultPromotionRule>();
+builder.Services.AddSingleton<IScheduledJob, ResultPublicationJob>();
+
 // ---- MVC, validation, errors, OpenAPI
 builder.Services.AddValidatorsFromAssemblyContaining<Program>();
 builder.Services.AddControllers(o => o.Filters.Add<ValidationFilter>())
@@ -96,7 +128,9 @@ builder.Services.AddOpenApi(o =>
         {
             Title = "School Management API",
             Version = "v1",
-            Description = "Release 1 — CORE (platform, administration & security), ADM (enquiry, admission & enrolment), SIS (student information). " +
+            Description = "CORE (platform, administration & security), ADM (enquiry, admission & enrolment), SIS (student information), " +
+                          "ACA (academics & timetable), ATT (attendance & leave), LRN (teaching, learning & e-classroom), " +
+                          "EXM (examinations, assessment & reports). " +
                           "Feature IDs follow EMSL/LIS/SMS/2026-10."
         };
         doc.Components ??= new OpenApiComponents();

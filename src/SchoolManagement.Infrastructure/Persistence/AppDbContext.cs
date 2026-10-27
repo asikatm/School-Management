@@ -5,11 +5,15 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using SchoolManagement.Domain.Academics;
 using SchoolManagement.Domain.Admission;
+using SchoolManagement.Domain.Attendance;
 using SchoolManagement.Domain.Approvals;
 using SchoolManagement.Domain.Audit;
 using SchoolManagement.Domain.Common;
+using SchoolManagement.Domain.Communication;
 using SchoolManagement.Domain.Core;
+using SchoolManagement.Domain.Exams;
 using SchoolManagement.Domain.Identity;
+using SchoolManagement.Domain.Learning;
 using SchoolManagement.Domain.Notifications;
 using SchoolManagement.Domain.Students;
 using SchoolManagement.Infrastructure.Common;
@@ -142,6 +146,43 @@ public abstract class AppDbContext : DbContext
     public DbSet<TimetableSlot> TimetableSlots => Set<TimetableSlot>();
     public DbSet<Substitution> Substitutions => Set<Substitution>();
     public DbSet<CalendarEvent> CalendarEvents => Set<CalendarEvent>();
+
+    // ATT
+    public DbSet<StudentAttendance> StudentAttendances => Set<StudentAttendance>();
+    public DbSet<PeriodAttendance> PeriodAttendances => Set<PeriodAttendance>();
+    public DbSet<AttendanceRegister> AttendanceRegisters => Set<AttendanceRegister>();
+    public DbSet<StudentLeaveRequest> StudentLeaveRequests => Set<StudentLeaveRequest>();
+    public DbSet<AttendanceWarning> AttendanceWarnings => Set<AttendanceWarning>();
+    public DbSet<StaffAttendance> StaffAttendances => Set<StaffAttendance>();
+    public DbSet<LeaveType> LeaveTypes => Set<LeaveType>();
+    public DbSet<LeaveEntitlement> LeaveEntitlements => Set<LeaveEntitlement>();
+    public DbSet<StaffLeaveRequest> StaffLeaveRequests => Set<StaffLeaveRequest>();
+
+    // LRN
+    public DbSet<Assignment> Assignments => Set<Assignment>();
+    public DbSet<AssignmentSubmission> AssignmentSubmissions => Set<AssignmentSubmission>();
+    public DbSet<ClassDiaryEntry> ClassDiaryEntries => Set<ClassDiaryEntry>();
+    public DbSet<LearningResource> LearningResources => Set<LearningResource>();
+    public DbSet<ResourceDownload> ResourceDownloads => Set<ResourceDownload>();
+    public DbSet<GradebookCategory> GradebookCategories => Set<GradebookCategory>();
+    public DbSet<GradebookItem> GradebookItems => Set<GradebookItem>();
+    public DbSet<GradebookMark> GradebookMarks => Set<GradebookMark>();
+    public DbSet<GradebookModeration> GradebookModerations => Set<GradebookModeration>();
+
+    // COM
+    public DbSet<Notice> Notices => Set<Notice>();
+
+    // EXM
+    public DbSet<Exam> Exams => Set<Exam>();
+    public DbSet<ExamClass> ExamClasses => Set<ExamClass>();
+    public DbSet<ExamPaper> ExamPapers => Set<ExamPaper>();
+    public DbSet<ExamPaperComponent> ExamPaperComponents => Set<ExamPaperComponent>();
+    public DbSet<ExamSeat> ExamSeats => Set<ExamSeat>();
+    public DbSet<ExamInvigilator> ExamInvigilators => Set<ExamInvigilator>();
+    public DbSet<MarkSheet> MarkSheets => Set<MarkSheet>();
+    public DbSet<ExamMark> ExamMarks => Set<ExamMark>();
+    public DbSet<ReportCardRemark> ReportCardRemarks => Set<ReportCardRemark>();
+    public DbSet<ExamResult> ExamResults => Set<ExamResult>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {

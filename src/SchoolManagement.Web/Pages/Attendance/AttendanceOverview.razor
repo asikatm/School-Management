@@ -1,0 +1,115 @@
+@page "/attendance/overview"
+@inherits AppPage
+
+<PageTitle>Attendance today</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-1">Attendance overview</MudText>
+<MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-4">The day's totals, every register taken, and the classes still waiting for one.</MudText>
+
+<div class="d-flex flex-wrap gap-2 align-center mb-4">
+    <MudSelect T="Guid?" Value="campusId" ValueChanged="CampusChanged" Label="Campus" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:260px"
+               ToStringFunc="@(id => campuses.FirstOrDefault(c => c.Id == id)?.Name ?? "")">
+        @foreach (var c in campuses)
+        {
+            <MudSelectItem T="Guid?" Value="@c.Id">@c.Name</MudSelectItem>
+        }
+    </MudSelect>
+    <MudDatePicker Date="date" DateChanged="DateChanged" Label="Date" Variant="Variant.Outlined" Margin="Margin.Dense" DateFormat="ddd, dd MMM yyyy" Style="max-width:220px" />
+    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="Load" Disabled="Busy">Refresh</MudButton>
+</div>
+
+@if (overview is not null)
+{
+    @if (overview.ClosedReason is not null)
+    {
+        <MudAlert Severity="Severity.Info" Class="mb-3">No school on @Format.Date(overview.Date): @overview.ClosedReason.</MudAlert>
+    }
+    <MudGrid Spacing="3" Class="mb-4">
+        @Stat("Registers taken", $"{overview.Taken} / {overview.Sections}", Icons.Material.Filled.FactCheck, Color.Primary)
+        @Stat("Present", overview.Present.ToString(), Icons.Material.Filled.CheckCircle, Color.Success)
+        @Stat("Absent", overview.Absent.ToString(), Icons.Material.Filled.Cancel, Color.Error)
+        @Stat("Late", overview.Late.ToString(), Icons.Material.Filled.Schedule, Color.Warning)
+        @Stat("On leave", overview.OnLeave.ToString(), Icons.Material.Filled.BeachAccess, Color.Info)
+        @Stat("Attendance", Rate(), Icons.Material.Filled.Percent, Color.Secondary)
+    </MudGrid>
+
+    <MudGrid Spacing="3">
+        <MudItem xs="12" md="5">
+            <MudPaper Class="pa-4" Elevation="1">
+                <MudText Typo="Typo.h6" Class="mb-2">Not taken yet (@overview.NotTaken.Count)</MudText>
+                @if (overview.NotTaken.Count == 0)
+                {
+                    <MudText Color="Color.Success">Every class has its register. 🎉</MudText>
+                }
+                else
+                {
+                    <MudList T="string" Dense="true">
+                        @foreach (var p in overview.NotTaken)
+                        {
+                            <MudListItem T="string" Icon="@Icons.Material.Filled.HourglassEmpty" IconColor="Color.Warning"
+                                         Href="@($"attendance?section={p.SectionId}&campus={campusId}&date={overview.Date:yyyy-MM-dd}")">
+                                <b>@p.SectionLabel</b> · @p.Students students<br /><small>Class teacher: @(p.ClassTeacher ?? "not set")</small>
+                            </MudListItem>
+                        }
+                    </MudList>
+                }
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" md="7">
+            <MudPaper Class="pa-4" Elevation="1">
+                <MudText Typo="Typo.h6" Class="mb-2">Registers taken</MudText>
+                <MudTable T="RegisterSummary" Items="overview.Registers" Dense="true" Hover="true" Elevation="0">
+                    <HeaderContent><MudTh>Class</MudTh><MudTh>Register</MudTh><MudTh>P</MudTh><MudTh>A</MudTh><MudTh>L</MudTh><MudTh>LV</MudTh><MudTh>Taken by</MudTh></HeaderContent>
+                    <RowTemplate>
+                        <MudTd><MudLink Href="@($"attendance?section={context.SectionId}&campus={campusId}&date={overview.Date:yyyy-MM-dd}")">@context.SectionLabel</MudLink></MudTd>
+                        <MudTd>@(context.PeriodNo is { } p ? $"Period {p}" : "Daily")</MudTd>
+                        <MudTd>@context.Present</MudTd>
+                        <MudTd><span style="@(context.Absent > 0 ? "color:#dc2626;font-weight:600" : "")">@context.Absent</span></MudTd>
+                        <MudTd>@context.Late</MudTd>
+                        <MudTd>@context.OnLeave</MudTd>
+                        <MudTd>@context.TakenBy <small>@Format.Time(context.TakenAtUtc)</small></MudTd>
+                    </RowTemplate>
+                    <NoRecordsContent><MudText>No registers yet for this day.</MudText></NoRecordsContent>
+                </MudTable>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    private List<StudentCampusOption> campuses = [];
+    private Guid? campusId;
+    private DateTime? date = DateTime.UtcNow.AddHours(6).Date;
+    private DailyOverview? overview;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Run(async () => campuses = await StudentLookups.CampusesAsync(Api));
+        if (campuses.Count == 1) campusId = campuses[0].Id;
+        await Load();
+    }
+
+    private async Task CampusChanged(Guid? id) { campusId = id; await Load(); }
+    private async Task DateChanged(DateTime? d) { date = d; await Load(); }
+
+    private async Task Load()
+    {
+        if (date is null) return;
+        await Run(async () => overview = await Api.GetAsync<DailyOverview>(ApiClient.Query("api/attendance/overview",
+            ("date", DateOnly.FromDateTime(date.Value)), ("campusId", campusId))));
+    }
+
+    private string Rate()
+    {
+        var marked = overview!.Present + overview.Absent + overview.Late + overview.OnLeave;
+        return marked == 0 ? "—" : $"{(overview.Present + overview.Late) * 100.0 / marked:0.#}%";
+    }
+
+    private static RenderFragment Stat(string label, string value, string icon, Color color) =>
+        @<MudItem xs="6" sm="4" md="2">
+            <MudPaper Class="pa-3 d-flex align-center gap-3" Elevation="1">
+                <MudIcon Icon="@icon" Color="color" Size="Size.Large" />
+                <div><MudText Typo="Typo.h6">@value</MudText><MudText Typo="Typo.caption">@label</MudText></div>
+            </MudPaper>
+        </MudItem>;
+}

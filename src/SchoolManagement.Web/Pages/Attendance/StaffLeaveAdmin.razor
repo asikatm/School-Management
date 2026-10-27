@@ -1,0 +1,207 @@
+@page "/attendance/staff-leave"
+@inherits AppPage
+
+<PageTitle>Staff leave</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-1">Staff leave</MudText>
+<MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-4">
+    Requests are approved in the <MudLink Href="approvals">approval inbox</MudLink> (Head of Section, escalating to the Principal after 24 h).
+    Approved days show as Leave on the staff register and the teacher is left out of the cover list.
+</MudText>
+
+<MudTabs Elevation="1" Rounded="true" ApplyEffectsToContainer="true" PanelClass="pa-4">
+    <MudTabPanel Text="Leave calendar" Icon="@Icons.Material.Filled.EventNote">
+        <div class="d-flex flex-wrap gap-2 align-center mb-3">
+            <MudDateRangePicker @bind-DateRange="range" Label="Dates" Variant="Variant.Outlined" Margin="Margin.Dense" DateFormat="dd MMM yyyy" Style="max-width:320px" />
+            <MudSelect T="LeaveStatus?" @bind-Value="status" Label="Status" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:180px">
+                @foreach (var s in Enum.GetValues<LeaveStatus>())
+                {
+                    <MudSelectItem T="LeaveStatus?" Value="s">@Format.Enum(s)</MudSelectItem>
+                }
+            </MudSelect>
+            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Search" OnClick="LoadRequests" Disabled="Busy">Show</MudButton>
+        </div>
+        <MudTable T="StaffLeaveView" Items="requests" Dense="true" Hover="true" Elevation="0" GroupBy="grouping">
+            <HeaderContent><MudTh>Staff</MudTh><MudTh>Type</MudTh><MudTh>Days</MudTh><MudTh>Reason</MudTh><MudTh>Status</MudTh></HeaderContent>
+            <GroupHeaderTemplate>
+                <MudTh colspan="5"><b>@(context.Key is DateOnly d ? d.ToString("dddd, dd MMM yyyy") : "")</b></MudTh>
+            </GroupHeaderTemplate>
+            <RowTemplate>
+                <MudTd><b>@context.Name</b></MudTd>
+                <MudTd><MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@context.LeaveTypeCode</MudChip> @context.LeaveType</MudTd>
+                <MudTd>@Format.Date(context.FromDate)@(context.ToDate != context.FromDate ? $" – {Format.Date(context.ToDate)}" : "") <small>(@context.Days.ToString("0.#") d)</small></MudTd>
+                <MudTd>@context.Reason</MudTd>
+                <MudTd><MudChip T="string" Size="Size.Small" Color="AttendanceUi.Color(context.Status)">@Format.Enum(context.Status)</MudChip></MudTd>
+            </RowTemplate>
+            <NoRecordsContent><MudText>No leave in this period.</MudText></NoRecordsContent>
+        </MudTable>
+    </MudTabPanel>
+
+    <MudTabPanel Text="Leave types" Icon="@Icons.Material.Filled.Category">
+        <MudTable T="LeaveTypeView" Items="types" Dense="true" Hover="true" Elevation="0" OnRowClick="@(e => EditType(e.Item))" Style="cursor:pointer">
+            <ToolBarContent>
+                <MudText Typo="Typo.caption">Days per year apply to everyone unless overridden for a person below. 0 = no limit.</MudText>
+                <MudSpacer />
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="() => EditType(null)">New type</MudButton>
+            </ToolBarContent>
+            <HeaderContent><MudTh>Code</MudTh><MudTh>Name</MudTh><MudTh>Days / year</MudTh><MudTh>Paid</MudTh><MudTh>Needs document</MudTh><MudTh>Active</MudTh></HeaderContent>
+            <RowTemplate>
+                <MudTd><b>@context.Code</b></MudTd>
+                <MudTd>@context.Name <small>@context.NameBn</small></MudTd>
+                <MudTd>@(context.DaysPerYear == 0 ? "No limit" : context.DaysPerYear.ToString("0.#"))</MudTd>
+                <MudTd>@(context.IsPaid ? "Yes" : "No")</MudTd>
+                <MudTd>@(context.RequiresDocument ? "Yes" : "No")</MudTd>
+                <MudTd>@(context.IsActive ? "Yes" : "No")</MudTd>
+            </RowTemplate>
+        </MudTable>
+
+        @if (typeForm is not null)
+        {
+            <MudPaper Outlined="true" Class="pa-4 mt-3">
+                <MudText Typo="Typo.subtitle1" Class="mb-2">@(typeId is null ? "New leave type" : $"Edit {typeForm.Code}")</MudText>
+                <MudGrid Spacing="2">
+                    <MudItem xs="6" sm="2"><MudTextField @bind-Value="typeForm.Code" Label="Code" MaxLength="10" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                    <MudItem xs="6" sm="4"><MudTextField @bind-Value="typeForm.Name" Label="Name" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                    <MudItem xs="6" sm="4"><MudTextField @bind-Value="typeForm.NameBn" Label="Name (বাংলা)" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                    <MudItem xs="6" sm="2"><MudNumericField @bind-Value="typeForm.DaysPerYear" Label="Days / year" Min="0" Max="365" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                    <MudItem xs="12" Class="d-flex flex-wrap gap-4 align-center">
+                        <MudCheckBox T="bool" @bind-Value="typeForm.IsPaid" Label="Paid" />
+                        <MudCheckBox T="bool" @bind-Value="typeForm.RequiresDocument" Label="Needs a supporting document" />
+                        <MudCheckBox T="bool" @bind-Value="typeForm.IsActive" Label="Active" />
+                        <MudSpacer />
+                        <MudButton OnClick="() => typeForm = null">Cancel</MudButton>
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveType" Disabled="Busy">Save</MudButton>
+                    </MudItem>
+                </MudGrid>
+            </MudPaper>
+        }
+    </MudTabPanel>
+
+    <MudTabPanel Text="Balances & entitlements" Icon="@Icons.Material.Filled.AccountBalanceWallet">
+        <div class="d-flex flex-wrap gap-2 align-center mb-3">
+            <MudSelect T="Guid?" Value="staffId" ValueChanged="StaffChanged" Label="Staff member" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:320px"
+                       ToStringFunc="@(id => staff.FirstOrDefault(s => s.Id == id)?.FullName ?? "")">
+                @foreach (var s in staff)
+                {
+                    <MudSelectItem T="Guid?" Value="s.Id">@s.FullName</MudSelectItem>
+                }
+            </MudSelect>
+        </div>
+        @if (staffId is not null)
+        {
+            <MudSimpleTable Dense="true" Outlined="true">
+                <thead><tr><th>Type</th><th>Entitled</th><th>Taken</th><th>Pending</th><th>Remaining</th><th style="width:240px">Override for this year</th></tr></thead>
+                <tbody>
+                    @foreach (var b in balances)
+                    {
+                        <tr>
+                            <td>@b.Name</td>
+                            <td>@(b.Unlimited ? "No limit" : b.Entitled.ToString("0.#"))</td>
+                            <td>@b.Taken.ToString("0.#")</td>
+                            <td>@b.Pending.ToString("0.#")</td>
+                            <td><b>@(b.Unlimited ? "—" : b.Remaining.ToString("0.#"))</b></td>
+                            <td>
+                                <div class="d-flex gap-1 align-center">
+                                    <MudNumericField T="decimal?" Value="overrides.GetValueOrDefault(b.LeaveTypeId)" ValueChanged="v => overrides[b.LeaveTypeId] = v" Min="0" Max="365"
+                                                     Margin="Margin.Dense" Placeholder="days" Style="max-width:90px" />
+                                    <MudButton Size="Size.Small" OnClick="() => SetEntitlement(b)" Disabled="@(Busy || overrides.GetValueOrDefault(b.LeaveTypeId) is null)">Set</MudButton>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+        }
+    </MudTabPanel>
+</MudTabs>
+
+@code {
+    private DateRange range = new(DateTime.UtcNow.AddHours(6).Date.AddDays(-7), DateTime.UtcNow.AddHours(6).Date.AddDays(30));
+    private LeaveStatus? status;
+    private List<StaffLeaveView> requests = [];
+    private List<LeaveTypeView> types = [];
+    private List<TeacherOption> staff = [];
+    private Guid? staffId;
+    private List<LeaveBalance> balances = [];
+    private readonly Dictionary<Guid, decimal?> overrides = [];
+    private Guid? typeId;
+    private TypeForm? typeForm;
+    private Guid? yearId;
+
+    private readonly TableGroupDefinition<StaffLeaveView> grouping = new() { Selector = l => l.FromDate };
+
+    private sealed class TypeForm
+    {
+        public string Code { get; set; } = "";
+        public string Name { get; set; } = "";
+        public string? NameBn { get; set; }
+        public decimal DaysPerYear { get; set; }
+        public bool IsPaid { get; set; } = true;
+        public bool RequiresDocument { get; set; }
+        public bool IsActive { get; set; } = true;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadRequests();
+        await Run(async () =>
+        {
+            types = await Api.GetAsync<List<LeaveTypeView>>("api/staff-leave/types?activeOnly=false");
+            staff = await Api.GetAsync<List<TeacherOption>>("api/academics/teachers");
+            var years = await StudentLookups.YearsAsync(Api);
+            yearId = (years.FirstOrDefault(y => y.IsCurrent) ?? years.FirstOrDefault())?.Id;
+        });
+    }
+
+    private async Task LoadRequests()
+    {
+        if (range.Start is null) return;
+        await Run(async () => requests = await Api.GetAsync<List<StaffLeaveView>>(ApiClient.Query("api/staff-leave",
+            ("status", status), ("from", DateOnly.FromDateTime(range.Start.Value)), ("to", DateOnly.FromDateTime(range.End ?? range.Start.Value)))));
+    }
+
+    private void EditType(LeaveTypeView? t)
+    {
+        typeId = t?.Id;
+        typeForm = t is null ? new TypeForm() : new TypeForm
+        {
+            Code = t.Code, Name = t.Name, NameBn = t.NameBn, DaysPerYear = t.DaysPerYear, IsPaid = t.IsPaid, RequiresDocument = t.RequiresDocument, IsActive = t.IsActive
+        };
+    }
+
+    private async Task SaveType()
+    {
+        var f = typeForm!;
+        var request = new LeaveTypeRequest(f.Code, f.Name, f.NameBn, f.DaysPerYear, f.IsPaid, f.RequiresDocument, f.IsActive);
+        if (await Run(() => typeId is { } id ? Api.PutAsync<LeaveTypeView>($"api/staff-leave/types/{id}", request) : Api.PostAsync<LeaveTypeView>("api/staff-leave/types", request),
+                "Leave type saved."))
+        {
+            typeForm = null;
+            await Run(async () => types = await Api.GetAsync<List<LeaveTypeView>>("api/staff-leave/types?activeOnly=false"));
+        }
+    }
+
+    private async Task StaffChanged(Guid? id)
+    {
+        staffId = id;
+        overrides.Clear();
+        await LoadBalances();
+    }
+
+    private async Task LoadBalances()
+    {
+        if (staffId is null) return;
+        await Run(async () => balances = await Api.GetAsync<List<LeaveBalance>>(ApiClient.Query("api/staff-leave/balances", ("userId", staffId), ("academicYearId", yearId))));
+    }
+
+    private async Task SetEntitlement(LeaveBalance b)
+    {
+        if (yearId is null) return;
+        if (await Run(() => Api.PutAsync("api/staff-leave/entitlements", new { UserId = staffId, b.LeaveTypeId, AcademicYearId = yearId, Days = overrides[b.LeaveTypeId] }),
+                "Entitlement updated."))
+        {
+            overrides.Remove(b.LeaveTypeId);
+            await LoadBalances();
+        }
+    }
+}

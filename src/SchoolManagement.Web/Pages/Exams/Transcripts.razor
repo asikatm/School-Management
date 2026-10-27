@@ -1,0 +1,86 @@
+@page "/exams/transcripts"
+@inherits AppPage
+
+<PageTitle>Transcripts</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-1">Transcripts</MudText>
+<MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-4">Multi-year results, subject history and cumulative GPA for one student (finalised and published exams).</MudText>
+
+<MudPaper Class="pa-4 mb-4" Elevation="1">
+    <div class="d-flex flex-wrap gap-2 align-center">
+        <MudAutocomplete T="StudentListItem" Value="student" ValueChanged="Pick" SearchFunc="Search" Label="Student" Placeholder="Admission no, name or guardian phone"
+                         ToStringFunc="@(s => s is null ? "" : $"{s.Name} ({s.AdmissionNo})")" MinCharacters="2" DebounceInterval="300"
+                         Variant="Variant.Outlined" Margin="Margin.Dense" AdornmentIcon="@Icons.Material.Filled.Search" Style="min-width:340px" />
+        @if (transcript is not null)
+        {
+            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Print" OnClick="@(() => OpenFile($"api/exams/transcripts/{transcript.StudentId}/print"))">Print transcript</MudButton>
+        }
+    </div>
+</MudPaper>
+
+@if (transcript is not null)
+{
+    <MudText Typo="Typo.h6">@transcript.Name @(transcript.NameBn is null ? "" : $"· {transcript.NameBn}")</MudText>
+    <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-3">
+        @transcript.AdmissionNo · @transcript.Campus · admitted @Format.Date(transcript.AdmissionDate) ·
+        cumulative GPA <b>@(transcript.CumulativeGpa?.ToString("0.00") ?? "—")</b> · cumulative % <b>@(transcript.CumulativePercent?.ToString("0.##") ?? "—")</b>
+    </MudText>
+    @if (transcript.Years.Count == 0)
+    {
+        <MudAlert Severity="Severity.Info">No finalised exam results yet.</MudAlert>
+    }
+    @foreach (var y in transcript.Years)
+    {
+        <MudText Typo="Typo.subtitle1" Class="mt-3 mb-1"><b>@y.AcademicYear · @y.ClassName</b></MudText>
+        <MudSimpleTable Dense="true" Outlined="true">
+            <thead><tr><th>Exam</th><th>%</th><th>Grade</th><th>GPA</th><th>Result</th><th>Class position</th></tr></thead>
+            <tbody>
+                @foreach (var e in y.Exams)
+                {
+                    <tr><td>@e.ExamName <small class="mud-text-secondary">@Format.Enum(e.Type)</small></td><td>@e.Percent.ToString("0.##")</td><td>@e.Grade</td><td>@e.Gpa?.ToString("0.00")</td>
+                        <td>@(e.Passed ? "Passed" : "Not passed")</td><td>@e.ClassRank</td></tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    }
+    @if (transcript.Subjects.Count > 0)
+    {
+        <MudText Typo="Typo.subtitle1" Class="mt-4 mb-1"><b>Subject history</b></MudText>
+        <MudSimpleTable Dense="true" Outlined="true">
+            <thead><tr><th>Subject</th><th>Results</th></tr></thead>
+            <tbody>
+                @foreach (var s in transcript.Subjects)
+                {
+                    <tr><td><b>@s.SubjectName</b></td><td>@string.Join(" · ", s.Marks.Select(m => $"{m.AcademicYear} {m.ExamName}: {m.Status ?? m.Percent?.ToString("0.#")}{(m.Grade is null ? "" : $" ({m.Grade})")}"))</td></tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    }
+}
+
+@code {
+    private StudentListItem? student;
+    private Transcript? transcript;
+
+    private async Task<IEnumerable<StudentListItem>> Search(string text, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return [];
+        try
+        {
+            return (await Api.GetAsync<PagedResult<StudentListItem>>(ApiClient.Query("api/students", ("search", text.Trim()), ("pageSize", 20)))).Items;
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Describe(), Severity.Error);
+            return [];
+        }
+    }
+
+    private async Task Pick(StudentListItem? s)
+    {
+        student = s;
+        transcript = null;
+        if (s is null) return;
+        await Run(async () => transcript = await Api.GetAsync<Transcript>($"api/exams/transcripts/{s.Id}"));
+    }
+}

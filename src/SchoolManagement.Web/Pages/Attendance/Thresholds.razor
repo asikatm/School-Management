@@ -1,0 +1,98 @@
+@page "/attendance/thresholds"
+@inherits AppPage
+
+<PageTitle>Attendance thresholds</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-1">Attendance thresholds</MudText>
+<MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-4">
+    Term attendance per student. Guardians are sent an SMS once when a student drops below each line; print a formal letter from here.
+</MudText>
+
+<div class="d-flex flex-wrap gap-2 align-center mb-4">
+    <MudSelect T="Guid?" Value="campusId" ValueChanged="CampusChanged" Label="Campus" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:260px"
+               ToStringFunc="@(id => campuses.FirstOrDefault(c => c.Id == id)?.Name ?? "")">
+        @foreach (var c in campuses)
+        {
+            <MudSelectItem T="Guid?" Value="@c.Id">@c.Name</MudSelectItem>
+        }
+    </MudSelect>
+    <MudSwitch T="bool" Value="belowOnly" ValueChanged="BelowChanged" Color="Color.Primary" Label="Only students below the warning line" />
+</div>
+
+@if (report is not null)
+{
+    <MudAlert Severity="Severity.Normal" Dense="true" Class="mb-3">
+        @report.TermName · @Format.Date(report.From) – @Format.Date(report.To) · warning below <b>@report.WarningPercent.ToString("0.#")%</b>,
+        exam minimum <b>@report.MinimumPercent.ToString("0.#")%</b>
+    </MudAlert>
+    <MudTable T="ThresholdRow" Items="report.Students" Dense="true" Hover="true" Elevation="1" Filter="Match">
+        <ToolBarContent>
+            <MudText Typo="Typo.h6">@report.Students.Count student(s)</MudText>
+            <MudSpacer />
+            <MudTextField @bind-Value="search" Placeholder="Search name, admission no or class" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                          Immediate="true" Margin="Margin.Dense" Style="max-width:320px" />
+        </ToolBarContent>
+        <HeaderContent>
+            <MudTh>Student</MudTh><MudTh>Class</MudTh><MudTh>Days</MudTh><MudTh>Attended</MudTh><MudTh>Absent</MudTh><MudTh>Leave</MudTh><MudTh>%</MudTh>
+            <MudTh>Status</MudTh><MudTh>Guardian warned</MudTh><MudTh></MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd><b>@context.Name</b> <small>@context.AdmissionNo</small></MudTd>
+            <MudTd>@context.ClassName</MudTd>
+            <MudTd>@context.Marked</MudTd>
+            <MudTd>@context.Attended</MudTd>
+            <MudTd>@context.Absent</MudTd>
+            <MudTd>@context.Leave</MudTd>
+            <MudTd><b>@context.Percent.ToString("0.#")</b></MudTd>
+            <MudTd>
+                @if (context.Level == WarningLevel.BelowMinimum)
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Error">Below exam minimum</MudChip>
+                }
+                else if (context.Level == WarningLevel.Caution)
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Warning">Warning</MudChip>
+                }
+                else
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Text">OK</MudChip>
+                }
+            </MudTd>
+            <MudTd>@(context.WarnedAtUtc is null ? "—" : Format.Date(context.WarnedAtUtc))</MudTd>
+            <MudTd>
+                @if (context.Level is not null)
+                {
+                    <MudButton Size="Size.Small" StartIcon="@Icons.Material.Filled.Print" OnClick="() => Letter(context)" Disabled="Busy">Letter</MudButton>
+                }
+            </MudTd>
+        </RowTemplate>
+        <NoRecordsContent><MudText>No students below the warning line. 👍</MudText></NoRecordsContent>
+    </MudTable>
+}
+
+@code {
+    private List<StudentCampusOption> campuses = [];
+    private Guid? campusId;
+    private bool belowOnly = true;
+    private string? search;
+    private ThresholdReport? report;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Run(async () => campuses = await StudentLookups.CampusesAsync(Api));
+        if (campuses.Count == 1) campusId = campuses[0].Id;
+        await Load();
+    }
+
+    private async Task CampusChanged(Guid? id) { campusId = id; await Load(); }
+    private async Task BelowChanged(bool v) { belowOnly = v; await Load(); }
+
+    private async Task Load() =>
+        await Run(async () => report = await Api.GetAsync<ThresholdReport>(ApiClient.Query("api/attendance/thresholds", ("campusId", campusId), ("belowOnly", belowOnly))));
+
+    private bool Match(ThresholdRow r) => string.IsNullOrWhiteSpace(search)
+        || r.Name.Contains(search, StringComparison.OrdinalIgnoreCase) || r.AdmissionNo.Contains(search, StringComparison.OrdinalIgnoreCase)
+        || r.ClassName.Contains(search, StringComparison.OrdinalIgnoreCase);
+
+    private Task Letter(ThresholdRow r) => OpenFile($"api/attendance/thresholds/{r.StudentId}/letter?termId={report!.TermId}");
+}

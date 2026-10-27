@@ -1,0 +1,71 @@
+@page "/exams"
+@inherits AppPage
+
+<PageTitle>Exams & results</PageTitle>
+
+<div class="d-flex flex-wrap align-center gap-2 mb-1">
+    <MudText Typo="Typo.h4">Exams & results</MudText>
+    <MudSpacer />
+    @if (Session.Has(P.Exams.Manage))
+    {
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="Create">New exam</MudButton>
+    }
+</div>
+<MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-4">
+    Exam calendar → date sheet → seating and admit cards → marks → moderation → results → report cards → publication → analysis.
+</MudText>
+
+<div class="d-flex flex-wrap gap-2 mb-3">
+    <MudSelect T="Guid?" Label="Academic year" Value="yearId" ValueChanged="YearChanged" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:220px"
+               ToStringFunc="@(id => years.FirstOrDefault(y => y.Id == id)?.Name ?? "")">
+        @foreach (var y in years)
+        {
+            <MudSelectItem T="Guid?" Value="y.Id">@y.Name@(y.IsCurrent ? " (current)" : "")</MudSelectItem>
+        }
+    </MudSelect>
+</div>
+
+<MudTable T="ExamView" Items="items" Dense="true" Hover="true" Elevation="1" Loading="Busy" OnRowClick="Open" RowStyle="cursor:pointer">
+    <HeaderContent>
+        <MudTh>Exam</MudTh><MudTh>Type</MudTh><MudTh>Dates</MudTh><MudTh>Classes</MudTh><MudTh>Date sheet</MudTh><MudTh>Mark sheets</MudTh><MudTh>Results</MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd><b>@context.Name</b><br /><small class="mud-text-secondary">@context.Code · @(context.CampusName ?? "All campuses")@(context.TermName is null ? "" : $" · {context.TermName}")</small></MudTd>
+        <MudTd>@Format.Enum(context.Type)</MudTd>
+        <MudTd Style="white-space:nowrap">@Format.Date(context.StartDate) – @Format.Date(context.EndDate)</MudTd>
+        <MudTd>@string.Join(", ", context.Classes.Select(c => c.ClassName))</MudTd>
+        <MudTd>
+            @context.Papers paper(s)
+            @if (context.SchedulePublished) { <br /><MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Outlined">Published</MudChip> }
+        </MudTd>
+        <MudTd>@context.MarkSheetsApproved / @context.MarkSheets approved</MudTd>
+        <MudTd><MudChip T="string" Size="Size.Small" Color="ExamUi.Color(context.ResultStatus)">@ExamUi.Label(context.ResultStatus)</MudChip></MudTd>
+    </RowTemplate>
+    <NoRecordsContent><MudText>No exams in this year yet.</MudText></NoRecordsContent>
+</MudTable>
+
+@code {
+    private List<AcademicYearView> years = [];
+    private Guid? yearId;
+    private List<ExamView> items = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Run(async () => years = await Api.GetAsync<List<AcademicYearView>>("api/academic-years"));
+        yearId = (years.FirstOrDefault(y => y.IsCurrent) ?? years.FirstOrDefault())?.Id;
+        await Load();
+    }
+
+    private async Task YearChanged(Guid? id) { yearId = id; await Load(); }
+
+    private async Task Load() => await Run(async () => items = await Api.GetAsync<List<ExamView>>(ApiClient.Query("api/exams", ("academicYearId", yearId))));
+
+    private void Open(TableRowClickEventArgs<ExamView> e) => Nav.NavigateTo($"exams/{e.Item!.Id}");
+
+    private async Task Create()
+    {
+        var parameters = new DialogParameters<ExamDialog> { { x => x.AcademicYearId, yearId } };
+        var dialog = await Dialogs.ShowAsync<ExamDialog>("New exam", parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (await dialog.Result is { Canceled: false, Data: ExamView exam }) Nav.NavigateTo($"exams/{exam.Id}");
+    }
+}

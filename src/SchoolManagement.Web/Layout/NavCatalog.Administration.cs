@@ -10,6 +10,7 @@ public static partial class NavCatalog
         // The approval inbox and personal notifications are open to every signed-in user.
         new NavItem("My approvals", "admin/approvals", Icons.Material.Filled.FactCheck),
         new NavItem("My notifications", "notifications", Icons.Material.Filled.Notifications),
+        new NavItem("Notice board", "notices", Icons.Material.Filled.Campaign, P.Notices.Manage, P.Settings.View, P.Students.View),
         new NavItem("Approval requests", "admin/approval-requests", Icons.Material.Filled.ListAlt, P.Approvals.View),
         new NavItem("Approval workflows", "admin/approval-workflows", Icons.Material.Filled.AccountTree, P.Approvals.View),
         new NavItem("Users", "admin/users", Icons.Material.Filled.ManageAccounts, P.Users.View),

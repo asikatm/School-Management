@@ -1,0 +1,49 @@
+@inherits AppPage
+@* EXM-03: every paper × section with its entry, verification and approval status. *@
+
+<div class="d-flex flex-wrap gap-2 mb-3">
+    <MudChipSet T="MarkSheetStatus?" SelectedValue="filter" SelectedValueChanged="v => filter = v" CheckMark="true" SelectionMode="SelectionMode.SingleSelection">
+        <MudChip T="MarkSheetStatus?" Value="null">All (@sheets.Count)</MudChip>
+        @foreach (var s in Enum.GetValues<MarkSheetStatus>())
+        {
+            <MudChip T="MarkSheetStatus?" Value="s" Color="ExamUi.Color(s)">@Format.Enum(s) (@sheets.Count(x => x.Status == s))</MudChip>
+        }
+    </MudChipSet>
+</div>
+
+<MudTable T="MarkSheetSummary" Items="sheets.Where(s => filter is null || s.Status == filter)" Dense="true" Hover="true" Elevation="0" Outlined="true" Loading="Busy"
+          OnRowClick="Open" RowStyle="cursor:pointer">
+    <HeaderContent>
+        <MudTh>Date</MudTh><MudTh>Class / section</MudTh><MudTh>Subject</MudTh><MudTh>Entered</MudTh><MudTh>Status</MudTh><MudTh>By</MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd>@Format.Date(context.Date)</MudTd>
+        <MudTd>@context.SectionLabel</MudTd>
+        <MudTd>@context.SubjectName</MudTd>
+        <MudTd>
+            <MudProgressLinear Value="@(context.Candidates == 0 ? 0 : context.Complete * 100.0 / context.Candidates)" Color="Color.Primary" Size="Size.Small" Style="max-width:120px" />
+            <small>@context.Complete / @context.Candidates</small>
+        </MudTd>
+        <MudTd><MudChip T="string" Size="Size.Small" Color="ExamUi.Color(context.Status)">@Format.Enum(context.Status)</MudChip></MudTd>
+        <MudTd>
+            <small>
+                @(context.EnteredBy is null ? "" : $"Entered: {context.EnteredBy}")
+                @(context.VerifiedBy is null ? "" : $" · Verified: {context.VerifiedBy}")
+                @(context.ApprovedBy is null ? "" : $" · Approved: {context.ApprovedBy}")
+            </small>
+        </MudTd>
+    </RowTemplate>
+    <NoRecordsContent><MudText>Add papers to the date sheet first; a mark sheet appears for every section that sits them.</MudText></NoRecordsContent>
+</MudTable>
+
+@code {
+    [Parameter, EditorRequired] public ExamView Exam { get; set; } = default!;
+
+    private List<MarkSheetSummary> sheets = [];
+    private MarkSheetStatus? filter;
+
+    protected override async Task OnInitializedAsync() =>
+        await Run(async () => sheets = await Api.GetAsync<List<MarkSheetSummary>>($"api/exams/{Exam.Id}/mark-sheets"));
+
+    private void Open(TableRowClickEventArgs<MarkSheetSummary> e) => Nav.NavigateTo($"exams/marks/{e.Item!.PaperId}/{e.Item.SectionId}");
+}

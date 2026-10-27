@@ -1,0 +1,297 @@
+@page "/learning/gradebook"
+@inherits AppPage
+
+<PageTitle>Gradebook</PageTitle>
+
+<div class="d-flex flex-wrap align-center gap-2 mb-1">
+    <MudText Typo="Typo.h4">Gradebook</MudText>
+    <MudSpacer />
+    @if (Session.Has(P.Learning.Manage))
+    {
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Tune" OnClick="Categories">Categories & weights</MudButton>
+    }
+</div>
+<MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-4">
+    Continuous assessment: classwork, homework, quizzes, projects and practicals are weighted into a term %. The head of department moderates and approves it;
+    approved term % can feed the CA component of exam papers.
+</MudText>
+
+<MudPaper Class="pa-4 mb-4" Elevation="1">
+    <MudGrid Spacing="2">
+        <StudentClassPicker @bind-CampusId="campusId" @bind-AcademicYearId="yearId" @bind-YearGroupId="yearGroupId" @bind-SectionId="sectionId"
+                            Changed="ClassChanged" SectionRequired="true" Md="2" />
+        <MudItem xs="12" sm="6" md="2">
+            <MudSelect T="Guid?" Label="Subject" Value="subjectId" ValueChanged="SubjectChanged" Variant="Variant.Outlined" Margin="Margin.Dense"
+                       ToStringFunc="@(id => subjects.FirstOrDefault(s => s.Id == id)?.Name ?? "")">
+                @foreach (var s in subjects)
+                {
+                    <MudSelectItem T="Guid?" Value="s.Id">@s.Name</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="2">
+            <MudSelect T="Guid?" Label="Term" Value="termId" ValueChanged="TermChanged" Variant="Variant.Outlined" Margin="Margin.Dense"
+                       ToStringFunc="@(id => terms.FirstOrDefault(t => t.Id == id)?.Name ?? "")">
+                @foreach (var t in terms)
+                {
+                    <MudSelectItem T="Guid?" Value="t.Id">@t.Name</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+@if (book is null)
+{
+    <MudAlert Severity="Severity.Info">Choose a section, subject and term.</MudAlert>
+}
+else
+{
+    <div class="d-flex flex-wrap align-center gap-2 mb-3">
+        <MudText Typo="Typo.h6">@book.SectionLabel · @book.SubjectName · @book.TermName</MudText>
+        <MudChip T="string" Size="Size.Small" Color="LearningUi.Color(book.Moderation.Status)">@Format.Enum(book.Moderation.Status)</MudChip>
+        @if (book.ClassAverage is { } avg) { <MudChip T="string" Size="Size.Small" Variant="Variant.Text">Class average @avg.ToString("0.#")%</MudChip> }
+        <MudSpacer />
+        @foreach (var c in book.Categories.Where(c => c.WeightPercent > 0))
+        {
+            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@c.Name @c.WeightPercent.ToString("0.#")%</MudChip>
+        }
+    </div>
+
+    @if (book.Moderation.Note is not null || book.Moderation.ModeratedBy is not null)
+    {
+        <MudAlert Severity="@(book.Moderation.Status == ModerationStatus.Approved ? Severity.Success : Severity.Warning)" Dense="true" Class="mb-3">
+            @(book.Moderation.Status == ModerationStatus.Approved ? $"Approved by {book.Moderation.ModeratedBy}" : $"Returned by {book.Moderation.ModeratedBy}")
+            @(book.Moderation.Adjustment != 0 ? $" with a {book.Moderation.Adjustment:+0.#;-0.#} point adjustment" : "")@(book.Moderation.Note is null ? "." : $": {book.Moderation.Note}")
+        </MudAlert>
+    }
+
+    @if (book.CanEdit)
+    {
+        <MudPaper Class="pa-3 mb-3" Elevation="0" Outlined="true">
+            <div class="d-flex flex-wrap align-end gap-2">
+                <MudSelect T="Guid?" Label="Category" @bind-Value="newCategory" Variant="Variant.Outlined" Margin="Margin.Dense" Style="min-width:160px"
+                           ToStringFunc="@(id => book.Categories.FirstOrDefault(c => c.Id == id)?.Name ?? "")">
+                    @foreach (var c in book.Categories)
+                    {
+                        <MudSelectItem T="Guid?" Value="c.Id">@c.Name</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudTextField @bind-Value="newTitle" Label="Assessed work" MaxLength="200" Variant="Variant.Outlined" Margin="Margin.Dense" Style="min-width:220px" />
+                <MudDatePicker @bind-Date="newDate" Label="Date" Variant="Variant.Outlined" Margin="Margin.Dense" DateFormat="dd MMM" Style="max-width:150px" />
+                <MudNumericField T="decimal?" @bind-Value="newMax" Label="Out of" Min="1" Max="1000" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:110px" />
+                <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Add" OnClick="AddItem"
+                           Disabled="@(Busy || newCategory is null || string.IsNullOrWhiteSpace(newTitle) || newMax is null || newDate is null)">Add column</MudButton>
+            </div>
+        </MudPaper>
+    }
+
+    <div style="overflow-x:auto">
+        <MudSimpleTable Dense="true" Hover="true" Outlined="true" Style="min-width:600px">
+            <thead>
+                <tr>
+                    <th style="width:50px">Roll</th><th style="min-width:180px">Student</th>
+                    @foreach (var i in book.Items)
+                    {
+                        <th style="min-width:90px;text-align:center">
+                            <div>@i.Title</div>
+                            <small class="mud-text-secondary">@i.CategoryName · /@i.MaxMarks.ToString("0.##")@(i.AssignmentId is null ? "" : " · HW")</small>
+                            @if (book.CanEdit && i.AssignmentId is null)
+                            {
+                                <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small" OnClick="() => DeleteItem(i)" title="Remove column" />
+                            }
+                        </th>
+                    }
+                    <th style="text-align:center">Term %</th><th style="text-align:center">Grade</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var s in book.Students)
+                {
+                    <tr>
+                        <td>@s.RollNo</td>
+                        <td><b>@s.Name</b><br /><small class="mud-text-secondary">@s.AdmissionNo</small></td>
+                        @foreach (var i in book.Items)
+                        {
+                            var key = (i.Id, s.StudentId);
+                            <td style="text-align:center">
+                                @if (i.AssignmentId is not null || !book.CanEdit)
+                                {
+                                    @(s.Marks.TryGetValue(i.Id, out var cell) ? (cell.Excused ? "EX" : cell.Marks?.ToString("0.##")) : "")
+                                }
+                                else
+                                {
+                                    <input class="gb-cell" value="@cells.GetValueOrDefault(key)" @onchange="e => cells[key] = e.Value?.ToString()" placeholder="—" title="Marks, or EX for excused" />
+                                }
+                            </td>
+                        }
+                        <td style="text-align:center"><b>@(s.ModeratedPercent?.ToString("0.#") ?? "—")</b>@(s.TermPercent != s.ModeratedPercent && s.TermPercent is { } raw ? $" ({raw:0.#})" : "")</td>
+                        <td style="text-align:center">@s.Grade</td>
+                    </tr>
+                }
+                @if (book.Students.Count == 0)
+                {
+                    <tr><td colspan="@(book.Items.Count + 4)">No students take this subject in the class.</td></tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    </div>
+
+    <div class="d-flex flex-wrap justify-end gap-2 mt-3">
+        @if (book.CanEdit)
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Save" OnClick="SaveMarks" Disabled="Busy">Save marks</MudButton>
+            <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Send" OnClick="Submit" Disabled="@(Busy || book.Items.Count == 0)">Submit for moderation</MudButton>
+        }
+        @if (book.CanModerate && book.Moderation.Status == ModerationStatus.Submitted)
+        {
+            <MudNumericField T="decimal" @bind-Value="adjustment" Label="Adjustment (± points)" Min="-20" Max="20" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:170px" />
+            <MudButton Variant="Variant.Filled" Color="Color.Success" OnClick="() => Moderate(true)" Disabled="Busy">Approve & lock</MudButton>
+            <MudButton Color="Color.Warning" OnClick="() => Moderate(false)" Disabled="Busy">Return to teacher</MudButton>
+        }
+        @if (book.CanModerate && book.Moderation.Status == ModerationStatus.Approved)
+        {
+            <MudButton Color="Color.Warning" StartIcon="@Icons.Material.Filled.LockOpen" OnClick="Reopen" Disabled="Busy">Re-open</MudButton>
+        }
+    </div>
+}
+
+<style>
+    .gb-cell { width: 64px; padding: 4px 6px; border: 1px solid var(--mud-palette-lines-inputs); border-radius: 4px; text-align: center;
+               background: transparent; color: inherit; font: inherit; }
+    .gb-cell:focus { outline: 2px solid var(--mud-palette-primary); }
+</style>
+
+@code {
+    [SupplyParameterFromQuery(Name = "campus")] public Guid? CampusQuery { get; set; }
+    [SupplyParameterFromQuery(Name = "section")] public Guid? SectionQuery { get; set; }
+    [SupplyParameterFromQuery(Name = "subject")] public Guid? SubjectQuery { get; set; }
+    [SupplyParameterFromQuery(Name = "term")] public Guid? TermQuery { get; set; }
+
+    private Guid? campusId, yearId, yearGroupId, sectionId, subjectId, termId;
+    private List<SubjectView> subjects = [];
+    private List<TermView> terms = [];
+    private GradebookView? book;
+    private Dictionary<(Guid Item, Guid Student), string?> cells = [];
+    private Guid? newCategory;
+    private string? newTitle;
+    private DateTime? newDate = LearningUi.NowLocal.Date;
+    private decimal? newMax = 10;
+    private decimal adjustment;
+
+    protected override void OnInitialized()
+    {
+        // Set before the picker's first await so its section list keeps this choice.
+        campusId = CampusQuery;
+        sectionId = SectionQuery;
+        subjectId = SubjectQuery;
+        termId = TermQuery;
+    }
+
+    private async Task ClassChanged()
+    {
+        await Run(async () =>
+        {
+            subjects = await LearningUi.SubjectsForClassAsync(Api, yearGroupId);
+            terms = await LearningUi.TermsAsync(Api, yearId);
+        });
+        if (subjectId is { } s && subjects.All(x => x.Id != s)) subjectId = null;
+        if (termId is null || terms.All(t => t.Id != termId)) termId = LearningUi.CurrentTerm(terms)?.Id;
+        await Load();
+    }
+
+    private async Task SubjectChanged(Guid? id) { subjectId = id; await Load(); }
+    private async Task TermChanged(Guid? id) { termId = id; await Load(); }
+
+    private async Task Load()
+    {
+        book = null;
+        if (sectionId is null || subjectId is null || termId is null) return;
+        await Run(async () => Show(await Api.GetAsync<GradebookView>(Url("api/learning/gradebook"))));
+    }
+
+    private string Url(string path) => ApiClient.Query(path, ("sectionId", sectionId), ("subjectId", subjectId), ("termId", termId));
+
+    private void Show(GradebookView view)
+    {
+        cells = view.Students.SelectMany(s => view.Items.Where(i => i.AssignmentId is null).Select(i => (Key: (i.Id, s.StudentId),
+                Value: s.Marks.TryGetValue(i.Id, out var c) ? (c.Excused ? "EX" : c.Marks?.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)) : null)))
+            .ToDictionary(x => x.Key, x => x.Value);
+        newCategory ??= view.Categories.FirstOrDefault()?.Id;
+        adjustment = view.Moderation.Adjustment;
+        book = view;
+    }
+
+    private async Task AddItem()
+    {
+        var request = new GradebookItemRequest(sectionId!.Value, subjectId!.Value, termId!.Value, newCategory!.Value, newTitle!.Trim(), DateOnly.FromDateTime(newDate!.Value), newMax!.Value);
+        if (await Run(() => Api.PostAsync<GradebookItemView>("api/learning/gradebook/items", request), "Column added."))
+        {
+            newTitle = null;
+            await Load();
+        }
+    }
+
+    private async Task DeleteItem(GradebookItemView i)
+    {
+        if (!await Confirm("Remove column", $"Remove \"{i.Title}\" and its marks?", "Remove")) return;
+        if (await Run(() => Api.DeleteAsync($"api/learning/gradebook/items/{i.Id}"), "Column removed.")) await Load();
+    }
+
+    private async Task SaveMarks()
+    {
+        var entries = new List<MarkEntryRequest>();
+        foreach (var ((item, student), text) in cells)
+        {
+            var t = text?.Trim();
+            if (string.Equals(t, "EX", StringComparison.OrdinalIgnoreCase)) entries.Add(new MarkEntryRequest(item, student, null, true, null));
+            else if (string.IsNullOrEmpty(t)) entries.Add(new MarkEntryRequest(item, student, null, false, null));
+            else if (decimal.TryParse(t, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var m))
+                entries.Add(new MarkEntryRequest(item, student, m, false, null));
+            else
+            {
+                Snackbar.Add($"'{t}' is not a mark. Use a number, EX for excused, or leave it empty.", Severity.Warning);
+                return;
+            }
+        }
+        await Run(async () => Show(await Api.PostAsync<GradebookView>(Url("api/learning/gradebook/marks"), new SaveGradebookMarksRequest(entries))), "Marks saved.");
+    }
+
+    private async Task Submit()
+    {
+        if (!await Confirm("Submit for moderation", "The gradebook is locked while the head of department reviews it. Save your marks first.", "Submit")) return;
+        await Run(async () => Show(await Api.PostAsync<GradebookView>(Url("api/learning/gradebook/submit"))), "Submitted for moderation.");
+    }
+
+    private async Task Moderate(bool approve)
+    {
+        string? note = null;
+        if (!approve)
+        {
+            var parameters = new DialogParameters<Students.ReasonDialog>
+            {
+                { x => x.Hint, "The teacher sees this note." }, { x => x.Label, "What should change?" }, { x => x.ActionText, "Return" }
+            };
+            var dialog = await Dialogs.ShowAsync<Students.ReasonDialog>("Return gradebook", parameters);
+            if (await dialog.Result is not { Canceled: false, Data: string text }) return;
+            note = text;
+        }
+        await Run(async () => Show(await Api.PostAsync<GradebookView>(Url("api/learning/gradebook/moderate"), new ModerationDecision(approve, approve ? adjustment : 0, note))),
+            approve ? "Approved and locked." : "Returned to the teacher.");
+    }
+
+    private async Task Reopen()
+    {
+        var parameters = new DialogParameters<Students.ReasonDialog> { { x => x.Label, "Reason for re-opening" }, { x => x.ActionText, "Re-open" } };
+        var dialog = await Dialogs.ShowAsync<Students.ReasonDialog>("Re-open gradebook", parameters);
+        if (await dialog.Result is not { Canceled: false, Data: string text }) return;
+        await Run(async () => Show(await Api.PostAsync<GradebookView>(Url("api/learning/gradebook/reopen"), new ReasonRequest(text))), "Gradebook re-opened.");
+    }
+
+    private async Task Categories()
+    {
+        var parameters = new DialogParameters<GradebookCategoriesDialog> { { x => x.YearGroupId, yearGroupId } };
+        var dialog = await Dialogs.ShowAsync<GradebookCategoriesDialog>("Gradebook categories & weights", parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (await dialog.Result is { Canceled: false }) await Load();
+    }
+}

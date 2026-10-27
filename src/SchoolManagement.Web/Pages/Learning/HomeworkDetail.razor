@@ -1,0 +1,138 @@
+@page "/learning/homework/{Id:guid}"
+@inherits AppPage
+
+<PageTitle>Homework</PageTitle>
+
+@if (detail is null)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    var a = detail.Assignment;
+    <div class="d-flex flex-wrap align-center gap-2 mb-1">
+        <MudIconButton Icon="@Icons.Material.Filled.ArrowBack" Href="learning/homework" title="Back" />
+        <MudText Typo="Typo.h4">@a.Title</MudText>
+        <MudSpacer />
+        @if (a.CanEdit)
+        {
+            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Edit" OnClick="Edit">Edit</MudButton>
+            <MudButton Variant="Variant.Text" Color="Color.Error" StartIcon="@Icons.Material.Filled.Delete" OnClick="Delete">Delete</MudButton>
+        }
+    </div>
+    <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-3">
+        @a.SectionLabel · @a.SubjectName · set @Format.Date(a.SetOn) by @a.PostedBy · due <b>@LearningUi.Due(a.DueAtLocal)</b>
+        @(a.MaxMarks is { } m ? $" · out of {m:0.##}" : "")
+        @(a.AllowLate ? (a.LatePenaltyPercent > 0 ? $" · late work −{a.LatePenaltyPercent:0.#}%" : " · late work accepted") : " · no late work")
+    </MudText>
+
+    @if (a.Instructions is not null || a.HasAttachment)
+    {
+        <MudPaper Class="pa-4 mb-4" Elevation="1">
+            @if (a.Instructions is not null) { <MudText Style="white-space:pre-wrap">@a.Instructions</MudText> }
+            @if (a.HasAttachment)
+            {
+                <MudButton Class="mt-2" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.AttachFile" OnClick="@(() => OpenFile($"api/learning/homework/{a.Id}/attachment"))">@a.AttachmentName</MudButton>
+            }
+        </MudPaper>
+    }
+
+    <div class="d-flex flex-wrap gap-2 mb-3">
+        <MudChip T="string" Variant="Variant.Text" Color="Color.Info">Handed in @a.Submitted / @a.Students</MudChip>
+        <MudChip T="string" Variant="Variant.Text" Color="Color.Success">Marked @a.Graded</MudChip>
+        <MudChip T="string" Variant="Variant.Text" Color="Color.Warning">Late @detail.Students.Count(s => s.IsLate)</MudChip>
+    </div>
+
+    <MudSimpleTable Dense="true" Hover="true" Outlined="true">
+        <thead>
+            <tr><th style="width:60px">Roll</th><th>Student</th><th>Hand-in</th><th style="width:120px">Marks</th><th>Feedback</th><th style="width:90px">Redo</th></tr>
+        </thead>
+        <tbody>
+            @foreach (var s in detail.Students)
+            {
+                var e = grades[s.StudentId];
+                <tr>
+                    <td>@s.RollNo</td>
+                    <td><b>@s.Name</b> <small class="mud-text-secondary">@s.AdmissionNo</small></td>
+                    <td>
+                        <MudChip T="string" Size="Size.Small" Color="LearningUi.Color(s.Status)">@LearningUi.Label(s.Status)</MudChip>
+                        @if (s.IsLate) { <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Outlined">Late</MudChip> }
+                        @if (s.SubmittedAtUtc is not null && (s.HasFile || s.Text is not null)) { <small>@Format.DateTime(s.SubmittedAtUtc)</small> }
+                        @if (s.Text is not null) { <div class="mt-1" style="white-space:pre-wrap;max-width:360px"><small>@s.Text</small></div> }
+                        @if (s.HasFile)
+                        {
+                            <MudLink Typo="Typo.caption" Class="d-block" OnClick="@(() => OpenFile($"api/learning/homework/{a.Id}/submissions/{s.StudentId}/file"))">📎 @s.FileName</MudLink>
+                        }
+                    </td>
+                    <td>
+                        <MudNumericField T="decimal?" @bind-Value="e.Marks" Min="0" Max="@(a.MaxMarks ?? 1000)" Margin="Margin.Dense" Disabled="@(!canGrade || a.MaxMarks is null)"
+                                         HideSpinButtons="true" />
+                        @if (s.IsLate && s.FinalMarks is { } fm && fm != s.Marks) { <small class="mud-text-secondary">after penalty @fm.ToString("0.##")</small> }
+                    </td>
+                    <td><MudTextField @bind-Value="e.Feedback" Margin="Margin.Dense" MaxLength="2000" Disabled="@(!canGrade)" /></td>
+                    <td><MudCheckBox T="bool" @bind-Value="e.Redo" Disabled="@(!canGrade || !a.OnlineSubmission)" Size="Size.Small" /></td>
+                </tr>
+            }
+        </tbody>
+    </MudSimpleTable>
+    @if (canGrade)
+    {
+        <div class="d-flex justify-end mt-3">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Save" OnClick="SaveGrades" Disabled="Busy">Save marks & feedback</MudButton>
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private AssignmentDetail? detail;
+    private Dictionary<Guid, Grade> grades = [];
+    private bool canGrade;
+
+    private sealed class Grade
+    {
+        public decimal? Marks { get; set; }
+        public string? Feedback { get; set; }
+        public bool Redo { get; set; }
+    }
+
+    protected override Task OnParametersSetAsync() => Load();
+
+    private async Task Load() => await Run(async () => Show(await Api.GetAsync<AssignmentDetail>($"api/learning/homework/{Id}")));
+
+    private void Show(AssignmentDetail d)
+    {
+        grades = d.Students.ToDictionary(s => s.StudentId, s => new Grade { Marks = s.Marks, Feedback = s.Feedback, Redo = s.Status == SubmissionStatus.ReturnedForRedo });
+        detail = d;
+        canGrade = Session.HasAny(P.Learning.Teach, P.Learning.Manage);
+    }
+
+    private async Task SaveGrades()
+    {
+        var entries = detail!.Students.Select(s => (s, g: grades[s.StudentId]))
+            .Where(x => x.g.Marks != x.s.Marks || x.g.Feedback != x.s.Feedback || x.g.Redo != (x.s.Status == SubmissionStatus.ReturnedForRedo))
+            .Select(x => new GradeEntry(x.s.StudentId, x.g.Marks, x.g.Feedback, x.g.Redo)).ToList();
+        if (entries.Count == 0)
+        {
+            Snackbar.Add("Nothing has changed.", Severity.Info);
+            return;
+        }
+        await Run(async () => Show(await Api.PostAsync<AssignmentDetail>($"api/learning/homework/{Id}/grades", new GradeRequest(entries))), "Marks saved.");
+    }
+
+    private async Task Edit()
+    {
+        var a = detail!.Assignment;
+        var section = (await StudentLookups.SectionsAsync(Api, a.CampusId, null, null)).FirstOrDefault(s => s.Id == a.SectionId);
+        var parameters = new DialogParameters<HomeworkDialog> { { x => x.Item, a }, { x => x.YearGroupId, section?.YearGroupId } };
+        var dialog = await Dialogs.ShowAsync<HomeworkDialog>("Edit homework", parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (await dialog.Result is { Canceled: false }) await Load();
+    }
+
+    private async Task Delete()
+    {
+        if (!await Confirm("Delete homework", $"Delete \"{detail!.Assignment.Title}\" and its hand-ins?", "Delete")) return;
+        if (await Run(() => Api.DeleteAsync($"api/learning/homework/{Id}"), "Homework deleted.")) Nav.NavigateTo("learning/homework");
+    }
+}

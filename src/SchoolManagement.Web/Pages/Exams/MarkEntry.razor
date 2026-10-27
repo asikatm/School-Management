@@ -1,0 +1,229 @@
+@page "/exams/marks/{PaperId:guid}/{SectionId:guid}"
+@inherits AppPage
+
+<PageTitle>Mark entry</PageTitle>
+
+@if (sheet is null)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    var typed = sheet.Components.Where(c => !c.FromGradebook).ToList();
+    var editable = verifying ? sheet.CanVerify : sheet.CanEnter;
+    <div class="d-flex flex-wrap align-center gap-2 mb-1">
+        <MudIconButton Icon="@Icons.Material.Filled.ArrowBack" OnClick="Back" title="Back" />
+        <MudText Typo="Typo.h4">@sheet.SubjectName · @sheet.SectionLabel</MudText>
+        <MudChip T="string" Size="Size.Small" Color="ExamUi.Color(sheet.Status)">@Format.Enum(sheet.Status)</MudChip>
+    </div>
+    <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-3">
+        @sheet.ExamName · @Format.Date(sheet.Date) · @string.Join(" + ", sheet.Components.Select(c => $"{c.Name} /{c.MaxMarks:0.##} ({c.WeightPercent:0.#}%)"))
+        @(sheet.EnteredBy is null ? "" : $" · entered by {sheet.EnteredBy}")@(sheet.VerifiedBy is null ? "" : $" · verified by {sheet.VerifiedBy}")@(sheet.ApprovedBy is null ? "" : $" · approved by {sheet.ApprovedBy}")
+    </MudText>
+
+    @if (sheet.ReopenReason is not null && sheet.Status == MarkSheetStatus.Draft)
+    {
+        <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">Re-opened (@sheet.ReopenCount×): @sheet.ReopenReason</MudAlert>
+    }
+    @if (sheet.Status == MarkSheetStatus.Submitted && sheet.DoubleEntry)
+    {
+        <MudAlert Severity="@(sheet.Mismatches > 0 ? Severity.Error : Severity.Info)" Dense="true" Class="mb-2">
+            @(sheet.Mismatches > 0
+                ? $"{sheet.Mismatches} mark(s) differ between the two entries. Check the script and correct either entry (a moderator can correct the first entry)."
+                : "Waiting for the verification entry: someone other than the first enterer types the marks again from the scripts.")
+        </MudAlert>
+    }
+
+    <div class="d-flex flex-wrap align-center gap-2 mb-3">
+        @if (sheet.CanVerify)
+        {
+            <MudSwitch T="bool" Value="verifying" ValueChanged="SetMode" Color="Color.Warning" Label="Verification entry (second person)" />
+        }
+        <MudSpacer />
+        @if (editable)
+        {
+            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Download" OnClick="Template">Excel template</MudButton>
+            <MudFileUpload T="IBrowserFile" FilesChanged="Upload" Accept=".xlsx">
+                <ActivatorContent><MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Upload">Upload Excel</MudButton></ActivatorContent>
+            </MudFileUpload>
+            @if (!verifying && sheet.Components.Any(c => c.FromGradebook))
+            {
+                <MudButton Variant="Variant.Outlined" Color="Color.Info" StartIcon="@Icons.Material.Filled.Grading" OnClick="PullGradebook" Disabled="Busy">Fill CA from gradebook</MudButton>
+            }
+        }
+    </div>
+
+    @if (problems is { Count: > 0 })
+    {
+        <MudAlert Severity="Severity.Error" Class="mb-3" ShowCloseIcon="true" CloseIconClicked="() => problems = null">
+            <b>The file was not saved:</b>
+            @foreach (var p in problems) { <div>Row @p.Row (@p.AdmissionNo): @string.Join(" ", p.Errors)</div> }
+        </MudAlert>
+    }
+
+    <div style="overflow-x:auto">
+        <MudSimpleTable Dense="true" Hover="true" Outlined="true">
+            <thead>
+                <tr>
+                    <th style="width:50px">Roll</th><th>Student</th>
+                    @foreach (var c in sheet.Components)
+                    {
+                        <th style="text-align:center">@c.Name<br /><small class="mud-text-secondary">/@c.MaxMarks.ToString("0.##")@(c.FromGradebook ? " · CA" : "")</small></th>
+                    }
+                    @if (!verifying) { <th style="text-align:center">%</th><th style="text-align:center">Grade</th> }
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var s in sheet.Students)
+                {
+                    <tr>
+                        <td>@s.RollNo</td>
+                        <td><b>@s.Name</b> <small class="mud-text-secondary">@s.AdmissionNo</small></td>
+                        @foreach (var c in sheet.Components)
+                        {
+                            var cell = s.Cells.First(x => x.ComponentId == c.Id);
+                            var key = (s.StudentId, c.Id);
+                            <td style="text-align:center">
+                                @if ((c.FromGradebook && verifying) || !editable)
+                                {
+                                    <span style="@(cell.Mismatch ? "color:#b91c1c;font-weight:700" : "")">@ExamUi.Cell(verifying ? cell.SecondMarks : cell.Marks, verifying ? cell.SecondCode : cell.Code)</span>
+                                }
+                                else
+                                {
+                                    <input class="mk-cell @(cell.Mismatch ? "mk-bad" : "")" value="@inputs.GetValueOrDefault(key)" @onchange="e => inputs[key] = e.Value?.ToString()"
+                                           title="Marks, AB = absent, EX = exempt" />
+                                }
+                            </td>
+                        }
+                        @if (!verifying)
+                        {
+                            <td style="text-align:center">@(s.Status ?? s.Percent?.ToString("0.##"))</td>
+                            <td style="text-align:center"><b>@s.Grade</b></td>
+                        }
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    </div>
+
+    <div class="d-flex flex-wrap justify-end gap-2 mt-3">
+        @if (editable && (typed.Count > 0 || !verifying))
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Save" OnClick="Save" Disabled="Busy">
+                @(verifying ? "Save verification entry" : "Save marks")
+            </MudButton>
+        }
+        @if (!verifying && sheet.CanEnter && sheet.Status == MarkSheetStatus.Draft)
+        {
+            <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Send" OnClick="Submit" Disabled="Busy">Submit marks</MudButton>
+        }
+        @if (sheet.CanApprove)
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Success" StartIcon="@Icons.Material.Filled.Lock" OnClick="Approve" Disabled="Busy">Approve & lock</MudButton>
+        }
+        @if (sheet.CanReopen)
+        {
+            <MudButton Color="Color.Warning" StartIcon="@Icons.Material.Filled.LockOpen" OnClick="Reopen" Disabled="Busy">Re-open</MudButton>
+        }
+    </div>
+}
+
+<style>
+    .mk-cell { width: 64px; padding: 4px 6px; border: 1px solid var(--mud-palette-lines-inputs); border-radius: 4px; text-align: center;
+               background: transparent; color: inherit; font: inherit; }
+    .mk-cell:focus { outline: 2px solid var(--mud-palette-primary); }
+    .mk-bad { border-color: #dc2626; background: #fef2f2; color: #7f1d1d; }
+</style>
+
+@code {
+    [Parameter] public Guid PaperId { get; set; }
+    [Parameter] public Guid SectionId { get; set; }
+
+    private MarkSheetView? sheet;
+    private Dictionary<(Guid Student, Guid Component), string?> inputs = [];
+    private bool verifying;
+    private List<MarkImportRow>? problems;
+
+    private string Url(string action) => $"api/exams/papers/{PaperId}/sections/{SectionId}/{action}";
+
+    protected override Task OnParametersSetAsync() => Load();
+
+    private async Task Load() => await Run(async () => Show(await Api.GetAsync<MarkSheetView>(Url("marks"))));
+
+    private void Show(MarkSheetView view)
+    {
+        if (!view.CanVerify) verifying = false;
+        inputs = view.Students.SelectMany(s => s.Cells.Select(c => (Key: (s.StudentId, c.ComponentId), Value: verifying ? ExamUi.Cell(c.SecondMarks, c.SecondCode) : ExamUi.Cell(c.Marks, c.Code))))
+            .ToDictionary(x => x.Key, x => (string?)x.Value);
+        sheet = view;
+    }
+
+    private void SetMode(bool second)
+    {
+        verifying = second;
+        Show(sheet!);
+    }
+
+    [Inject] private IJSRuntime Js { get; set; } = default!;
+
+    private async Task Back() => await Js.InvokeVoidAsync("history.back");
+
+    private async Task Save()
+    {
+        var entries = new List<MarkInput>();
+        foreach (var ((student, component), text) in inputs)
+        {
+            if (verifying && sheet!.Components.First(c => c.Id == component).FromGradebook) continue;
+            if (!ExamUi.TryParseCell(text, out var marks, out var code))
+            {
+                Snackbar.Add($"'{text}' is not a mark. Type a number, AB (absent) or EX (exempt).", Severity.Warning);
+                return;
+            }
+            if (marks is null && code == MarkCode.None) continue;
+            entries.Add(new MarkInput(student, component, marks, code));
+        }
+        await Run(async () => Show(await Api.PostAsync<MarkSheetView>(Url("marks"), new SaveMarksRequest(entries, verifying))),
+            verifying ? "Verification entry saved." : "Marks saved.");
+    }
+
+    private async Task Submit()
+    {
+        if (!await Confirm("Submit marks", "Save first. After submitting, the marks can only be changed by a moderator.", "Submit")) return;
+        await Run(async () => Show(await Api.PostAsync<MarkSheetView>(Url("submit"))), "Marks submitted.");
+    }
+
+    private async Task PullGradebook() => await Run(async () => Show(await Api.PostAsync<MarkSheetView>(Url("gradebook"))), "CA marks filled from the approved gradebook.");
+
+    private async Task Approve()
+    {
+        if (!await Confirm("Approve mark sheet", "The marks will be locked. Re-opening needs a reason and is recorded.", "Approve")) return;
+        await Run(async () => Show(await Api.PostAsync<MarkSheetView>(Url("approve"))), "Approved and locked.");
+    }
+
+    private async Task Reopen()
+    {
+        var parameters = new DialogParameters<Students.ReasonDialog> { { x => x.Label, "Reason for re-opening" }, { x => x.ActionText, "Re-open" } };
+        var dialog = await Dialogs.ShowAsync<Students.ReasonDialog>("Re-open mark sheet", parameters);
+        if (await dialog.Result is not { Canceled: false, Data: string text }) return;
+        await Run(async () => Show(await Api.PostAsync<MarkSheetView>(Url("reopen"), new ReasonRequest(text))), "Mark sheet re-opened.");
+    }
+
+    private async Task Template() => await Download(Url("template"));
+
+    private async Task Upload(IBrowserFile? file)
+    {
+        if (file is null) return;
+        problems = null;
+        MarkImportResult? result = null;
+        // Dry run first; save only when every row is valid.
+        if (!await Run(async () => result = await Api.UploadAsync<MarkImportResult>(ApiClient.Query(Url("import"), ("dryRun", true), ("secondEntry", verifying)), file))) return;
+        if (result!.Problems.Count > 0)
+        {
+            problems = result.Problems.ToList();
+            return;
+        }
+        if (!await Confirm("Upload marks", $"{result.Valid} row(s) are valid. Save them?", "Save")) return;
+        if (await Run(async () => result = await Api.UploadAsync<MarkImportResult>(ApiClient.Query(Url("import"), ("dryRun", false), ("secondEntry", verifying)), file), "Marks uploaded."))
+            await Load();
+    }
+}

@@ -1,0 +1,132 @@
+@inherits AppPage
+@* Share or edit a learning resource: an uploaded file and/or a link (e.g. a video). *@
+
+<MudDialog>
+    <DialogContent>
+        <MudGrid Spacing="2">
+            <MudItem xs="12" sm="6">
+                <MudSelect T="Guid?" Label="Campus" @bind-Value="campusId" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense" Placeholder="Every campus"
+                           ToStringFunc="@(id => campuses.FirstOrDefault(c => c.Id == id)?.Name ?? "")">
+                    @foreach (var c in campuses)
+                    {
+                        <MudSelectItem T="Guid?" Value="c.Id">@c.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudSelect T="Guid?" Label="Class" Value="yearGroupId" ValueChanged="ClassChanged" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense"
+                           Placeholder="Every class" ToStringFunc="@(id => classes.FirstOrDefault(c => c.Id == id)?.Name ?? "")">
+                    @foreach (var c in classes)
+                    {
+                        <MudSelectItem T="Guid?" Value="c.Id">@c.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudSelect T="Guid?" Label="Subject" @bind-Value="subjectId" Required="true" Variant="Variant.Outlined" Margin="Margin.Dense"
+                           ToStringFunc="@(id => subjects.FirstOrDefault(s => s.Id == id)?.Name ?? "")">
+                    @foreach (var s in subjects)
+                    {
+                        <MudSelectItem T="Guid?" Value="s.Id">@s.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudSelect T="ResourceType" Label="Type" @bind-Value="type" Variant="Variant.Outlined" Margin="Margin.Dense">
+                    @foreach (var t in Enum.GetValues<ResourceType>())
+                    {
+                        <MudSelectItem T="ResourceType" Value="t">@Format.Enum(t)</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12"><MudTextField @bind-Value="title" Label="Title" Required="true" MaxLength="200" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+            <MudItem xs="12" sm="6"><MudTextField @bind-Value="topic" Label="Topic" MaxLength="200" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+            <MudItem xs="12" sm="6">
+                <MudSelect T="ResourceAudience" Label="Who can see it" @bind-Value="audience" Variant="Variant.Outlined" Margin="Margin.Dense">
+                    <MudSelectItem T="ResourceAudience" Value="ResourceAudience.StudentsAndParents">Students & parents</MudSelectItem>
+                    <MudSelectItem T="ResourceAudience" Value="ResourceAudience.Staff">Staff only</MudSelectItem>
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12"><MudTextField @bind-Value="description" Label="Description" Lines="2" MaxLength="2000" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+            <MudItem xs="12"><MudTextField @bind-Value="url" Label="Link (video, website)" MaxLength="1000" Variant="Variant.Outlined" Margin="Margin.Dense" Placeholder="https://" /></MudItem>
+            <MudItem xs="12" Class="d-flex align-center gap-2">
+                <MudFileUpload T="IBrowserFile" @bind-Files="file" Accept=".pdf,.jpg,.jpeg,.png,.webp,.docx,.pptx,.xlsx">
+                    <ActivatorContent>
+                        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.AttachFile">File</MudButton>
+                    </ActivatorContent>
+                </MudFileUpload>
+                <MudText Typo="Typo.body2">@(file is not null ? $"{file.Name} ({StudentChoices.Size(file.Size)})" : Item?.FileName ?? "PDF, Word, PowerPoint, Excel or image, max 10 MB")</MudText>
+            </MudItem>
+        </MudGrid>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => MudDialog.Cancel())">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Save"
+                   Disabled="@(Busy || subjectId is null || string.IsNullOrWhiteSpace(title) || (file is null && string.IsNullOrWhiteSpace(url) && Item?.HasFile != true))">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public ResourceView? Item { get; set; }
+    [Parameter] public Guid? YearGroupId { get; set; }
+    [Parameter] public Guid? SubjectId { get; set; }
+
+    private List<StudentCampusOption> campuses = [];
+    private List<StudentYearGroupOption> classes = [];
+    private List<SubjectView> subjects = [];
+    private Guid? campusId, yearGroupId, subjectId;
+    private ResourceType type = ResourceType.Notes;
+    private ResourceAudience audience = ResourceAudience.StudentsAndParents;
+    private string? title, topic, description, url;
+    private IBrowserFile? file;
+
+    protected override async Task OnInitializedAsync()
+    {
+        yearGroupId = Item?.YearGroupId ?? YearGroupId;
+        subjectId = Item?.SubjectId ?? SubjectId;
+        if (Item is not null)
+        {
+            campusId = Item.CampusId;
+            type = Item.Type;
+            audience = Item.Audience;
+            title = Item.Title;
+            topic = Item.Topic;
+            description = Item.Description;
+            url = Item.Url;
+        }
+        await Run(async () =>
+        {
+            campuses = await StudentLookups.CampusesAsync(Api);
+            classes = await StudentLookups.YearGroupsAsync(Api);
+            subjects = await LearningUi.SubjectsForClassAsync(Api, yearGroupId);
+        });
+        // Teachers share with their own campus by default; only managers share school-wide.
+        if (Item is null && campusId is null && !Session.Has(P.Learning.Manage) && campuses.Count > 0) campusId = campuses[0].Id;
+    }
+
+    private async Task ClassChanged(Guid? id)
+    {
+        yearGroupId = id;
+        await Run(async () => subjects = await LearningUi.SubjectsForClassAsync(Api, id));
+    }
+
+    private async Task Save()
+    {
+        if (file is { Size: > ApiClient.MaxUploadBytes })
+        {
+            Snackbar.Add("The file is larger than 10 MB.", Severity.Warning);
+            return;
+        }
+        // Field names match the API's ResourceForm.
+        var fields = new Dictionary<string, string?>
+        {
+            ["CampusId"] = campusId?.ToString(), ["SubjectId"] = subjectId!.Value.ToString(), ["YearGroupId"] = yearGroupId?.ToString(),
+            ["SectionId"] = Item?.SectionId?.ToString(), ["Title"] = title!.Trim(), ["Description"] = description, ["Topic"] = topic,
+            ["Type"] = type.ToString(), ["Audience"] = audience.ToString(), ["Url"] = url
+        };
+        var target = Item is null ? "api/learning/resources" : $"api/learning/resources/{Item.Id}";
+        if (await Run(() => Api.UploadAsync<ResourceView>(target, file, "File", fields), "Resource saved."))
+            MudDialog.Close(DialogResult.Ok(true));
+    }
+}

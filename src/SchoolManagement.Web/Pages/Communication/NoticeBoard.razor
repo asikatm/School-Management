@@ -1,0 +1,64 @@
+@page "/notices"
+@inherits AppPage
+@using SchoolManagement.Web.Pages.Students.Components
+@using P = SchoolManagement.Domain.Identity.Permissions
+
+<PageTitle>Notice board</PageTitle>
+
+<div class="d-flex flex-wrap align-center gap-2 mb-1">
+    <MudText Typo="Typo.h4">Notice board</MudText>
+    <MudSpacer />
+    @if (manager)
+    {
+        <MudSwitch T="bool" Value="all" ValueChanged="AllChanged" Color="Color.Primary" Label="Show expired" />
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Campaign" OnClick="() => Edit(null)">Post a notice</MudButton>
+    }
+</div>
+<MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-4">
+    Notices and circulars for students, parents and staff. Students and parents read theirs in the portal; urgent notices also go to guardians by SMS.
+</MudText>
+
+@if (items.Count == 0 && !Busy)
+{
+    <MudAlert Severity="Severity.Info">No notices.</MudAlert>
+}
+@foreach (var n in items)
+{
+    <NoticeCard Notice="n" AttachmentUrl="@($"api/notices/{n.Id}/attachment")">
+        <Actions>
+            @if (n.CanEdit)
+            {
+                <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" OnClick="() => Edit(n)" title="Edit" />
+                <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" OnClick="() => Delete(n)" title="Delete" />
+            }
+        </Actions>
+    </NoticeCard>
+}
+
+@code {
+    private List<NoticeView> items = [];
+    private bool all, manager;
+
+    protected override async Task OnInitializedAsync()
+    {
+        manager = Session.Has(P.Notices.Manage);
+        await Load();
+    }
+
+    private async Task AllChanged(bool value) { all = value; await Load(); }
+
+    private async Task Load() => await Run(async () => items = await Api.GetAsync<List<NoticeView>>(ApiClient.Query("api/notices", ("all", all ? true : null))));
+
+    private async Task Edit(NoticeView? n)
+    {
+        var parameters = new DialogParameters<NoticeDialog> { { x => x.Item, n } };
+        var dialog = await Dialogs.ShowAsync<NoticeDialog>(n is null ? "Post a notice" : "Edit notice", parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (await dialog.Result is { Canceled: false }) await Load();
+    }
+
+    private async Task Delete(NoticeView n)
+    {
+        if (!await Confirm("Delete notice", $"Remove \"{n.Title}\" from the board?", "Delete")) return;
+        if (await Run(() => Api.DeleteAsync($"api/notices/{n.Id}"), "Notice removed.")) await Load();
+    }
+}

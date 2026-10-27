@@ -45,17 +45,20 @@ public sealed class ApiClient(HttpClient http, Session session, NavigationManage
     public Task PatchAsync(string url, object? body = null) => SendAsync(HttpMethod.Patch, url, body);
     public Task DeleteAsync(string url) => SendAsync(HttpMethod.Delete, url, null);
 
-    /// <summary>Multipart upload. <paramref name="fields"/> become form fields; the file goes in <paramref name="fileField"/>.</summary>
-    public async Task<T> UploadAsync<T>(string url, IBrowserFile file, string fileField = "file", IDictionary<string, string?>? fields = null)
+    /// <summary>Multipart upload. <paramref name="fields"/> become form fields; the file (optional) goes in <paramref name="fileField"/>.</summary>
+    public async Task<T> UploadAsync<T>(string url, IBrowserFile? file, string fileField = "file", IDictionary<string, string?>? fields = null)
     {
         var response = await SendRawAsync(() =>
         {
             var form = new MultipartFormDataContent();
             foreach (var (key, value) in fields ?? new Dictionary<string, string?>())
                 if (value is not null) form.Add(new StringContent(value), key);
-            var stream = new StreamContent(file.OpenReadStream(MaxUploadBytes));
-            stream.Headers.ContentType = new MediaTypeHeaderValue(string.IsNullOrEmpty(file.ContentType) ? "application/octet-stream" : file.ContentType);
-            form.Add(stream, fileField, file.Name);
+            if (file is not null)
+            {
+                var stream = new StreamContent(file.OpenReadStream(MaxUploadBytes));
+                stream.Headers.ContentType = new MediaTypeHeaderValue(string.IsNullOrEmpty(file.ContentType) ? "application/octet-stream" : file.ContentType);
+                form.Add(stream, fileField, file.Name);
+            }
             return new HttpRequestMessage(HttpMethod.Post, url) { Content = form };
         });
         return await ReadAsync<T>(response);

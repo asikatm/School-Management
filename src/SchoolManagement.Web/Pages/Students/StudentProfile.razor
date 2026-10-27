@@ -57,6 +57,7 @@
             </ActivatorContent>
         </MudFileUpload>
         <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Edit" OnClick="EditProfile">Edit profile</MudButton>
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Key" OnClick="PortalLogin" Disabled="Busy">Student portal login</MudButton>
     }
     @if (student.Status == StudentStatus.Graduated && Session.Has(P.Students.Approve))
     {
@@ -108,6 +109,19 @@
     private StudentEnrolmentView? Current => student?.Enrolments.FirstOrDefault(e => e.Id == student.CurrentEnrolmentId);
 
     protected override Task OnParametersSetAsync() => Load();
+
+    /// <summary>PRT: the student's own login (homework, resources, results); shows the temporary password once.</summary>
+    private async Task PortalLogin()
+    {
+        StudentPortalAccount? account = null;
+        if (!await Run(async () => account = await Api.PostAsync<StudentPortalAccount>($"api/students/{Id}/portal-account"))) return;
+        if (account!.TemporaryPassword is { } password)
+        {
+            var parameters = new DialogParameters<Admin.TemporaryPasswordDialog> { { x => x.UserName, account.UserName }, { x => x.Password, password } };
+            await Dialogs.ShowAsync<Admin.TemporaryPasswordDialog>("Student portal login created", parameters);
+        }
+        else Snackbar.Add($"The student already has a portal login: {account.UserName}.", Severity.Info);
+    }
 
     private async Task Load()
     {

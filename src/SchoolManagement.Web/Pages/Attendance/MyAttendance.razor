@@ -1,0 +1,184 @@
+@page "/attendance/me"
+@inherits AppPage
+@inject IJSRuntime JS
+
+<PageTitle>My attendance & leave</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-4">My attendance & leave</MudText>
+
+<MudGrid Spacing="3">
+    <MudItem xs="12" md="4">
+        <MudPaper Class="pa-4" Elevation="1" Style="height:100%">
+            <MudText Typo="Typo.h6" Class="mb-2">Today · @AttendanceUi.Today.ToString("ddd, dd MMM")</MudText>
+            @if (campuses.Count > 1)
+            {
+                <MudSelect T="Guid?" Value="campusId" ValueChanged="CampusChanged" Label="I am at" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-3"
+                           ToStringFunc="@(id => campuses.FirstOrDefault(c => c.Id == id)?.Name ?? "")">
+                    @foreach (var c in campuses)
+                    {
+                        <MudSelectItem T="Guid?" Value="@c.Id">@c.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            }
+            @if (today is not null)
+            {
+                <div class="d-flex gap-6 mb-3">
+                    <div><MudText Typo="Typo.caption">Check-in</MudText><MudText Typo="Typo.h5">@Format.Time(today.CheckInUtc)</MudText></div>
+                    <div><MudText Typo="Typo.caption">Check-out</MudText><MudText Typo="Typo.h5">@Format.Time(today.CheckOutUtc)</MudText></div>
+                </div>
+                @if (today.Status is { } st)
+                {
+                    <MudChip T="string" Size="Size.Small" Color="AttendanceUi.Color(st)">@Format.Enum(st)@(today.LeaveType is null ? "" : $" · {today.LeaveType}")</MudChip>
+                }
+                @if (today.LateMinutes > 0) { <MudChip T="string" Size="Size.Small" Color="Color.Warning">Late @AttendanceUi.Minutes(today.LateMinutes)</MudChip> }
+                @if (today.OvertimeMinutes > 0) { <MudChip T="string" Size="Size.Small" Color="Color.Info">Overtime @AttendanceUi.Minutes(today.OvertimeMinutes)</MudChip> }
+            }
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Large" FullWidth="true" Class="mt-4" StartIcon="@Icons.Material.Filled.Fingerprint"
+                       OnClick="Punch" Disabled="@(Busy || campusId is null)">@(today?.CheckInUtc is null ? "Check in" : "Check out")</MudButton>
+            <MudText Typo="Typo.caption" Class="d-block mt-2">Your location is checked against the campus when the school has set one.</MudText>
+        </MudPaper>
+    </MudItem>
+
+    <MudItem xs="12" md="8">
+        <MudPaper Class="pa-4" Elevation="1">
+            <div class="d-flex align-center mb-2">
+                <MudText Typo="Typo.h6">Leave balance (this academic year)</MudText>
+                <MudSpacer />
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="() => applying = !applying">Apply for leave</MudButton>
+            </div>
+            <div class="d-flex flex-wrap gap-3">
+                @foreach (var b in balances)
+                {
+                    <MudPaper Outlined="true" Class="pa-3" Style="min-width:150px">
+                        <MudText Typo="Typo.caption">@b.Name</MudText>
+                        <MudText Typo="Typo.h5">@(b.Unlimited ? "∞" : b.Remaining.ToString("0.#"))</MudText>
+                        <MudText Typo="Typo.caption">@(b.Unlimited ? $"{b.Taken:0.#} taken" : $"of {b.Entitled:0.#} · {b.Taken:0.#} taken")@(b.Pending > 0 ? $" · {b.Pending:0.#} pending" : "")</MudText>
+                    </MudPaper>
+                }
+            </div>
+
+            @if (applying)
+            {
+                <MudDivider Class="my-4" />
+                <MudGrid Spacing="2">
+                    <MudItem xs="12" sm="4">
+                        <MudSelect T="Guid?" @bind-Value="form.TypeId" Label="Leave type" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                   ToStringFunc="@(id => balances.FirstOrDefault(b => b.LeaveTypeId == id)?.Name ?? "")">
+                            @foreach (var b in balances)
+                            {
+                                <MudSelectItem T="Guid?" Value="b.LeaveTypeId">@b.Name</MudSelectItem>
+                            }
+                        </MudSelect>
+                    </MudItem>
+                    <MudItem xs="12" sm="5">
+                        <MudDateRangePicker @bind-DateRange="form.Range" Label="Days" DateFormat="dd MMM yyyy" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                    </MudItem>
+                    <MudItem xs="12" sm="3">
+                        <MudCheckBox T="bool" @bind-Value="form.HalfDay" Label="Half day" Disabled="@(form.Range.Start != form.Range.End)" />
+                    </MudItem>
+                    <MudItem xs="12">
+                        <MudTextField @bind-Value="form.Reason" Label="Reason" Lines="2" MaxLength="1000" Immediate="true" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                    </MudItem>
+                    <MudItem xs="12" Class="d-flex justify-end gap-2">
+                        <MudButton OnClick="() => applying = false">Cancel</MudButton>
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Apply"
+                                   Disabled="@(Busy || form.TypeId is null || form.Range.Start is null || string.IsNullOrWhiteSpace(form.Reason))">Submit for approval</MudButton>
+                    </MudItem>
+                </MudGrid>
+            }
+        </MudPaper>
+    </MudItem>
+
+    <MudItem xs="12">
+        <MudTable T="StaffLeaveView" Items="mine" Dense="true" Hover="true" Elevation="1">
+            <ToolBarContent><MudText Typo="Typo.h6">My leave requests</MudText></ToolBarContent>
+            <HeaderContent><MudTh>Type</MudTh><MudTh>Days</MudTh><MudTh>Reason</MudTh><MudTh>Status</MudTh><MudTh></MudTh></HeaderContent>
+            <RowTemplate>
+                <MudTd>@context.LeaveType</MudTd>
+                <MudTd>@Format.Date(context.FromDate)@(context.ToDate != context.FromDate ? $" – {Format.Date(context.ToDate)}" : "") <small>(@context.Days.ToString("0.#") d@(context.HalfDay ? ", half day" : ""))</small></MudTd>
+                <MudTd>@context.Reason</MudTd>
+                <MudTd>
+                    <MudChip T="string" Size="Size.Small" Color="AttendanceUi.Color(context.Status)">@Format.Enum(context.Status)</MudChip>
+                    @if (context.DecisionNote is not null) { <small>@context.DecisionNote</small> }
+                </MudTd>
+                <MudTd Style="text-align:right">
+                    @if (context.Status == LeaveStatus.Pending || (context.Status == LeaveStatus.Approved && context.FromDate > AttendanceUi.Today))
+                    {
+                        <MudButton Size="Size.Small" Color="Color.Error" OnClick="() => Cancel(context)" Disabled="Busy">Cancel</MudButton>
+                    }
+                </MudTd>
+            </RowTemplate>
+            <NoRecordsContent><MudText>You have not applied for leave yet.</MudText></NoRecordsContent>
+        </MudTable>
+    </MudItem>
+</MudGrid>
+
+@code {
+    private List<StudentCampusOption> campuses = [];
+    private Guid? campusId;
+    private StaffDayView? today;
+    private List<LeaveBalance> balances = [];
+    private List<StaffLeaveView> mine = [];
+    private bool applying;
+    private LeaveForm form = new();
+
+    private sealed class LeaveForm
+    {
+        public Guid? TypeId { get; set; }
+        public DateRange Range { get; set; } = new(DateTime.UtcNow.AddHours(6).Date.AddDays(1), DateTime.UtcNow.AddHours(6).Date.AddDays(1));
+        public bool HalfDay { get; set; }
+        public string? Reason { get; set; }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Run(async () => campuses = await StudentLookups.CampusesAsync(Api));
+        if (campuses.Count == 1) campusId = campuses[0].Id;
+        await Run(async () =>
+        {
+            today = await Api.GetAsync<StaffDayView?>(ApiClient.Query("api/staff-attendance/me", ("campusId", campusId)));
+            campusId ??= today?.CampusId;
+            balances = await Api.GetAsync<List<LeaveBalance>>("api/staff-leave/balances");
+            mine = await Api.GetAsync<List<StaffLeaveView>>("api/staff-leave/mine");
+        });
+    }
+
+    private async Task CampusChanged(Guid? id)
+    {
+        campusId = id;
+        await Run(async () => today = await Api.GetAsync<StaffDayView?>(ApiClient.Query("api/staff-attendance/me", ("campusId", campusId))));
+    }
+
+    private async Task Punch()
+    {
+        GeoPosition? position = null;
+        try { position = await JS.InvokeAsync<GeoPosition?>("smGeo.get"); } catch (JSException) { }
+        var wasIn = today?.CheckInUtc is not null;
+        await Run(async () => today = await Api.PostAsync<StaffDayView>("api/staff-attendance/punch", new PunchRequest(campusId, position?.Latitude, position?.Longitude)),
+            wasIn ? "Checked out." : "Checked in.");
+    }
+
+    private async Task Apply()
+    {
+        var request = new StaffLeaveApply(form.TypeId!.Value, DateOnly.FromDateTime(form.Range.Start!.Value), DateOnly.FromDateTime((form.Range.End ?? form.Range.Start).Value),
+            form.HalfDay && form.Range.Start == form.Range.End, form.Reason!.Trim(), campusId);
+        if (await Run(() => Api.PostAsync<StaffLeaveView>("api/staff-leave", request), "Leave request submitted for approval."))
+        {
+            applying = false;
+            form = new LeaveForm();
+            await Reload();
+        }
+    }
+
+    private async Task Cancel(StaffLeaveView l)
+    {
+        if (!await Confirm("Cancel leave", $"Cancel your {l.LeaveType.ToLowerInvariant()} from {Format.Date(l.FromDate)}?", "Cancel leave")) return;
+        if (await Run(() => Api.PostAsync($"api/staff-leave/{l.Id}/cancel"), "Leave cancelled.")) await Reload();
+    }
+
+    private async Task Reload() => await Run(async () =>
+    {
+        balances = await Api.GetAsync<List<LeaveBalance>>("api/staff-leave/balances");
+        mine = await Api.GetAsync<List<StaffLeaveView>>("api/staff-leave/mine");
+    });
+}

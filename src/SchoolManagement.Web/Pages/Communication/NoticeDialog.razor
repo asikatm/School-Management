@@ -1,0 +1,105 @@
+@inherits AppPage
+@using SchoolManagement.Web.Pages.Students.Components
+@* Post or edit a notice: audience, campus/class, pin, urgent (SMS to guardians), expiry and an attachment. *@
+
+<MudDialog>
+    <DialogContent>
+        <MudGrid Spacing="2">
+            <MudItem xs="12"><MudTextField @bind-Value="title" Label="Title" Required="true" MaxLength="200" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+            <MudItem xs="12"><MudTextField @bind-Value="titleBn" Label="Title (বাংলা)" MaxLength="200" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+            <MudItem xs="12"><MudTextField @bind-Value="body" Label="Notice" Lines="7" MaxLength="8000" Required="true" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+            <MudItem xs="12" sm="6">
+                <MudSelect T="Guid?" Label="Campus" @bind-Value="campusId" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense" Placeholder="All campuses"
+                           ToStringFunc="@(id => campuses.FirstOrDefault(c => c.Id == id)?.Name ?? "")">
+                    @foreach (var c in campuses)
+                    {
+                        <MudSelectItem T="Guid?" Value="c.Id">@c.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudSelect T="Guid?" Label="Class" @bind-Value="yearGroupId" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense" Placeholder="All classes"
+                           ToStringFunc="@(id => classes.FirstOrDefault(c => c.Id == id)?.Name ?? "")">
+                    @foreach (var c in classes)
+                    {
+                        <MudSelectItem T="Guid?" Value="c.Id">@c.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" Class="d-flex flex-wrap gap-4">
+                <MudCheckBox T="bool" @bind-Value="forStudents" Label="Students" Dense="true" />
+                <MudCheckBox T="bool" @bind-Value="forParents" Label="Parents" Dense="true" />
+                <MudCheckBox T="bool" @bind-Value="forStaff" Label="Staff" Dense="true" />
+            </MudItem>
+            <MudItem xs="12" Class="d-flex flex-wrap gap-4">
+                <MudSwitch T="bool" @bind-Value="pinned" Color="Color.Primary" Label="Pin to the top" />
+                <MudSwitch T="bool" @bind-Value="urgent" Color="Color.Error" Label="Urgent (SMS to guardians)" Disabled="@(Item is not null)" />
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudDatePicker @bind-Date="expires" Label="Show until" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense" DateFormat="dd MMM yyyy"
+                               HelperText="Empty = until removed" />
+            </MudItem>
+            <MudItem xs="12" sm="6" Class="d-flex align-center gap-2">
+                <MudFileUpload T="IBrowserFile" @bind-Files="file" Accept=".pdf,.jpg,.jpeg,.png,.webp,.docx,.pptx,.xlsx">
+                    <ActivatorContent><MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.AttachFile">Attachment</MudButton></ActivatorContent>
+                </MudFileUpload>
+                <MudText Typo="Typo.caption">@(file?.Name ?? Item?.AttachmentName ?? "Optional")</MudText>
+            </MudItem>
+        </MudGrid>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => MudDialog.Cancel())">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Save"
+                   Disabled="@(Busy || string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(body) || !(forStudents || forParents || forStaff))">
+            @(Item is null ? "Publish" : "Save")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public NoticeView? Item { get; set; }
+
+    private List<StudentCampusOption> campuses = [];
+    private List<StudentYearGroupOption> classes = [];
+    private string? title, titleBn, body;
+    private Guid? campusId, yearGroupId;
+    private bool forStudents = true, forParents = true, forStaff, pinned, urgent;
+    private DateTime? expires;
+    private IBrowserFile? file;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (Item is not null)
+        {
+            (title, titleBn, body, campusId, yearGroupId) = (Item.Title, Item.TitleBn, Item.Body, Item.CampusId, Item.YearGroupId);
+            (forStudents, forParents, forStaff, pinned, urgent) = (Item.ForStudents, Item.ForParents, Item.ForStaff, Item.IsPinned, Item.IsUrgent);
+            expires = Item.ExpiresOn?.ToDateTime(TimeOnly.MinValue);
+        }
+        await Run(async () =>
+        {
+            campuses = await StudentLookups.CampusesAsync(Api);
+            classes = await StudentLookups.YearGroupsAsync(Api);
+        });
+    }
+
+    private async Task Save()
+    {
+        if (file is { Size: > ApiClient.MaxUploadBytes })
+        {
+            Snackbar.Add("The file is larger than 10 MB.", Severity.Warning);
+            return;
+        }
+        static string B(bool v) => v ? "true" : "false";
+        // Field names match the API's NoticeForm.
+        var fields = new Dictionary<string, string?>
+        {
+            ["Title"] = title!.Trim(), ["TitleBn"] = titleBn, ["Body"] = body!.Trim(), ["CampusId"] = campusId?.ToString(), ["YearGroupId"] = yearGroupId?.ToString(),
+            ["ForStudents"] = B(forStudents), ["ForParents"] = B(forParents), ["ForStaff"] = B(forStaff), ["IsPinned"] = B(pinned), ["IsUrgent"] = B(urgent),
+            ["ExpiresOn"] = expires?.ToString("yyyy-MM-dd")
+        };
+        var url = Item is null ? "api/notices" : $"api/notices/{Item.Id}";
+        if (await Run(() => Api.UploadAsync<NoticeView>(url, file, "Attachment", fields), Item is null ? "Notice published." : "Notice saved."))
+            MudDialog.Close(DialogResult.Ok(true));
+    }
+}

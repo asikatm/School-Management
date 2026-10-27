@@ -1,0 +1,63 @@
+@page "/exams/{Id:guid}"
+@inherits AppPage
+
+<PageTitle>@(exam?.Name ?? "Exam")</PageTitle>
+
+@if (exam is null)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    <div class="d-flex flex-wrap align-center gap-2 mb-1">
+        <MudIconButton Icon="@Icons.Material.Filled.ArrowBack" Href="exams" title="Back" />
+        <MudText Typo="Typo.h4">@exam.Name</MudText>
+        <MudChip T="string" Size="Size.Small" Color="ExamUi.Color(exam.ResultStatus)">@ExamUi.Label(exam.ResultStatus)</MudChip>
+        @if (exam.SchedulePublished) { <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Outlined">Date sheet published</MudChip> }
+        <MudSpacer />
+        @if (Session.Has(P.Exams.Manage) && exam.ResultStatus == ResultStatus.NotReady)
+        {
+            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Edit" OnClick="Edit">Edit</MudButton>
+        }
+    </div>
+    <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-3">
+        @exam.Code · @Format.Enum(exam.Type) · @exam.AcademicYear@(exam.TermName is null ? "" : $" · {exam.TermName}") · @(exam.CampusName ?? "All campuses") ·
+        @Format.Date(exam.StartDate) – @Format.Date(exam.EndDate) · @string.Join(", ", exam.Classes.Select(c => c.GradingScheme is null ? c.ClassName : $"{c.ClassName} ({c.GradingScheme})"))
+    </MudText>
+
+    <MudTabs Elevation="1" Rounded="true" ApplyEffectsToContainer="true" PanelClass="pa-4" @bind-ActivePanelIndex="tab">
+        <MudTabPanel Text="Date sheet" Icon="@Icons.Material.Filled.CalendarMonth">
+            <DateSheetTab Exam="exam" Changed="Reload" />
+        </MudTabPanel>
+        <MudTabPanel Text="Seating & admit cards" Icon="@Icons.Material.Filled.EventSeat">
+            <SeatingTab Exam="exam" />
+        </MudTabPanel>
+        <MudTabPanel Text="Mark sheets" Icon="@Icons.Material.Filled.EditNote">
+            <MarkSheetsTab Exam="exam" />
+        </MudTabPanel>
+        <MudTabPanel Text="Results & report cards" Icon="@Icons.Material.Filled.WorkspacePremium">
+            <ResultsTab Exam="exam" Changed="Reload" />
+        </MudTabPanel>
+        <MudTabPanel Text="Analysis" Icon="@Icons.Material.Filled.Insights">
+            <AnalysisTab Exam="exam" />
+        </MudTabPanel>
+    </MudTabs>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private ExamView? exam;
+    private int tab;
+
+    protected override Task OnParametersSetAsync() => Reload();
+
+    private async Task Reload() => await Run(async () => exam = await Api.GetAsync<ExamView>($"api/exams/{Id}"));
+
+    private async Task Edit()
+    {
+        var parameters = new DialogParameters<ExamDialog> { { x => x.Item, exam } };
+        var dialog = await Dialogs.ShowAsync<ExamDialog>("Edit exam", parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (await dialog.Result is { Canceled: false }) await Reload();
+    }
+}

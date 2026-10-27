@@ -1,0 +1,31 @@
+@inherits AppPage
+@* One notice as shown on the staff board and in the student/parent portal. *@
+
+<MudPaper Class="pa-4 mb-3" Elevation="1" Style="@(Notice.IsUrgent ? "border-left:4px solid #dc2626" : Notice.IsPinned ? "border-left:4px solid var(--mud-palette-primary)" : "")">
+    <div class="d-flex flex-wrap align-center gap-2">
+        @if (Notice.IsPinned) { <MudIcon Icon="@Icons.Material.Filled.PushPin" Size="Size.Small" Color="Color.Primary" /> }
+        <MudText Typo="Typo.h6">@Notice.Title</MudText>
+        @if (Notice.IsUrgent) { <MudChip T="string" Size="Size.Small" Color="Color.Error">Urgent</MudChip> }
+        @if (!Notice.Active) { <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">Expired</MudChip> }
+        <MudSpacer />
+        @Actions
+    </div>
+    @if (Notice.TitleBn is not null) { <MudText Typo="Typo.subtitle1">@Notice.TitleBn</MudText> }
+    <MudText Typo="Typo.caption" Color="Color.Secondary" Class="d-block mb-2">
+        @Format.DateTime(Notice.PublishedAtUtc)@(Notice.PostedBy is null ? "" : $" · {Notice.PostedBy}")
+        · @(Notice.CampusName ?? "All campuses") · @(Notice.ClassName ?? "All classes")
+        · For @string.Join(", ", new[] { Notice.ForStudents ? "students" : null, Notice.ForParents ? "parents" : null, Notice.ForStaff ? "staff" : null }.OfType<string>())
+        @(Notice.ExpiresOn is { } e ? $" · until {Format.Date(e)}" : "")
+    </MudText>
+    <MudText Typo="Typo.body1" Style="white-space:pre-wrap">@Notice.Body</MudText>
+    @if (Notice.HasAttachment)
+    {
+        <MudButton Class="mt-2" Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.AttachFile" OnClick="() => OpenFile(AttachmentUrl)">@Notice.AttachmentName</MudButton>
+    }
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired] public NoticeView Notice { get; set; } = default!;
+    [Parameter, EditorRequired] public string AttachmentUrl { get; set; } = "";
+    [Parameter] public RenderFragment? Actions { get; set; }
+}

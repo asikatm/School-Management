@@ -1,10 +1,14 @@
 using Microsoft.EntityFrameworkCore;
 using SchoolManagement.Domain.Academics;
 using SchoolManagement.Domain.Admission;
+using SchoolManagement.Domain.Attendance;
+using SchoolManagement.Domain.Communication;
 using SchoolManagement.Domain.Approvals;
 using SchoolManagement.Domain.Audit;
 using SchoolManagement.Domain.Core;
+using SchoolManagement.Domain.Exams;
 using SchoolManagement.Domain.Identity;
+using SchoolManagement.Domain.Learning;
 using SchoolManagement.Domain.Notifications;
 using SchoolManagement.Domain.Students;
 
@@ -22,7 +26,7 @@ internal static class ModelConfiguration
     [
         typeof(GradeBand), typeof(RolePermission), typeof(ApprovalStep), typeof(ApprovalDecision),
         typeof(ApplicationGuardian), typeof(AdmissionInvoiceLine), typeof(EnquiryActivity), typeof(TestCandidate),
-        typeof(Term), typeof(UserRoleAssignment)
+        typeof(Term), typeof(UserRoleAssignment), typeof(ExamClass), typeof(ExamPaperComponent)
     ];
 
     public static void Configure(ModelBuilder b)
@@ -34,6 +38,315 @@ internal static class ModelConfiguration
         ConfigureAdmission(b);
         ConfigureStudents(b);
         ConfigureAcademics(b);
+        ConfigureAttendance(b);
+        ConfigureLearning(b);
+        ConfigureExams(b);
+
+        b.Entity<Notice>(e =>
+        {
+            e.Property(x => x.Title).HasMaxLength(Name);
+            e.Property(x => x.TitleBn).HasMaxLength(Name);
+            e.Property(x => x.Body).HasMaxLength(8000);
+            e.Property(x => x.AttachmentPath).HasMaxLength(500);
+            e.Property(x => x.AttachmentName).HasMaxLength(260);
+            e.Property(x => x.AttachmentType).HasMaxLength(100);
+            e.HasIndex(x => x.PublishedAtUtc);
+            e.HasOne<Campus>().WithMany().HasForeignKey(x => x.CampusId);
+            e.HasOne<YearGroup>().WithMany().HasForeignKey(x => x.YearGroupId);
+        });
+    }
+
+    private static void ConfigureLearning(ModelBuilder b)
+    {
+        b.Entity<Assignment>(e =>
+        {
+            e.Property(x => x.Title).HasMaxLength(Name);
+            e.Property(x => x.Instructions).HasMaxLength(4000);
+            e.Property(x => x.AttachmentPath).HasMaxLength(500);
+            e.Property(x => x.AttachmentName).HasMaxLength(260);
+            e.Property(x => x.AttachmentType).HasMaxLength(100);
+            e.Property(x => x.LatePenaltyPercent).HasPrecision(5, 2);
+            e.HasIndex(x => new { x.SectionId, x.DueAtLocal });
+            e.HasOne<Section>().WithMany().HasForeignKey(x => x.SectionId);
+            e.HasOne<Subject>().WithMany().HasForeignKey(x => x.SubjectId);
+            e.HasOne<AcademicYear>().WithMany().HasForeignKey(x => x.AcademicYearId);
+        });
+
+        b.Entity<AssignmentSubmission>(e =>
+        {
+            e.Property(x => x.Text).HasMaxLength(4000);
+            e.Property(x => x.FilePath).HasMaxLength(500);
+            e.Property(x => x.FileName).HasMaxLength(260);
+            e.Property(x => x.FileType).HasMaxLength(100);
+            e.Property(x => x.Feedback).HasMaxLength(2000);
+            e.HasIndex(x => new { x.AssignmentId, x.StudentId }).IsUnique();
+            e.HasOne<Assignment>().WithMany().HasForeignKey(x => x.AssignmentId);
+            e.HasOne<Student>().WithMany().HasForeignKey(x => x.StudentId);
+        });
+
+        b.Entity<ClassDiaryEntry>(e =>
+        {
+            e.Property(x => x.Topics).HasMaxLength(2000);
+            e.Property(x => x.Homework).HasMaxLength(2000);
+            e.Property(x => x.Reminders).HasMaxLength(1000);
+            e.Property(x => x.KitNotes).HasMaxLength(500);
+            e.HasIndex(x => new { x.SectionId, x.Date });
+            e.HasOne<Section>().WithMany().HasForeignKey(x => x.SectionId);
+            e.HasOne<Subject>().WithMany().HasForeignKey(x => x.SubjectId);
+            e.HasOne<AcademicYear>().WithMany().HasForeignKey(x => x.AcademicYearId);
+        });
+
+        b.Entity<LearningResource>(e =>
+        {
+            e.Property(x => x.Title).HasMaxLength(Name);
+            e.Property(x => x.Description).HasMaxLength(2000);
+            e.Property(x => x.Topic).HasMaxLength(Name);
+            e.Property(x => x.Url).HasMaxLength(1000);
+            e.Property(x => x.FilePath).HasMaxLength(500);
+            e.Property(x => x.FileName).HasMaxLength(260);
+            e.Property(x => x.FileType).HasMaxLength(100);
+            e.HasIndex(x => new { x.SubjectId, x.YearGroupId });
+            e.HasOne<Subject>().WithMany().HasForeignKey(x => x.SubjectId);
+            e.HasOne<YearGroup>().WithMany().HasForeignKey(x => x.YearGroupId);
+            e.HasOne<Section>().WithMany().HasForeignKey(x => x.SectionId);
+            e.HasOne<Campus>().WithMany().HasForeignKey(x => x.CampusId);
+        });
+
+        b.Entity<ResourceDownload>(e =>
+        {
+            e.HasIndex(x => new { x.ResourceId, x.AtUtc });
+            e.HasOne<LearningResource>().WithMany().HasForeignKey(x => x.ResourceId);
+        });
+
+        b.Entity<GradebookCategory>(e =>
+        {
+            e.Property(x => x.Name).HasMaxLength(100);
+            e.Property(x => x.WeightPercent).HasPrecision(5, 2);
+            e.HasOne<YearGroup>().WithMany().HasForeignKey(x => x.YearGroupId);
+        });
+
+        b.Entity<GradebookItem>(e =>
+        {
+            e.Property(x => x.Title).HasMaxLength(Name);
+            e.HasIndex(x => new { x.SectionId, x.SubjectId, x.TermId });
+            e.HasOne<Section>().WithMany().HasForeignKey(x => x.SectionId);
+            e.HasOne<Subject>().WithMany().HasForeignKey(x => x.SubjectId);
+            e.HasOne<Term>().WithMany().HasForeignKey(x => x.TermId);
+            e.HasOne<GradebookCategory>().WithMany().HasForeignKey(x => x.CategoryId);
+            e.HasOne<Assignment>().WithMany().HasForeignKey(x => x.AssignmentId);
+            e.HasOne<AcademicYear>().WithMany().HasForeignKey(x => x.AcademicYearId);
+        });
+
+        b.Entity<GradebookMark>(e =>
+        {
+            e.Property(x => x.Comment).HasMaxLength(300);
+            e.HasIndex(x => new { x.ItemId, x.StudentId }).IsUnique();
+            e.HasOne<GradebookItem>().WithMany().HasForeignKey(x => x.ItemId);
+            e.HasOne<Student>().WithMany().HasForeignKey(x => x.StudentId);
+        });
+
+        b.Entity<GradebookModeration>(e =>
+        {
+            e.Property(x => x.Adjustment).HasPrecision(5, 2);
+            e.Property(x => x.Note).HasMaxLength(500);
+            e.HasIndex(x => new { x.SectionId, x.SubjectId, x.TermId }).IsUnique();
+            e.HasOne<Section>().WithMany().HasForeignKey(x => x.SectionId);
+            e.HasOne<Subject>().WithMany().HasForeignKey(x => x.SubjectId);
+            e.HasOne<Term>().WithMany().HasForeignKey(x => x.TermId);
+            e.HasOne<AcademicYear>().WithMany().HasForeignKey(x => x.AcademicYearId);
+        });
+    }
+
+    private static void ConfigureExams(ModelBuilder b)
+    {
+        b.Entity<Exam>(e =>
+        {
+            e.Property(x => x.Code).HasMaxLength(Code);
+            e.Property(x => x.Name).HasMaxLength(Name);
+            e.Property(x => x.NameBn).HasMaxLength(Name);
+            e.HasIndex(x => new { x.AcademicYearId, x.Code }).IsUnique();
+            e.HasIndex(x => new { x.ResultStatus, x.PublishAtUtc });
+            e.HasMany(x => x.Classes).WithOne().HasForeignKey(x => x.ExamId);
+            e.HasOne<AcademicYear>().WithMany().HasForeignKey(x => x.AcademicYearId);
+            e.HasOne<Term>().WithMany().HasForeignKey(x => x.TermId);
+            e.HasOne<Campus>().WithMany().HasForeignKey(x => x.CampusId);
+        });
+
+        b.Entity<ExamClass>(e =>
+        {
+            e.HasIndex(x => new { x.ExamId, x.YearGroupId }).IsUnique();
+            e.HasOne<YearGroup>().WithMany().HasForeignKey(x => x.YearGroupId);
+            e.HasOne<GradingScheme>().WithMany().HasForeignKey(x => x.GradingSchemeId);
+        });
+
+        b.Entity<ExamPaper>(e =>
+        {
+            e.HasIndex(x => new { x.ExamId, x.YearGroupId, x.SubjectId }).IsUnique();
+            e.HasIndex(x => new { x.ExamId, x.Date });
+            e.HasMany(x => x.Components).WithOne().HasForeignKey(x => x.ExamPaperId);
+            e.HasOne<Exam>().WithMany().HasForeignKey(x => x.ExamId);
+            e.HasOne<YearGroup>().WithMany().HasForeignKey(x => x.YearGroupId);
+            e.HasOne<Subject>().WithMany().HasForeignKey(x => x.SubjectId);
+        });
+
+        b.Entity<ExamPaperComponent>(e =>
+        {
+            e.Property(x => x.Name).HasMaxLength(64);
+            e.Property(x => x.WeightPercent).HasPrecision(5, 2);
+        });
+
+        b.Entity<ExamSeat>(e =>
+        {
+            e.HasIndex(x => new { x.ExamId, x.StudentId }).IsUnique();
+            e.HasIndex(x => new { x.ExamId, x.RoomId, x.SeatNo }).IsUnique();
+            e.HasOne<Exam>().WithMany().HasForeignKey(x => x.ExamId);
+            e.HasOne<Student>().WithMany().HasForeignKey(x => x.StudentId);
+            e.HasOne<Room>().WithMany().HasForeignKey(x => x.RoomId);
+        });
+
+        b.Entity<ExamInvigilator>(e =>
+        {
+            e.HasIndex(x => new { x.ExamId, x.Date, x.RoomId, x.UserId }).IsUnique();
+            e.HasOne<Exam>().WithMany().HasForeignKey(x => x.ExamId);
+            e.HasOne<Room>().WithMany().HasForeignKey(x => x.RoomId);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.UserId);
+        });
+
+        b.Entity<MarkSheet>(e =>
+        {
+            e.Property(x => x.ReopenReason).HasMaxLength(500);
+            e.HasIndex(x => new { x.ExamPaperId, x.SectionId }).IsUnique();
+            e.HasOne<ExamPaper>().WithMany().HasForeignKey(x => x.ExamPaperId);
+            e.HasOne<Section>().WithMany().HasForeignKey(x => x.SectionId);
+        });
+
+        b.Entity<ExamMark>(e =>
+        {
+            e.HasIndex(x => new { x.ComponentId, x.StudentId }).IsUnique();
+            e.HasIndex(x => new { x.ExamPaperId, x.StudentId });
+            e.HasOne<ExamPaper>().WithMany().HasForeignKey(x => x.ExamPaperId);
+            e.HasOne<ExamPaperComponent>().WithMany().HasForeignKey(x => x.ComponentId);
+            e.HasOne<Student>().WithMany().HasForeignKey(x => x.StudentId);
+        });
+
+        b.Entity<ReportCardRemark>(e =>
+        {
+            e.Property(x => x.TeacherRemark).HasMaxLength(1000);
+            e.Property(x => x.PrincipalRemark).HasMaxLength(1000);
+            e.Property(x => x.CoCurricular).HasMaxLength(1000);
+            e.HasIndex(x => new { x.ExamId, x.StudentId }).IsUnique();
+            e.HasOne<Exam>().WithMany().HasForeignKey(x => x.ExamId);
+            e.HasOne<Student>().WithMany().HasForeignKey(x => x.StudentId);
+        });
+
+        b.Entity<ExamResult>(e =>
+        {
+            e.Property(x => x.Grade).HasMaxLength(32);
+            e.Property(x => x.Percent).HasPrecision(6, 2);
+            e.Property(x => x.Gpa).HasPrecision(4, 2);
+            e.Property(x => x.Percentile).HasPrecision(5, 1);
+            e.Property(x => x.AttendancePercent).HasPrecision(5, 1);
+            e.Property(x => x.TeacherRemark).HasMaxLength(1000);
+            e.Property(x => x.PrincipalRemark).HasMaxLength(1000);
+            e.Property(x => x.CoCurricular).HasMaxLength(1000);
+            e.Property(x => x.VerificationCode).HasMaxLength(32);
+            e.Property(x => x.Signature).HasMaxLength(128);
+            e.HasIndex(x => new { x.ExamId, x.StudentId }).IsUnique();
+            e.HasIndex(x => x.VerificationCode).IsUnique();
+            e.HasIndex(x => x.StudentId);
+            e.HasOne<Exam>().WithMany().HasForeignKey(x => x.ExamId);
+            e.HasOne<Student>().WithMany().HasForeignKey(x => x.StudentId);
+            e.HasOne<Section>().WithMany().HasForeignKey(x => x.SectionId);
+            e.HasOne<AcademicYear>().WithMany().HasForeignKey(x => x.AcademicYearId);
+        });
+    }
+
+    private static void ConfigureAttendance(ModelBuilder b)
+    {
+        b.Entity<StudentAttendance>(e =>
+        {
+            e.Property(x => x.Remarks).HasMaxLength(300);
+            e.HasIndex(x => new { x.StudentId, x.Date }).IsUnique();
+            e.HasIndex(x => new { x.SectionId, x.Date });
+            e.HasIndex(x => new { x.Date, x.Mark, x.AlertSentAtUtc });
+            e.HasOne<Student>().WithMany().HasForeignKey(x => x.StudentId);
+            e.HasOne<Section>().WithMany().HasForeignKey(x => x.SectionId);
+            e.HasOne<AcademicYear>().WithMany().HasForeignKey(x => x.AcademicYearId);
+        });
+
+        b.Entity<PeriodAttendance>(e =>
+        {
+            e.HasIndex(x => new { x.StudentId, x.Date, x.PeriodNo }).IsUnique();
+            e.HasIndex(x => new { x.SectionId, x.Date, x.PeriodNo });
+            e.HasOne<Student>().WithMany().HasForeignKey(x => x.StudentId);
+            e.HasOne<Section>().WithMany().HasForeignKey(x => x.SectionId);
+            e.HasOne<AcademicYear>().WithMany().HasForeignKey(x => x.AcademicYearId);
+        });
+
+        b.Entity<AttendanceRegister>(e =>
+        {
+            e.HasIndex(x => new { x.SectionId, x.Date, x.PeriodNo }).IsUnique();
+            e.HasIndex(x => x.Date);
+            e.HasOne<Section>().WithMany().HasForeignKey(x => x.SectionId);
+            e.HasOne<AcademicYear>().WithMany().HasForeignKey(x => x.AcademicYearId);
+        });
+
+        b.Entity<StudentLeaveRequest>(e =>
+        {
+            e.Property(x => x.Reason).HasMaxLength(500);
+            e.Property(x => x.AttachmentPath).HasMaxLength(500);
+            e.Property(x => x.AttachmentName).HasMaxLength(260);
+            e.Property(x => x.AttachmentType).HasMaxLength(100);
+            e.Property(x => x.DecisionNote).HasMaxLength(500);
+            e.HasIndex(x => new { x.StudentId, x.Status });
+            e.HasOne<Student>().WithMany().HasForeignKey(x => x.StudentId);
+        });
+
+        b.Entity<AttendanceWarning>(e =>
+        {
+            e.Property(x => x.Percent).HasPrecision(5, 2);
+            e.HasIndex(x => new { x.StudentId, x.TermId, x.Level }).IsUnique();
+            e.HasOne<Student>().WithMany().HasForeignKey(x => x.StudentId);
+            e.HasOne<Term>().WithMany().HasForeignKey(x => x.TermId);
+        });
+
+        b.Entity<StaffAttendance>(e =>
+        {
+            e.Property(x => x.Note).HasMaxLength(300);
+            e.HasIndex(x => new { x.UserId, x.Date }).IsUnique();
+            e.HasIndex(x => x.Date);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.UserId);
+        });
+
+        b.Entity<LeaveType>(e =>
+        {
+            e.Property(x => x.Code).HasMaxLength(Code);
+            e.Property(x => x.Name).HasMaxLength(Name);
+            e.Property(x => x.NameBn).HasMaxLength(Name);
+            e.Property(x => x.DaysPerYear).HasPrecision(5, 1);
+            e.HasIndex(x => x.Code).IsUnique();
+        });
+
+        b.Entity<LeaveEntitlement>(e =>
+        {
+            e.Property(x => x.Days).HasPrecision(5, 1);
+            e.HasIndex(x => new { x.UserId, x.LeaveTypeId, x.AcademicYearId }).IsUnique();
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.UserId);
+            e.HasOne<LeaveType>().WithMany().HasForeignKey(x => x.LeaveTypeId);
+            e.HasOne<AcademicYear>().WithMany().HasForeignKey(x => x.AcademicYearId);
+        });
+
+        b.Entity<StaffLeaveRequest>(e =>
+        {
+            e.Property(x => x.Days).HasPrecision(5, 1);
+            e.Property(x => x.Reason).HasMaxLength(500);
+            e.Property(x => x.DecisionNote).HasMaxLength(500);
+            e.HasIndex(x => new { x.UserId, x.AcademicYearId, x.Status });
+            e.HasIndex(x => new { x.FromDate, x.ToDate });
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.UserId);
+            e.HasOne(x => x.LeaveType).WithMany().HasForeignKey(x => x.LeaveTypeId);
+            e.HasOne<AcademicYear>().WithMany().HasForeignKey(x => x.AcademicYearId);
+        });
     }
 
     private static void ConfigureAcademics(ModelBuilder b)
