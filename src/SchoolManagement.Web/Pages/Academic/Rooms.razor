@@ -1,0 +1,84 @@
+@page "/academic/rooms"
+@inherits AppPage
+
+<PageTitle>Rooms</PageTitle>
+
+<div class="d-flex align-center mb-1">
+    <MudText Typo="Typo.h4">Rooms</MudText>
+    <MudSpacer />
+    @if (canManage)
+    {
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="() => Edit(null)" Disabled="@(Busy || campusId is null)">New room</MudButton>
+    }
+</div>
+<MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-4">Classrooms, labs and halls. The timetable never puts two classes in one room at the same time.</MudText>
+
+<MudPaper Class="pa-3 mb-4">
+    <MudSelect T="Guid?" Value="campusId" ValueChanged="CampusChanged" Label="Campus" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:360px">
+        @foreach (var c in campuses)
+        {
+            <MudSelectItem T="Guid?" Value="c.Id">@c.Name</MudSelectItem>
+        }
+    </MudSelect>
+</MudPaper>
+
+<MudTable T="RoomView" Items="rooms" Loading="Busy" Hover="true" Dense="true" Elevation="1">
+    <HeaderContent>
+        <MudTh>Code</MudTh>
+        <MudTh>Name</MudTh>
+        <MudTh>Type</MudTh>
+        <MudTh>Capacity</MudTh>
+        <MudTh>Status</MudTh>
+        <MudTh></MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd DataLabel="Code"><b>@context.Code</b></MudTd>
+        <MudTd DataLabel="Name">@context.Name</MudTd>
+        <MudTd DataLabel="Type"><MudChip T="string" Size="Size.Small" Variant="Variant.Text">@Format.Enum(context.Type)</MudChip></MudTd>
+        <MudTd DataLabel="Capacity">@context.Capacity</MudTd>
+        <MudTd DataLabel="Status">@(context.IsActive ? "In use" : "Not in use")</MudTd>
+        <MudTd Style="text-align:right">
+            <MudIconButton Icon="@Icons.Material.Filled.CalendarViewWeek" Size="Size.Small" title="Room timetable" Href="@($"timetable?room={context.Id}")" />
+            @if (canManage)
+            {
+                <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" title="Edit" OnClick="() => Edit(context)" />
+            }
+        </MudTd>
+    </RowTemplate>
+    <NoRecordsContent><MudText>No rooms on this campus yet.</MudText></NoRecordsContent>
+</MudTable>
+
+@code {
+    private List<CampusView> campuses = [];
+    private List<RoomView> rooms = [];
+    private Guid? campusId;
+    private bool canManage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        canManage = Session.Has(P.Academic.Manage);
+        await Run(async () => campuses = (await Api.GetAsync<List<CampusView>>("api/campuses")).Where(c => c.IsActive).ToList());
+        campusId = campuses.FirstOrDefault()?.Id;
+        await Load();
+    }
+
+    private async Task CampusChanged(Guid? id)
+    {
+        campusId = id;
+        await Load();
+    }
+
+    private async Task Load()
+    {
+        if (campusId is null) return;
+        await Run(async () => rooms = await Api.GetAsync<List<RoomView>>($"api/academics/rooms?campusId={campusId}"));
+    }
+
+    private async Task Edit(RoomView? room)
+    {
+        var dlg = await Dialogs.ShowAsync<RoomDialog>(room is null ? "New room" : $"Edit {room.Name}",
+            new DialogParameters<RoomDialog> { { x => x.Item, room }, { x => x.CampusId, campusId!.Value } },
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (await dlg.Result is { Canceled: false }) await Load();
+    }
+}

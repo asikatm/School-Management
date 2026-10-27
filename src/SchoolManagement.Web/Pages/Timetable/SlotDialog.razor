@@ -1,0 +1,112 @@
+@inherits AppPage
+
+<MudDialog>
+    <DialogContent>
+        @if (Cell.Count > 0)
+        {
+            <MudText Typo="Typo.subtitle2" Class="mb-1">In this period</MudText>
+            @foreach (var s in Cell)
+            {
+                <div class="d-flex align-center gap-2 mb-1">
+                    <span class="tt-dot" style="background:@TimetablePage.Colour(s.SubjectCode)"></span>
+                    <span><b>@s.SubjectCode</b> @s.SubjectName · @(s.TeacherName ?? "no teacher")@(s.RoomName is null ? "" : " · " + s.RoomName)</span>
+                    <MudSpacer />
+                    <MudButton Size="Size.Small" OnClick="() => Pick(s)">Edit</MudButton>
+                    <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" title="Remove lesson" OnClick="() => Remove(s)" Disabled="Busy" />
+                </div>
+            }
+            <MudDivider Class="my-3" />
+        }
+
+        <MudSelect T="Guid?" Value="subjectId" ValueChanged="SubjectChanged" Label="Subject" Required="true">
+            @foreach (var p in Timetable.Plan.OrderBy(p => p.GroupName).ThenBy(p => p.Code))
+            {
+                <MudSelectItem T="Guid?" Value="p.SubjectId">@p.Code — @p.Name (@p.Placed/@p.Required)@(p.GroupName is null ? "" : $" · {p.GroupName}")</MudSelectItem>
+            }
+        </MudSelect>
+        <MudSelect T="Guid?" @bind-Value="teacherId" Label="Teacher" Clearable="true" Class="mt-2">
+            @foreach (var t in OrderedTeachers)
+            {
+                <MudSelectItem T="Guid?" Value="t.Id">@t.FullName@(Allocated.Contains(t.Id) ? " ★ allocated" : "")</MudSelectItem>
+            }
+        </MudSelect>
+        <MudSelect T="Guid?" @bind-Value="roomId" Label="Room" Clearable="true" Placeholder="Home room" Class="mt-2">
+            @foreach (var r in Rooms.OrderBy(r => r.Code))
+            {
+                <MudSelectItem T="Guid?" Value="r.Id">@r.Name · @Format.Enum(r.Type)</MudSelectItem>
+            }
+        </MudSelect>
+        <MudTextField @bind-Value="note" Label="Note" Class="mt-2" MaxLength="200" />
+        @if (CanParallel)
+        {
+            <MudCheckBox T="bool" @bind-Value="parallel" Label="Teach alongside the other option-group subjects in this period" Class="mt-2" />
+        }
+        else if (Cell.Any(c => c.SubjectId != subjectId) && subjectId is not null)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true" Class="mt-2">Saving replaces the lesson already in this period.</MudAlert>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="() => MudDialog.Cancel()">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Save" Disabled="@(Busy || subjectId is null)">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public SectionTimetable Timetable { get; set; } = default!;
+    [Parameter] public DayOfWeek Day { get; set; }
+    [Parameter] public PeriodView Period { get; set; } = default!;
+    [Parameter] public List<SlotView> Cell { get; set; } = [];
+    [Parameter] public List<TeacherOption> Teachers { get; set; } = [];
+    [Parameter] public List<RoomView> Rooms { get; set; } = [];
+
+    private Guid? subjectId, teacherId, roomId;
+    private string? note;
+    private bool parallel;
+
+    private SubjectPlan? Plan => Timetable.Plan.FirstOrDefault(p => p.SubjectId == subjectId);
+    private HashSet<Guid> Allocated => Plan?.Teachers.Select(t => t.UserId).ToHashSet() ?? [];
+    private IEnumerable<TeacherOption> OrderedTeachers => Teachers.OrderByDescending(t => Allocated.Contains(t.Id)).ThenBy(t => t.FullName);
+
+    /// <summary>An elective can share the period with others of the same option group.</summary>
+    private bool CanParallel =>
+        Plan?.GroupId is { } g && Cell.Any(c => c.SubjectId != subjectId) &&
+        Cell.Where(c => c.SubjectId != subjectId).All(c => Timetable.Plan.FirstOrDefault(p => p.SubjectId == c.SubjectId)?.GroupId == g);
+
+    protected override void OnInitialized()
+    {
+        if (Cell.Count == 1) Pick(Cell[0]);
+    }
+
+    private void Pick(SlotView s) => (subjectId, teacherId, roomId, note) = (s.SubjectId, s.TeacherUserId, s.RoomId, s.Note);
+
+    private void SubjectChanged(Guid? id)
+    {
+        subjectId = id;
+        var existing = Cell.FirstOrDefault(c => c.SubjectId == id);
+        teacherId = existing?.TeacherUserId ?? Plan?.Teachers.FirstOrDefault()?.UserId;
+        roomId = existing?.RoomId;
+        parallel = CanParallel;
+    }
+
+    private async Task Save()
+    {
+        SlotSaveResult? result = null;
+        var ok = await Run(async () => result = await Api.PutAsync<SlotSaveResult>("api/academics/timetable/slot",
+            new SlotRequest(Timetable.Section.Id, Day, Period.PeriodNo, subjectId!.Value, teacherId, roomId, note, parallel && CanParallel)));
+        if (!ok) return;
+        Snackbar.Add("Lesson saved.", Severity.Success);
+        foreach (var w in result!.Warnings) Snackbar.Add(w.Message, Severity.Warning);
+        MudDialog.Close(DialogResult.Ok(true));
+    }
+
+    private async Task Remove(SlotView s)
+    {
+        if (!await Run(() => Api.DeleteAsync($"api/academics/timetable/slot/{s.Id}"), "Lesson removed.")) return;
+        Cell.Remove(s);
+        if (Cell.Count == 0) MudDialog.Close(DialogResult.Ok(true));
+        else if (subjectId == s.SubjectId) (subjectId, teacherId, roomId, note) = (null, null, null, null);
+        StateHasChanged();
+    }
+}

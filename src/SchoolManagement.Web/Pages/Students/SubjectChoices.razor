@@ -1,0 +1,124 @@
+@page "/students/subject-choices"
+@inherits AppPage
+@using SchoolManagement.Domain.Academics
+
+<PageTitle>Subject choices</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-1">Subject choices</MudText>
+<MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-4">
+    Optional and elective subjects each student takes this year. Compulsory subjects are automatic. Rows in red do not meet an option group's rule.
+</MudText>
+
+<MudPaper Class="pa-3 mb-3">
+    <MudGrid Spacing="2">
+        <StudentClassPicker @bind-CampusId="campusId" @bind-AcademicYearId="yearId" @bind-YearGroupId="yearGroupId" @bind-SectionId="sectionId"
+                            Required="true" SectionRequired="true" Changed="Load" />
+    </MudGrid>
+</MudPaper>
+
+@if (view is not null)
+{
+    @if (view.Choosable.Count == 0)
+    {
+        <MudAlert Severity="Severity.Info">This class has only compulsory subjects. Add optional or elective subjects in Academic setup → Curriculum.</MudAlert>
+    }
+    else
+    {
+        <div class="d-flex flex-wrap gap-2 mb-2">
+            @foreach (var g in view.Groups)
+            {
+                <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Outlined">@Rule(g)</MudChip>
+            }
+            <MudSpacer />
+            <MudChip T="string" Size="Size.Small" Color="@(view.Students.Count(s => s.Problems.Count > 0) == 0 ? Color.Success : Color.Warning)">
+                @view.Students.Count(s => s.Problems.Count == 0) of @view.Students.Count complete
+            </MudChip>
+        </div>
+        <MudPaper Style="overflow-x:auto">
+            <MudSimpleTable Dense="true" Hover="true">
+                <thead>
+                    <tr>
+                        <th>Roll</th><th>Student</th>
+                        @foreach (var s in view.Choosable)
+                        {
+                            <th style="text-align:center" title="@HeaderTitle(s)">@s.Code<br /><small>@s.PeriodsPerWeek p/w</small></th>
+                        }
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var st in view.Students)
+                    {
+                        var picks = edits.GetValueOrDefault(st.StudentId) ?? st.SubjectIds.ToHashSet();
+                        var problems = Problems(picks);
+                        <tr style="@(problems.Count > 0 ? "background:#FFF5F5" : "")">
+                            <td>@st.RollNo</td>
+                            <td><b>@st.Name</b><br /><small>@st.AdmissionNo</small>@if (problems.Count > 0) {<br /><small style="color:#C62828">@string.Join(" ", problems)</small>}</td>
+                            @foreach (var s in view.Choosable)
+                            {
+                                <td style="text-align:center">
+                                    <MudCheckBox T="bool" Value="picks.Contains(s.SubjectId)" ValueChanged="v => Toggle(st, s.SubjectId, v)" ReadOnly="!canManage" Dense="true" />
+                                </td>
+                            }
+                            <td>
+                                @if (canManage && edits.ContainsKey(st.StudentId))
+                                {
+                                    <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" OnClick="() => Save(st)" Disabled="@(Busy || problems.Count > 0)">Save</MudButton>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+        </MudPaper>
+        @if (view.Students.Count == 0)
+        {
+            <MudText Class="mt-2">No students in this section.</MudText>
+        }
+    }
+}
+
+@code {
+    private Guid? campusId, yearId, yearGroupId, sectionId;
+    private SubjectChoicesView? view;
+    private readonly Dictionary<Guid, HashSet<Guid>> edits = [];
+    private bool canManage;
+
+    protected override void OnInitialized() => canManage = Session.Has(P.Academic.Manage);
+
+    private static string HeaderTitle(CurriculumRow s) => s.GroupName is null ? s.Name : $"{s.Name} · {s.GroupName}";
+
+    private static string Rule(SubjectGroupView g) =>
+        g.MinChoices == g.MaxChoices ? $"{g.Name}: choose {g.MinChoices}" : $"{g.Name}: choose {g.MinChoices}–{g.MaxChoices}";
+
+    private async Task Load()
+    {
+        edits.Clear();
+        view = null;
+        if (sectionId is null) return;
+        await Run(async () => view = await Api.GetAsync<SubjectChoicesView>($"api/academics/subject-choices?sectionId={sectionId}"));
+    }
+
+    private void Toggle(StudentChoiceRow st, Guid subjectId, bool on)
+    {
+        var set = edits.GetValueOrDefault(st.StudentId) ?? st.SubjectIds.ToHashSet();
+        if (on) set.Add(subjectId); else set.Remove(subjectId);
+        edits[st.StudentId] = set;
+    }
+
+    private List<string> Problems(HashSet<Guid> picks) =>
+        view!.Groups.Select(g => (g, n: view.Choosable.Count(s => s.GroupName == g.Name && picks.Contains(s.SubjectId))))
+            .Where(x => x.n < x.g.MinChoices || x.n > x.g.MaxChoices)
+            .Select(x => $"{x.g.Name}: {x.n} chosen.").ToList();
+
+    private async Task Save(StudentChoiceRow st)
+    {
+        var request = new SubjectChoiceRequest(view!.AcademicYearId, edits[st.StudentId].ToList());
+        if (await Run(() => Api.PutAsync<StudentChoiceRow>($"api/academics/subject-choices/{st.StudentId}", request), $"Subjects saved for {st.Name}."))
+        {
+            var keep = edits.Where(e => e.Key != st.StudentId).ToList();
+            await Load();
+            foreach (var (k, v) in keep) edits[k] = v;
+        }
+    }
+}

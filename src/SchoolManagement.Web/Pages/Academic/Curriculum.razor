@@ -1,0 +1,245 @@
+@page "/academic/curriculum"
+@inherits AppPage
+
+<PageTitle>Curriculum</PageTitle>
+
+<div class="d-flex align-center flex-wrap gap-2 mb-1">
+    <MudText Typo="Typo.h4">Curriculum</MudText>
+    <MudSpacer />
+    @if (canManage && yearGroupId is not null)
+    {
+        <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.ContentCopy" OnClick="Copy" Disabled="@(Busy || rows.Count == 0)">Copy to other classes</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Save" OnClick="Save" Disabled="Busy">Save</MudButton>
+    }
+</div>
+<MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-4">
+    Subjects taught in each class and how many periods a week. Optional and elective subjects go in option groups; students choose between the group's minimum and maximum.
+</MudText>
+
+<MudPaper Class="pa-3 mb-4">
+    <MudSelect T="Guid?" Value="yearGroupId" ValueChanged="ClassChanged" Label="Class" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:420px">
+        @foreach (var p in programmes)
+        {
+            @foreach (var g in p.YearGroups)
+            {
+                <MudSelectItem T="Guid?" Value="g.Id">@p.Name › @g.Name</MudSelectItem>
+            }
+        }
+    </MudSelect>
+</MudPaper>
+
+@if (yearGroupId is not null)
+{
+    <MudGrid Spacing="3">
+        <MudItem xs="12" lg="8">
+            <MudPaper Class="pa-0">
+                <div class="d-flex align-center pa-3">
+                    <MudText Typo="Typo.h6">Subjects</MudText>
+                    <MudSpacer />
+                    <MudChip T="string" Size="Size.Small" Color="@(WeekLoad > MaxWeek ? Color.Error : Color.Info)">
+                        Busiest combination: @WeekLoad of @MaxWeek periods a week
+                    </MudChip>
+                </div>
+                <MudSimpleTable Dense="true" Hover="true">
+                    <thead><tr><th>Subject</th><th style="width:150px">Type</th><th style="width:220px">Option group</th><th style="width:110px">Periods / week</th><th style="width:170px">Room</th><th></th></tr></thead>
+                    <tbody>
+                        @foreach (var r in rows)
+                        {
+                            <tr>
+                                <td><b>@SubjectCode(r.SubjectId)</b> @SubjectName(r.SubjectId)</td>
+                                <td>
+                                    <MudSelect T="SubjectType" @bind-Value="r.Type" Margin="Margin.Dense" ReadOnly="!canManage" Disabled="@(r.GroupName is not null && r.Type != SubjectType.Compulsory)">
+                                        @foreach (var t in Enum.GetValues<SubjectType>())
+                                        {
+                                            <MudSelectItem T="SubjectType" Value="t">@Format.Enum(t)</MudSelectItem>
+                                        }
+                                    </MudSelect>
+                                </td>
+                                <td>
+                                    <MudSelect T="string" Value="r.GroupName" ValueChanged="v => SetGroup(r, v)" Margin="Margin.Dense" Clearable="true" Placeholder="—" ReadOnly="!canManage">
+                                        @foreach (var g in groups)
+                                        {
+                                            <MudSelectItem T="string" Value="g.Name">@g.Name</MudSelectItem>
+                                        }
+                                    </MudSelect>
+                                </td>
+                                <td><MudNumericField @bind-Value="r.Periods" Min="0" Max="20" Margin="Margin.Dense" ReadOnly="!canManage" /></td>
+                                <td>
+                                    <MudSelect T="RoomType?" @bind-Value="r.Room" Margin="Margin.Dense" Clearable="true" Placeholder="Home room" ReadOnly="!canManage">
+                                        @foreach (var t in new[] { RoomType.ScienceLab, RoomType.ComputerLab, RoomType.Library, RoomType.Hall, RoomType.Playground })
+                                        {
+                                            <MudSelectItem T="RoomType?" Value="t">@Format.Enum(t)</MudSelectItem>
+                                        }
+                                    </MudSelect>
+                                </td>
+                                <td style="text-align:right">
+                                    @if (canManage)
+                                    {
+                                        <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" title="Remove" OnClick="() => rows.Remove(r)" />
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+                @if (canManage)
+                {
+                    <div class="d-flex gap-2 align-center pa-3">
+                        <MudSelect T="Guid?" @bind-Value="addSubjectId" Label="Add a subject" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:340px">
+                            @foreach (var s in subjects.Where(s => rows.All(r => r.SubjectId != s.Id)))
+                            {
+                                <MudSelectItem T="Guid?" Value="s.Id">@s.Code — @s.Name</MudSelectItem>
+                            }
+                        </MudSelect>
+                        <MudButton Variant="Variant.Outlined" OnClick="AddSubject" Disabled="@(addSubjectId is null)">Add</MudButton>
+                    </div>
+                }
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" lg="4">
+            <MudPaper Class="pa-3">
+                <div class="d-flex align-center mb-2">
+                    <MudText Typo="Typo.h6">Option groups</MudText>
+                    <MudSpacer />
+                    @if (canManage)
+                    {
+                        <MudButton Size="Size.Small" StartIcon="@Icons.Material.Filled.Add" OnClick="AddGroup">Add group</MudButton>
+                    }
+                </div>
+                @if (groups.Count == 0)
+                {
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">No option groups. Add one when students choose some subjects (e.g. "IGCSE options, choose 3–4").</MudText>
+                }
+                @foreach (var g in groups)
+                {
+                    <MudPaper Outlined="true" Class="pa-2 mb-2">
+                        <MudTextField T="string" Value="g.Name" ValueChanged="v => RenameGroup(g, v)" Label="Name" Margin="Margin.Dense" ReadOnly="!canManage" />
+                        <div class="d-flex gap-2 align-center">
+                            <MudNumericField @bind-Value="g.Min" Label="Choose at least" Min="0" Max="20" Margin="Margin.Dense" ReadOnly="!canManage" />
+                            <MudNumericField @bind-Value="g.Max" Label="at most" Min="1" Max="20" Margin="Margin.Dense" ReadOnly="!canManage" />
+                            @if (canManage)
+                            {
+                                <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" title="Remove group" OnClick="() => RemoveGroup(g)" />
+                            }
+                        </div>
+                        <MudText Typo="Typo.caption">@string.Join(", ", rows.Where(r => r.GroupName == g.Name).Select(r => SubjectCode(r.SubjectId)))</MudText>
+                    </MudPaper>
+                }
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    private sealed class Row
+    {
+        public Guid SubjectId { get; init; }
+        public SubjectType Type { get; set; }
+        public string? GroupName { get; set; }
+        public int Periods { get; set; }
+        public RoomType? Room { get; set; }
+    }
+
+    private sealed class Group
+    {
+        public string Name { get; set; } = "";
+        public int Min { get; set; }
+        public int Max { get; set; } = 1;
+    }
+
+    private List<ProgrammeView> programmes = [];
+    private List<SubjectView> subjects = [];
+    private List<Row> rows = [];
+    private List<Group> groups = [];
+    private List<PeriodView> periods = [];
+    private Guid? yearGroupId, addSubjectId;
+    private bool canManage;
+
+    private int dayCount = 6;
+    private int MaxWeek => Math.Max(1, periods.Count(p => !p.IsBreak) * dayCount);
+
+    private int WeekLoad =>
+        rows.Where(r => r.GroupName is null).Sum(r => r.Periods)
+        + groups.Sum(g => rows.Where(r => r.GroupName == g.Name).Select(r => r.Periods).OrderDescending().Take(g.Max).Sum());
+
+    protected override async Task OnInitializedAsync()
+    {
+        canManage = Session.Has(P.Academic.Manage);
+        await Run(async () =>
+        {
+            programmes = await Api.GetAsync<List<ProgrammeView>>("api/structure/programmes");
+            subjects = await Api.GetAsync<List<SubjectView>>("api/master/subjects");
+            var campus = (await Api.GetAsync<List<CampusView>>("api/campuses")).FirstOrDefault();
+            if (campus is not null)
+            {
+                periods = await Api.GetAsync<List<PeriodView>>($"api/academics/periods?campusId={campus.Id}");
+                dayCount = (await Api.GetAsync<List<DayOfWeek>>($"api/academics/working-days?campusId={campus.Id}")).Count;
+            }
+        });
+        yearGroupId = programmes.SelectMany(p => p.YearGroups).FirstOrDefault()?.Id;
+        await Load();
+    }
+
+    private async Task ClassChanged(Guid? id) { yearGroupId = id; await Load(); }
+
+    private async Task Load()
+    {
+        if (yearGroupId is null) return;
+        await Run(async () =>
+        {
+            var c = await Api.GetAsync<CurriculumView>($"api/academics/curriculum/{yearGroupId}");
+            groups = c.Groups.Select(g => new Group { Name = g.Name, Min = g.MinChoices, Max = g.MaxChoices }).ToList();
+            rows = c.Subjects.Select(s => new Row { SubjectId = s.SubjectId, Type = s.Type, GroupName = s.GroupName, Periods = s.PeriodsPerWeek, Room = s.PreferredRoomType }).ToList();
+        });
+    }
+
+    private string SubjectCode(Guid id) => subjects.FirstOrDefault(s => s.Id == id)?.Code ?? "?";
+    private string SubjectName(Guid id) => subjects.FirstOrDefault(s => s.Id == id)?.Name ?? "";
+
+    private void SetGroup(Row r, string? group)
+    {
+        r.GroupName = group;
+        if (group is not null && r.Type == SubjectType.Compulsory) r.Type = SubjectType.Elective;
+    }
+
+    private void AddSubject()
+    {
+        var s = subjects.First(x => x.Id == addSubjectId);
+        rows.Add(new Row { SubjectId = s.Id, Type = s.Type, Periods = 3 });
+        addSubjectId = null;
+    }
+
+    private void AddGroup() => groups.Add(new Group { Name = $"Option group {groups.Count + 1}", Min = 1, Max = 1 });
+
+    private void RenameGroup(Group g, string name)
+    {
+        foreach (var r in rows.Where(r => r.GroupName == g.Name)) r.GroupName = name;
+        g.Name = name;
+    }
+
+    private void RemoveGroup(Group g)
+    {
+        foreach (var r in rows.Where(r => r.GroupName == g.Name)) r.GroupName = null;
+        groups.Remove(g);
+    }
+
+    private CurriculumRequest Request() => new(
+        groups.Select(g => new GroupRequest(g.Name.Trim(), g.Min, g.Max)).ToList(),
+        rows.Select(r => new CurriculumRowRequest(r.SubjectId, r.Type, r.GroupName, r.Periods, r.Room)).ToList());
+
+    private async Task Save()
+    {
+        if (await Run(() => Api.PutAsync<CurriculumView>($"api/academics/curriculum/{yearGroupId}", Request()), "Curriculum saved.")) await Load();
+    }
+
+    private async Task Copy()
+    {
+        var options = programmes.SelectMany(p => p.YearGroups.Select(g => (g.Id, Label: $"{p.Name} › {g.Name}"))).Where(o => o.Id != yearGroupId).ToList();
+        var dlg = await Dialogs.ShowAsync<CopyCurriculumDialog>("Copy curriculum",
+            new DialogParameters<CopyCurriculumDialog> { { x => x.Options, options } }, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (await dlg.Result is not { Canceled: false, Data: List<Guid> targets } || targets.Count == 0) return;
+        // Save first so the copy carries what is on screen.
+        if (!await Run(() => Api.PutAsync<CurriculumView>($"api/academics/curriculum/{yearGroupId}", Request()))) return;
+        await Run(() => Api.PostAsync<int>($"api/academics/curriculum/{yearGroupId}/copy", targets), $"Copied to {targets.Count} class(es).");
+    }
+}

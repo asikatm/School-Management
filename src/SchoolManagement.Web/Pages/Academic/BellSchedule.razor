@@ -1,0 +1,137 @@
+@page "/academic/bell-schedule"
+@inherits AppPage
+
+<PageTitle>Bell schedule</PageTitle>
+
+<div class="d-flex align-center mb-1">
+    <MudText Typo="Typo.h4">Bell schedule</MudText>
+    <MudSpacer />
+    @if (canManage)
+    {
+        <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Add" OnClick="Add" Disabled="Busy" Class="mr-2">Add period</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Save" OnClick="Save" Disabled="@(Busy || rows.Count == 0)">Save</MudButton>
+    }
+</div>
+<MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-4">
+    The day's periods and breaks for a campus. Timetables are built on these periods; breaks (tiffin, Zuhr prayer) print on every routine.
+</MudText>
+
+<MudPaper Class="pa-3 mb-4">
+    <MudGrid Spacing="2">
+        <MudItem xs="12" sm="5">
+            <MudSelect T="Guid?" Value="campusId" ValueChanged="CampusChanged" Label="Campus" Variant="Variant.Outlined" Margin="Margin.Dense">
+                @foreach (var c in campuses)
+                {
+                    <MudSelectItem T="Guid?" Value="c.Id">@c.Name</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="5">
+            <MudSelect T="Guid?" Value="shiftId" ValueChanged="ShiftChanged" Label="Shift" Clearable="true" Placeholder="Whole campus" Variant="Variant.Outlined" Margin="Margin.Dense"
+                       HelperText="Leave empty for one schedule for the whole campus">
+                @foreach (var s in shifts.Where(s => s.CampusId == campusId))
+                {
+                    <MudSelectItem T="Guid?" Value="s.Id">@s.Name</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+<MudPaper Class="pa-0">
+    <MudSimpleTable Dense="true" Hover="true">
+        <thead>
+            <tr><th style="width:80px" title="Fixed once given; lessons are stored against it">No.</th><th>Name</th><th style="width:150px">Starts</th><th style="width:150px">Ends</th><th style="width:90px">Minutes</th><th style="width:110px">Break</th><th></th></tr>
+        </thead>
+        <tbody>
+            @foreach (var r in rows.OrderBy(r => r.Start))
+            {
+                <tr class="@(r.IsBreak ? "bell-break" : "")">
+                    <td>@r.No</td>
+                    <td><MudTextField @bind-Value="r.Name" Variant="Variant.Text" Margin="Margin.Dense" ReadOnly="!canManage" /></td>
+                    <td><MudTextField T="string" Value="@r.Start.ToString("HH:mm")" ValueChanged="v => SetTime(r, v, true)" InputType="InputType.Time" Margin="Margin.Dense" ReadOnly="!canManage" /></td>
+                    <td><MudTextField T="string" Value="@r.End.ToString("HH:mm")" ValueChanged="v => SetTime(r, v, false)" InputType="InputType.Time" Margin="Margin.Dense" ReadOnly="!canManage" /></td>
+                    <td>@((int)(r.End - r.Start).TotalMinutes)</td>
+                    <td><MudCheckBox T="bool" @bind-Value="r.IsBreak" ReadOnly="!canManage" Color="Color.Warning" /></td>
+                    <td style="text-align:right">
+                        @if (canManage)
+                        {
+                            <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" title="Remove" OnClick="() => Remove(r)" />
+                        }
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </MudSimpleTable>
+    @if (rows.Count == 0 && !Busy)
+    {
+        <MudText Class="pa-4">No periods yet. Add the first period of the day.</MudText>
+    }
+</MudPaper>
+<MudText Typo="Typo.caption" Class="d-block mt-2">
+    Teaching periods: @rows.Count(r => !r.IsBreak) · School day @(rows.Count == 0 ? "—" : $"{rows.Min(r => r.Start):HH:mm}–{rows.Max(r => r.End):HH:mm}")
+</MudText>
+
+@code {
+    private sealed class Row
+    {
+        public int No { get; set; }
+        public string Name { get; set; } = "";
+        public TimeOnly Start { get; set; }
+        public TimeOnly End { get; set; }
+        public bool IsBreak { get; set; }
+    }
+
+    private List<CampusView> campuses = [];
+    private List<ShiftView> shifts = [];
+    private List<Row> rows = [];
+    private Guid? campusId, shiftId;
+    private bool canManage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        canManage = Session.Has(P.Academic.Manage);
+        await Run(async () =>
+        {
+            campuses = (await Api.GetAsync<List<CampusView>>("api/campuses")).Where(c => c.IsActive).ToList();
+            shifts = await Api.GetAsync<List<ShiftView>>("api/structure/shifts");
+        });
+        campusId = campuses.FirstOrDefault()?.Id;
+        await Load();
+    }
+
+    private async Task CampusChanged(Guid? id) { campusId = id; shiftId = null; await Load(); }
+    private async Task ShiftChanged(Guid? id) { shiftId = id; await Load(); }
+
+    private async Task Load()
+    {
+        if (campusId is null) return;
+        await Run(async () =>
+        {
+            var periods = await Api.GetAsync<List<PeriodView>>(ApiClient.Query("api/academics/periods", ("campusId", campusId), ("shiftId", shiftId)));
+            rows = periods.Select(p => new Row { No = p.PeriodNo, Name = p.Name, Start = p.StartTime, End = p.EndTime, IsBreak = p.IsBreak }).ToList();
+        });
+    }
+
+    private void SetTime(Row r, string value, bool start)
+    {
+        if (!TimeOnly.TryParse(value, out var t)) return;
+        if (start) r.Start = t; else r.End = t;
+    }
+
+    private void Add()
+    {
+        var last = rows.OrderBy(r => r.End).LastOrDefault();
+        var start = last?.End ?? new TimeOnly(8, 0);
+        rows.Add(new Row { No = (rows.Count == 0 ? 0 : rows.Max(r => r.No)) + 1, Name = $"Period {rows.Count(r => !r.IsBreak) + 1}", Start = start, End = start.AddMinutes(40) });
+    }
+
+    private void Remove(Row r) => rows.Remove(r);
+
+    private async Task Save()
+    {
+        // Period numbers never change once given: timetable lessons are stored against them.
+        var request = new BellScheduleRequest(campusId!.Value, shiftId, rows.OrderBy(r => r.Start).Select(r => new PeriodRequest(r.No, r.Name.Trim(), r.Start, r.End, r.IsBreak)).ToList());
+        if (await Run(() => Api.PutAsync<List<PeriodView>>("api/academics/periods", request), "Bell schedule saved.")) await Load();
+    }
+}

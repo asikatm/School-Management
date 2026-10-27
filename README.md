@@ -102,6 +102,22 @@ Cross-cutting rules enforced in `AppDbContext`:
 | SIS-06 | Withdrawal with dues clearance & approval, TC register | `api/students/{id}/withdrawals`, `/transfer-certificates` |
 | SIS-08 | ID cards with QR, batch print, paid reissue | `api/students/id-cards` |
 
+### Section 4.4 ACA — academic structure, timetable & calendar
+
+| ID | Feature | Where (UI / API) |
+|---|---|---|
+| ACA-01 | Programme & curriculum per class (subjects, periods/week, lab preference) | Academic setup → Curriculum · `api/academics/curriculum` |
+| ACA-02 | Option groups (choose min–max) and each student's electives | Students → Subject choices · `api/academics/subject-choices` |
+| ACA-03 | Teacher–subject–section allocation, teacher load (over/under-used), gaps | Timetable → Teacher allocation · `api/academics/allocations` |
+| ACA-04 | Timetable builder: click-to-edit grid, clash checks by clock time across campuses, option blocks, auto-generate, school-wide check, print | Timetable → Timetable · `api/academics/timetable` |
+| ACA-05 | Substitution: absent teacher's periods, ranked free teachers, SMS/in-app notice, cover report for payroll | Timetable → Substitutions · `api/academics/substitutions` |
+| ACA-07 | Academic calendar (terms, holidays, events), website JSON and iCal feed | Timetable → Academic calendar · `api/academics/calendar`, `api/public/calendar/feed.ics` |
+| ACA-08 | Daily routine and class-teacher view; printable section/teacher/room routines | Timetable → My day · `api/academics/timetable/my-day` |
+
+Supporting set-up: Rooms and Bell schedule (Academic setup). Timetable rules live in Settings: `Timetable:WorkingDays`,
+`Timetable:MaxTeacherPeriodsPerDay`, `Timetable:MaxConsecutivePeriods`, `Timetable:MaxTeacherPeriodsPerWeek`, `Timetable:MinTeacherPeriodsPerWeek`.
+Not built yet: ACA-06 room/equipment booking and ACA-09 syllabus tracking (Phase 2); roll-over does not yet copy allocations and timetables to the new year.
+
 Phase 2/3 items in these sections (CORE-11 2FA/SSO, CORE-12 privacy tooling, ADM-09/10, SIS-07/09/10) are not built yet.
 
 ## Integration points left for later releases

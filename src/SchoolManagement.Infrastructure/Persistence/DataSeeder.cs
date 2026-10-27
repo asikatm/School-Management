@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using SchoolManagement.Domain.Academics;
 using SchoolManagement.Domain.Approvals;
 using SchoolManagement.Domain.Core;
 using SchoolManagement.Domain.Identity;
@@ -21,9 +22,14 @@ public sealed class DataSeeder(AppDbContext db, IPasswordHasher hasher, IConfigu
     {
         using var _ = db.ElevateToSystem();
         await SeedRolesAsync(ct);
-        if (await db.Organisations.IgnoreQueryFilters().AnyAsync(ct))
-            return;
+        if (!await db.Organisations.IgnoreQueryFilters().AnyAsync(ct))
+            await SeedReferenceDataAsync(ct);
+        // Later modules seed their own defaults into databases created by earlier releases.
+        await SeedAcademicsAsync(ct);
+    }
 
+    private async Task SeedReferenceDataAsync(CancellationToken ct)
+    {
         logger.LogInformation("Seeding reference data");
         var org = new Organisation { Name = "Lighthouse International School", NameBn = "লাইটহাউস ইন্টারন্যাশনাল স্কুল", Code = "LIS", Website = "https://lighthouseschoolbd.com" };
         db.Organisations.Add(org);
@@ -215,33 +221,44 @@ public sealed class DataSeeder(AppDbContext db, IPasswordHasher hasher, IConfigu
                 Permissions.Notifications.View, Permissions.Notifications.Send,
                 Permissions.Admission.View, Permissions.Admission.Approve, Permissions.Admission.Export,
                 Permissions.Students.View, Permissions.Students.Create, Permissions.Students.Edit, Permissions.Students.Approve,
-                Permissions.Students.Export, Permissions.Students.Documents
+                Permissions.Students.Export, Permissions.Students.Documents,
+                Permissions.Academic.View, Permissions.Academic.Manage, Permissions.Academic.Timetable, Permissions.Academic.Substitutions,
+                Permissions.Academic.Calendar
             ],
             [RoleNames.HeadOfSection] =
             [
                 Permissions.Settings.View, Permissions.Approvals.View, Permissions.Notifications.View, Permissions.Notifications.Send,
-                Permissions.Admission.View, Permissions.Students.View, Permissions.Students.Edit, Permissions.Students.Export
+                Permissions.Admission.View, Permissions.Students.View, Permissions.Students.Edit, Permissions.Students.Export,
+                Permissions.Academic.View, Permissions.Academic.Timetable, Permissions.Academic.Substitutions, Permissions.Academic.Calendar
             ],
-            [RoleNames.ClassTeacher] = [Permissions.Settings.View, Permissions.Students.View, Permissions.Notifications.View, Permissions.Approvals.View],
-            [RoleNames.SubjectTeacher] = [Permissions.Settings.View, Permissions.Students.View, Permissions.Notifications.View],
+            [RoleNames.ClassTeacher] = [Permissions.Settings.View, Permissions.Students.View, Permissions.Notifications.View, Permissions.Approvals.View, Permissions.Academic.View],
+            [RoleNames.SubjectTeacher] = [Permissions.Settings.View, Permissions.Students.View, Permissions.Notifications.View, Permissions.Academic.View],
             [RoleNames.Accountant] =
             [
                 Permissions.Settings.View, Permissions.Admission.View, Permissions.Students.View,
-                Permissions.Notifications.View, Permissions.Notifications.Send, Permissions.Approvals.View
+                Permissions.Notifications.View, Permissions.Notifications.Send, Permissions.Approvals.View, Permissions.Academic.View
             ],
             [RoleNames.AdmissionOfficer] =
             [
                 Permissions.Settings.View, Permissions.Admission.View, Permissions.Admission.Create, Permissions.Admission.Edit,
                 Permissions.Admission.Approve, Permissions.Admission.Export, Permissions.Students.View, Permissions.Students.Create,
-                Permissions.Notifications.View, Permissions.Notifications.Send
+                Permissions.Notifications.View, Permissions.Notifications.Send, Permissions.Academic.View
             ],
-            [RoleNames.Librarian] = [Permissions.Students.View],
-            [RoleNames.TransportInCharge] = [Permissions.Students.View],
+            [RoleNames.Librarian] = [Permissions.Students.View, Permissions.Academic.View],
+            [RoleNames.TransportInCharge] = [Permissions.Students.View, Permissions.Academic.View],
             [RoleNames.Parent] = [],
             [RoleNames.Student] = []
         };
 
         var roles = await db.Roles.IgnoreQueryFilters().Include(r => r.Permissions).ToListAsync(ct);
+
+        // Permissions added by later releases are handed to the default roles once. Anything already distributed is
+        // left alone, so a permission the school removed from a role is never put back.
+        var setting = await db.SystemSettings.FirstOrDefaultAsync(s => s.Key == SettingKeys.DistributedPermissions && s.CampusId == null, ct);
+        var distributed = setting?.Value?.Split(',', StringSplitOptions.RemoveEmptyEntries).ToHashSet()
+                          ?? roles.SelectMany(r => r.Permissions).Select(p => p.Permission).ToHashSet();
+        var fresh = Permissions.All.Where(p => !distributed.Contains(p)).ToHashSet();
+
         foreach (var (name, permissions) in map)
         {
             var role = roles.FirstOrDefault(r => r.Name == name);
@@ -250,14 +267,159 @@ public sealed class DataSeeder(AppDbContext db, IPasswordHasher hasher, IConfigu
                 role = new Role { Name = name, IsSystem = true, Description = $"Default {name} role" };
                 foreach (var p in permissions) role.Permissions.Add(new RolePermission { RoleId = role.Id, Permission = p });
                 db.Roles.Add(role);
+                continue;
             }
-            else if (name == RoleNames.ItAdmin)
+            var toAdd = name == RoleNames.ItAdmin ? permissions : permissions.Where(fresh.Contains);
+            foreach (var p in toAdd.Where(p => role.Permissions.All(rp => rp.Permission != p)))
+                db.RolePermissions.Add(new RolePermission { RoleId = role.Id, Permission = p });
+        }
+
+        if (setting is null)
+        {
+            setting = new SystemSetting { Key = SettingKeys.DistributedPermissions, Description = "Permissions already given to the default roles (managed by the system)" };
+            db.SystemSettings.Add(setting);
+        }
+        setting.Value = string.Join(',', Permissions.All);
+        await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>ACA defaults: bell schedule, rooms, curriculum per class, timetable rules and the cover template.</summary>
+    private async Task SeedAcademicsAsync(CancellationToken ct)
+    {
+        var campuses = await db.Campuses.Select(c => c.Id).ToListAsync(ct);
+        if (campuses.Count == 0) return;
+
+        if (!await db.PeriodDefinitions.AnyAsync(ct))
+        {
+            (string Name, int H1, int M1, int H2, int M2, bool Break)[] bell =
+            [
+                ("Period 1", 7, 45, 8, 25, false), ("Period 2", 8, 25, 9, 5, false), ("Period 3", 9, 5, 9, 45, false),
+                ("Tiffin break", 9, 45, 10, 5, true),
+                ("Period 4", 10, 5, 10, 45, false), ("Period 5", 10, 45, 11, 25, false), ("Period 6", 11, 25, 12, 5, false),
+                ("Zuhr prayer & lunch", 12, 5, 12, 35, true),
+                ("Period 7", 12, 35, 13, 15, false), ("Period 8", 13, 15, 13, 55, false)
+            ];
+            foreach (var campusId in campuses)
+                for (var i = 0; i < bell.Length; i++)
+                    db.PeriodDefinitions.Add(new PeriodDefinition
+                    {
+                        CampusId = campusId, PeriodNo = i + 1, Name = bell[i].Name, IsBreak = bell[i].Break,
+                        StartTime = new TimeOnly(bell[i].H1, bell[i].M1), EndTime = new TimeOnly(bell[i].H2, bell[i].M2)
+                    });
+        }
+
+        if (!await db.Rooms.AnyAsync(ct))
+        {
+            foreach (var campusId in campuses)
             {
-                foreach (var p in permissions.Where(p => role.Permissions.All(rp => rp.Permission != p)))
-                    db.RolePermissions.Add(new RolePermission { RoleId = role.Id, Permission = p });
+                for (var n = 101; n <= 112; n++)
+                    db.Rooms.Add(new Room { CampusId = campusId, Code = n.ToString(), Name = $"Room {n}", Type = RoomType.Classroom, Capacity = 30 });
+                db.Rooms.Add(new Room { CampusId = campusId, Code = "SCI-LAB", Name = "Science Lab", Type = RoomType.ScienceLab, Capacity = 30 });
+                db.Rooms.Add(new Room { CampusId = campusId, Code = "ICT-LAB", Name = "ICT Lab", Type = RoomType.ComputerLab, Capacity = 30 });
+                db.Rooms.Add(new Room { CampusId = campusId, Code = "LIB", Name = "Library", Type = RoomType.Library, Capacity = 40 });
+                db.Rooms.Add(new Room { CampusId = campusId, Code = "HALL", Name = "Assembly Hall", Type = RoomType.Hall, Capacity = 300 });
             }
         }
+
+        if (!await db.CurriculumSubjects.AnyAsync(ct))
+            await SeedCurriculumAsync(ct);
+
+        foreach (var (key, value, description) in new[]
+                 {
+                     (SettingKeys.WorkingDays, "Saturday,Sunday,Monday,Tuesday,Wednesday,Thursday", "ACA-04: teaching days of the week"),
+                     (SettingKeys.MaxTeacherPeriodsPerDay, "6", "ACA-04: warn when a teacher has more periods in a day"),
+                     (SettingKeys.MaxTeacherPeriodsPerWeek, "30", "ACA-03: teacher load above this is shown as overloaded"),
+                     (SettingKeys.MinTeacherPeriodsPerWeek, "12", "ACA-03: teacher load below this is shown as under-used"),
+                     (SettingKeys.MaxConsecutivePeriods, "3", "ACA-04: warn when a teacher teaches more periods in a row")
+                 })
+        {
+            if (!await db.SystemSettings.AnyAsync(s => s.Key == key && s.CampusId == null, ct))
+                db.SystemSettings.Add(new SystemSetting { Key = key, Value = value, Description = description });
+        }
+
+        void Template(string code, NotificationChannel channel, string lang, string? subject, string body)
+        {
+            if (!db.MessageTemplates.Any(t => t.Code == code && t.Channel == channel && t.Language == lang))
+                db.MessageTemplates.Add(new MessageTemplate { Code = code, Channel = channel, Language = lang, Subject = subject, Body = body });
+        }
+
+        Template(TemplateCodes.CoverAssigned, NotificationChannel.InApp, "en", "Cover assigned",
+            "{{Date}}, {{PeriodName}} ({{Time}}): please cover {{SubjectName}} for {{ClassName}} in {{Room}}. {{Reason}}");
+        Template(TemplateCodes.CoverAssigned, NotificationChannel.Sms, "en", null,
+            "Cover duty {{Date}} {{PeriodName}} ({{Time}}): {{SubjectName}}, {{ClassName}}, {{Room}}.");
+        Template(TemplateCodes.CoverAssigned, NotificationChannel.Sms, "bn", null,
+            "বদলি ক্লাস {{Date}} {{PeriodName}} ({{Time}}): {{SubjectName}}, {{ClassName}}, {{Room}}।");
+
         await db.SaveChangesAsync(ct);
+    }
+
+    private async Task SeedCurriculumAsync(CancellationToken ct)
+    {
+        var subjects = await db.Subjects.ToDictionaryAsync(s => s.Code, s => s.Id, ct);
+        var yearGroups = await db.YearGroups.Include(y => y.Programme).ToListAsync(ct);
+        if (subjects.Count == 0 || yearGroups.Count == 0) return;
+
+        foreach (var yg in yearGroups)
+        {
+            var seq = 0;
+            void Add(string code, SubjectType type, int periods, Guid? group = null, RoomType? room = null)
+            {
+                if (!subjects.TryGetValue(code, out var subjectId)) return;
+                db.CurriculumSubjects.Add(new CurriculumSubject
+                {
+                    YearGroupId = yg.Id, SubjectId = subjectId, Type = type, PeriodsPerWeek = periods, SubjectGroupId = group,
+                    PreferredRoomType = room, Sequence = seq++
+                });
+            }
+            Guid Group(string name, int min, int max)
+            {
+                var g = new SubjectGroup { YearGroupId = yg.Id, Name = name, MinChoices = min, MaxChoices = max };
+                db.SubjectGroups.Add(g);
+                return g.Id;
+            }
+
+            switch (yg.Programme!.Code)
+            {
+                case "EY":
+                    Add("ENG", SubjectType.Compulsory, 7); Add("MATH", SubjectType.Compulsory, 7); Add("BAN", SubjectType.Compulsory, 6);
+                    Add("ISL", SubjectType.Compulsory, 3); Add("QUR", SubjectType.Compulsory, 3);
+                    break;
+                case "PRI":
+                    Add("ENG", SubjectType.Compulsory, 7); Add("MATH", SubjectType.Compulsory, 7); Add("SCI", SubjectType.Compulsory, 5);
+                    Add("BAN", SubjectType.Compulsory, 6); Add("ISL", SubjectType.Compulsory, 3); Add("QUR", SubjectType.Compulsory, 3);
+                    Add("ICT", SubjectType.Compulsory, 2, room: RoomType.ComputerLab); Add("BGS", SubjectType.Compulsory, 3);
+                    Add("ARB", SubjectType.Optional, 2, Group("Language option", 0, 1));
+                    break;
+                case "LSEC":
+                    Add("ENG", SubjectType.Compulsory, 7); Add("MATH", SubjectType.Compulsory, 7);
+                    Add("SCI", SubjectType.Compulsory, 6, room: RoomType.ScienceLab); Add("BAN", SubjectType.Compulsory, 5);
+                    Add("ISL", SubjectType.Compulsory, 3); Add("QUR", SubjectType.Compulsory, 2);
+                    Add("ICT", SubjectType.Compulsory, 3, room: RoomType.ComputerLab); Add("BGS", SubjectType.Compulsory, 3);
+                    Add("ARB", SubjectType.Optional, 2, Group("Language option", 0, 1));
+                    break;
+                case "IGCSE":
+                {
+                    Add("ENG", SubjectType.Compulsory, 6); Add("MATH", SubjectType.Compulsory, 6); Add("BAN", SubjectType.Compulsory, 4);
+                    Add("ISL", SubjectType.Compulsory, 3);
+                    var options = Group("IGCSE options (choose 3–4)", 3, 4);
+                    Add("PHY", SubjectType.Elective, 5, options, RoomType.ScienceLab); Add("CHEM", SubjectType.Elective, 5, options, RoomType.ScienceLab);
+                    Add("BIO", SubjectType.Elective, 5, options, RoomType.ScienceLab); Add("ECO", SubjectType.Elective, 5, options);
+                    Add("BUS", SubjectType.Elective, 5, options); Add("ACC", SubjectType.Elective, 5, options);
+                    Add("CS", SubjectType.Elective, 5, options, RoomType.ComputerLab);
+                    break;
+                }
+                case "IAL":
+                {
+                    Add("ISL", SubjectType.Compulsory, 2);
+                    var options = Group("A Level subjects (choose 3–4)", 3, 4);
+                    Add("MATH", SubjectType.Elective, 6, options); Add("PHY", SubjectType.Elective, 6, options, RoomType.ScienceLab);
+                    Add("CHEM", SubjectType.Elective, 6, options, RoomType.ScienceLab); Add("BIO", SubjectType.Elective, 6, options, RoomType.ScienceLab);
+                    Add("ECO", SubjectType.Elective, 6, options); Add("BUS", SubjectType.Elective, 6, options);
+                    Add("ACC", SubjectType.Elective, 6, options); Add("CS", SubjectType.Elective, 6, options, RoomType.ComputerLab);
+                    break;
+                }
+            }
+        }
     }
 
     private async Task SeedAdminAsync(CancellationToken ct)
@@ -373,6 +535,12 @@ public static class SettingKeys
     public const string IdCardReissueFee = "IdCard:ReissueFee";
     public const string SmsSenderId = "Sms:SenderId";
     public const string SchoolPortalUrl = "Portal:Url";
+    public const string DistributedPermissions = "System:DistributedPermissions";
+    public const string WorkingDays = "Timetable:WorkingDays";
+    public const string MaxTeacherPeriodsPerDay = "Timetable:MaxTeacherPeriodsPerDay";
+    public const string MaxTeacherPeriodsPerWeek = "Timetable:MaxTeacherPeriodsPerWeek";
+    public const string MinTeacherPeriodsPerWeek = "Timetable:MinTeacherPeriodsPerWeek";
+    public const string MaxConsecutivePeriods = "Timetable:MaxConsecutivePeriods";
 }
 
 public static class TemplateCodes
@@ -385,4 +553,5 @@ public static class TemplateCodes
     public const string PaymentReceived = "PAYMENT_RECEIVED";
     public const string EnrolmentWelcome = "SIS_ENROLMENT_WELCOME";
     public const string WaitlistPromoted = "ADM_WAITLIST_PROMOTED";
+    public const string CoverAssigned = "ACA_COVER_ASSIGNED";
 }

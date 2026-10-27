@@ -1,0 +1,115 @@
+@page "/timetable/my-day"
+@inherits AppPage
+
+<PageTitle>My day</PageTitle>
+
+<div class="d-flex align-center flex-wrap gap-2 mb-3">
+    <MudText Typo="Typo.h4">My day</MudText>
+    <MudSpacer />
+    <MudIconButton Icon="@Icons.Material.Filled.ChevronLeft" OnClick="() => Move(-1)" title="Previous day" />
+    <MudDatePicker Date="date" DateChanged="DateChanged" DateFormat="ddd, dd MMM yyyy" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:220px" />
+    <MudIconButton Icon="@Icons.Material.Filled.ChevronRight" OnClick="() => Move(1)" title="Next day" />
+    <MudButton Size="Size.Small" Variant="Variant.Outlined" OnClick="Today">Today</MudButton>
+</div>
+
+<MudGrid Spacing="3">
+    <MudItem xs="12" lg="7">
+        <MudPaper Class="pa-4">
+            <MudText Typo="Typo.h6" Class="mb-3">My periods · @day?.Day</MudText>
+            @if (day is null)
+            {
+                <MudProgressLinear Indeterminate="true" />
+            }
+            else if (day.Holiday is not null)
+            {
+                <MudAlert Severity="Severity.Info">Holiday: @day.Holiday</MudAlert>
+            }
+            else if (day.Items.Count == 0)
+            {
+                <MudText Color="Color.Secondary">No periods on this day.</MudText>
+            }
+            else
+            {
+                @foreach (var i in day.Items)
+                {
+                    <div class="myday-row @i.Status @(IsNow(i.Slot) ? "now" : "")">
+                        <div class="myday-time">@i.Slot.StartTime.ToString("HH:mm")<small>@i.Slot.PeriodName</small></div>
+                        <span class="tt-dot" style="background:@TimetablePage.Colour(i.Slot.SubjectCode)"></span>
+                        <div style="flex:1">
+                            <b>@i.Slot.SubjectName</b> · @i.Slot.SectionLabel
+                            <div><small>@(i.Slot.RoomName ?? "Home room")@(i.Detail is null ? "" : " · " + i.Detail)</small></div>
+                        </div>
+                        <MudChip T="string" Size="Size.Small" Color="@(i.Status switch { "Cover" => Color.Warning, "Covered" => Color.Default, _ => Color.Primary })">@i.Status</MudChip>
+                    </div>
+                }
+            }
+        </MudPaper>
+    </MudItem>
+    <MudItem xs="12" lg="5">
+        @if (day?.ClassSections.Count > 0)
+        {
+            @foreach (var c in day.ClassSections)
+            {
+                <MudPaper Class="pa-4 mb-3">
+                    <div class="d-flex align-center mb-2">
+                        <MudText Typo="Typo.h6">Class teacher · @c.Section.Label</MudText>
+                        <MudSpacer />
+                        <MudChip T="string" Size="Size.Small">@c.Students students</MudChip>
+                    </div>
+                    <MudText Typo="Typo.subtitle2">Today's routine</MudText>
+                    @if (c.Today.Count == 0)
+                    {
+                        <MudText Typo="Typo.body2" Color="Color.Secondary">No lessons today.</MudText>
+                    }
+                    @foreach (var s in c.Today)
+                    {
+                        <div class="d-flex gap-2 py-1"><small style="width:46px">@s.StartTime.ToString("HH:mm")</small><b>@s.SubjectCode</b><span>@(s.TeacherName ?? "no teacher")</span></div>
+                    }
+                    @if (c.Gaps.Count > 0)
+                    {
+                        <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-2">
+                            Needs attention: @string.Join(", ", c.Gaps.Select(g => g.Teachers.Count == 0 ? $"{g.Code} has no teacher" : $"{g.Code} {g.Placed}/{g.Required} periods"))
+                        </MudAlert>
+                    }
+                    <div class="d-flex gap-2 mt-2">
+                        <MudButton Size="Size.Small" Href="@($"timetable?section={c.Section.Id}")" StartIcon="@Icons.Material.Filled.GridOn">Timetable</MudButton>
+                        <MudButton Size="Size.Small" Href="students/subject-choices" StartIcon="@Icons.Material.Filled.Checklist">Subject choices</MudButton>
+                    </div>
+                    <MudText Typo="Typo.caption" Class="d-block mt-1">Today's absentees appear here once daily attendance (ATT) is in use.</MudText>
+                </MudPaper>
+            }
+        }
+        @if (week is not null)
+        {
+            <WeekView Timetable="week" Title="My week" ShowSection="true" />
+        }
+    </MudItem>
+</MudGrid>
+
+@code {
+    private DateTime? date = DateTime.UtcNow.AddHours(6).Date;
+    private MyDay? day;
+    private PersonTimetable? week;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Load();
+        await Run(async () => week = await Api.GetAsync<PersonTimetable>("api/academics/timetable/my-week"));
+    }
+
+    private async Task Load()
+    {
+        day = null;
+        await Run(async () => day = await Api.GetAsync<MyDay>(ApiClient.Query("api/academics/timetable/my-day", ("date", DateOnly.FromDateTime(date!.Value)))));
+    }
+
+    private async Task DateChanged(DateTime? d) { date = d ?? date; await Load(); }
+    private async Task Move(int days) { date = date!.Value.AddDays(days); await Load(); }
+    private async Task Today() { date = DateTime.UtcNow.AddHours(6).Date; await Load(); }
+
+    private bool IsNow(SlotView s)
+    {
+        var now = DateTime.UtcNow.AddHours(6);
+        return date?.Date == now.Date && TimeOnly.FromDateTime(now) >= s.StartTime && TimeOnly.FromDateTime(now) < s.EndTime;
+    }
+}

@@ -1,0 +1,53 @@
+@inherits AppPage
+
+<MudDialog>
+    <DialogContent>
+        <MudGrid Spacing="2">
+            <MudItem xs="5"><MudTextField @bind-Value="code" Label="Code" Required="true" Placeholder="e.g. 101" /></MudItem>
+            <MudItem xs="7"><MudTextField @bind-Value="name" Label="Name" Required="true" Placeholder="e.g. Room 101" /></MudItem>
+            <MudItem xs="7">
+                <MudSelect T="RoomType" @bind-Value="type" Label="Type">
+                    @foreach (var t in Enum.GetValues<RoomType>())
+                    {
+                        <MudSelectItem T="RoomType" Value="t">@Format.Enum(t)</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="5"><MudNumericField @bind-Value="capacity" Label="Capacity" Min="1" Max="2000" /></MudItem>
+            <MudItem xs="12"><MudTextField @bind-Value="notes" Label="Notes" Lines="2" /></MudItem>
+            <MudItem xs="12"><MudSwitch T="bool" @bind-Value="active" Color="Color.Primary" Label="In use (offered by the timetable)" /></MudItem>
+        </MudGrid>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="() => MudDialog.Cancel()">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Save" Disabled="@(Busy || string.IsNullOrWhiteSpace(code) || string.IsNullOrWhiteSpace(name))">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public RoomView? Item { get; set; }
+    [Parameter] public Guid CampusId { get; set; }
+
+    private string code = "", name = "";
+    private string? notes;
+    private RoomType type = RoomType.Classroom;
+    private int capacity = 30;
+    private bool active = true;
+
+    protected override void OnInitialized()
+    {
+        if (Item is { } r) (code, name, type, capacity, notes, active) = (r.Code, r.Name, r.Type, r.Capacity, r.Notes, r.IsActive);
+    }
+
+    private async Task Save()
+    {
+        var request = new RoomRequest(Item?.CampusId ?? CampusId, code.Trim(), name.Trim(), type, capacity, active, string.IsNullOrWhiteSpace(notes) ? null : notes.Trim());
+        var ok = await Run(async () =>
+        {
+            if (Item is null) await Api.PostAsync<RoomView>("api/academics/rooms", request);
+            else await Api.PutAsync<RoomView>($"api/academics/rooms/{Item.Id}", request);
+        }, "Room saved.");
+        if (ok) MudDialog.Close(DialogResult.Ok(true));
+    }
+}

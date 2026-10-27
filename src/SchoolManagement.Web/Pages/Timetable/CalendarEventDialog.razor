@@ -1,0 +1,107 @@
+@inherits AppPage
+
+<MudDialog>
+    <DialogContent>
+        <MudGrid Spacing="2">
+            <MudItem xs="12"><MudTextField @bind-Value="title" Label="Title" Required="true" MaxLength="200" /></MudItem>
+            <MudItem xs="12"><MudTextField @bind-Value="titleBn" Label="Title (Bangla)" MaxLength="200" /></MudItem>
+            <MudItem xs="12" sm="6">
+                <MudSelect T="CalendarEventType" @bind-Value="type" Label="Type">
+                    @foreach (var t in Enum.GetValues<CalendarEventType>())
+                    {
+                        <MudSelectItem T="CalendarEventType" Value="t">@Format.Enum(t)</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudSelect T="Guid?" @bind-Value="campusId" Label="Campus" Clearable="true" Placeholder="All campuses">
+                    @foreach (var c in Campuses)
+                    {
+                        <MudSelectItem T="Guid?" Value="c.Id">@c.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="6"><MudDatePicker @bind-Date="start" Label="From" DateFormat="dd MMM yyyy" Required="true" /></MudItem>
+            <MudItem xs="6"><MudDatePicker @bind-Date="end" Label="To" DateFormat="dd MMM yyyy" Required="true" /></MudItem>
+            <MudItem xs="6"><MudTimePicker @bind-Time="startTime" Label="Starts (optional)" AmPm="true" Clearable="true" /></MudItem>
+            <MudItem xs="6"><MudTimePicker @bind-Time="endTime" Label="Ends (optional)" AmPm="true" Clearable="true" /></MudItem>
+            <MudItem xs="12"><MudTextField @bind-Value="location" Label="Location" /></MudItem>
+            <MudItem xs="12"><MudTextField @bind-Value="description" Label="Description" Lines="2" MaxLength="2000" /></MudItem>
+            <MudItem xs="6"><MudCheckBox T="bool" @bind-Value="forStaff" Label="For staff" /></MudItem>
+            <MudItem xs="6"><MudCheckBox T="bool" @bind-Value="forParents" Label="For parents" /></MudItem>
+            <MudItem xs="6"><MudCheckBox T="bool" @bind-Value="isPublic" Label="Show on the website" /></MudItem>
+            <MudItem xs="6"><MudSwitch T="bool" @bind-Value="published" Color="Color.Primary" Label="Published" /></MudItem>
+        </MudGrid>
+    </DialogContent>
+    <DialogActions>
+        @if (Item is not null)
+        {
+            <MudButton Color="Color.Error" OnClick="Delete" Disabled="Busy">Delete</MudButton>
+            <MudSpacer />
+        }
+        <MudButton OnClick="() => MudDialog.Cancel()">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Save" Disabled="@(Busy || string.IsNullOrWhiteSpace(title) || start is null || end is null || end < start)">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public CalendarItem? Item { get; set; }
+    [Parameter] public DateOnly? Day { get; set; }
+    [Parameter] public List<CampusView> Campuses { get; set; } = [];
+    [Parameter] public List<AcademicYearView> Years { get; set; } = [];
+
+    private string title = "";
+    private string? titleBn, location, description;
+    private CalendarEventType type = CalendarEventType.Event;
+    private Guid? campusId;
+    private DateTime? start, end;
+    private TimeSpan? startTime, endTime;
+    private bool forStaff = true, forParents = true, isPublic, published = true;
+
+    protected override void OnInitialized()
+    {
+        if (Item is { } i)
+        {
+            (title, titleBn, campusId, location, description) = (i.Title, i.TitleBn, i.CampusId, i.Location, i.Description);
+            type = Enum.TryParse<CalendarEventType>(i.Category.Replace("–", "").Replace(" ", ""), true, out var t) ? t : TypeFrom(i.Category);
+            (start, end) = (i.StartDate.ToDateTime(TimeOnly.MinValue), i.EndDate.ToDateTime(TimeOnly.MinValue));
+            (startTime, endTime) = (i.StartTime?.ToTimeSpan(), i.EndTime?.ToTimeSpan());
+            (forStaff, forParents, isPublic, published) = (i.ForStaff, i.ForParents, i.IsPublic, i.IsPublished);
+        }
+        else
+        {
+            var d = (Day ?? DateOnly.FromDateTime(DateTime.UtcNow.AddHours(6))).ToDateTime(TimeOnly.MinValue);
+            (start, end) = (d, d);
+        }
+    }
+
+    private static CalendarEventType TypeFrom(string category) => category switch
+    {
+        "Exam" => CalendarEventType.ExamWindow,
+        "Parent–teacher meeting" => CalendarEventType.ParentTeacherMeeting,
+        _ => CalendarEventType.Event
+    };
+
+    private async Task Save()
+    {
+        var s = DateOnly.FromDateTime(start!.Value);
+        var year = Years.FirstOrDefault(y => y.StartDate <= s && y.EndDate >= s) ?? Years.FirstOrDefault(y => y.IsCurrent);
+        if (year is null) { Snackbar.Add("No academic year covers that date.", Severity.Warning); return; }
+        var request = new CalendarEventRequest(year.Id, campusId, title.Trim(), string.IsNullOrWhiteSpace(titleBn) ? null : titleBn.Trim(), type, s,
+            DateOnly.FromDateTime(end!.Value), startTime is { } st ? TimeOnly.FromTimeSpan(st) : null, endTime is { } et ? TimeOnly.FromTimeSpan(et) : null,
+            string.IsNullOrWhiteSpace(location) ? null : location.Trim(), string.IsNullOrWhiteSpace(description) ? null : description.Trim(),
+            forStaff, forParents, isPublic, published);
+        var ok = await Run(async () =>
+        {
+            if (Item is null) await Api.PostAsync<CalendarItem>("api/academics/calendar/events", request);
+            else await Api.PutAsync<CalendarItem>($"api/academics/calendar/events/{Item.Id}", request);
+        }, "Event saved.");
+        if (ok) MudDialog.Close(DialogResult.Ok(true));
+    }
+
+    private async Task Delete()
+    {
+        if (await Run(() => Api.DeleteAsync($"api/academics/calendar/events/{Item!.Id}"), "Event deleted.")) MudDialog.Close(DialogResult.Ok(true));
+    }
+}

@@ -74,6 +74,10 @@ builder.Services.AddScoped<IClearanceCheck, AdmissionDuesClearance>();
 foreach (var area in new[] { "Tuition & other fees (FEE)", "Library (LIB)", "Transport (TRN)", "Store / uniform (INV)" })
     builder.Services.AddScoped<IClearanceCheck>(_ => new PendingModuleClearance(area));
 
+builder.Services.AddScoped<SchoolManagement.Api.Modules.Academics.AcademicLookups>();
+builder.Services.AddScoped<SchoolManagement.Api.Modules.Academics.TimetableService>();
+builder.Services.AddScoped<SchoolManagement.Api.Modules.Academics.SubstitutionService>();
+
 // ---- MVC, validation, errors, OpenAPI
 builder.Services.AddValidatorsFromAssemblyContaining<Program>();
 builder.Services.AddControllers(o => o.Filters.Add<ValidationFilter>())

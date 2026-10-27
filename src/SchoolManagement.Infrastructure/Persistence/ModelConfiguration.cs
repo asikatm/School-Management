@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using SchoolManagement.Domain.Academics;
 using SchoolManagement.Domain.Admission;
 using SchoolManagement.Domain.Approvals;
 using SchoolManagement.Domain.Audit;
@@ -32,6 +33,91 @@ internal static class ModelConfiguration
         ConfigureNotifications(b);
         ConfigureAdmission(b);
         ConfigureStudents(b);
+        ConfigureAcademics(b);
+    }
+
+    private static void ConfigureAcademics(ModelBuilder b)
+    {
+        b.Entity<Room>(e =>
+        {
+            e.Property(x => x.Code).HasMaxLength(Code);
+            e.Property(x => x.Name).HasMaxLength(Name);
+            e.Property(x => x.Notes).HasMaxLength(500);
+            e.HasIndex(x => new { x.CampusId, x.Code }).IsUnique();
+        });
+
+        b.Entity<SubjectGroup>(e =>
+        {
+            e.Property(x => x.Name).HasMaxLength(Name);
+            e.HasOne<YearGroup>().WithMany().HasForeignKey(x => x.YearGroupId);
+        });
+
+        b.Entity<CurriculumSubject>(e =>
+        {
+            e.HasIndex(x => new { x.YearGroupId, x.SubjectId }).IsUnique();
+            e.HasOne<YearGroup>().WithMany().HasForeignKey(x => x.YearGroupId);
+            e.HasOne(x => x.Subject).WithMany().HasForeignKey(x => x.SubjectId);
+            e.HasOne<SubjectGroup>().WithMany().HasForeignKey(x => x.SubjectGroupId);
+        });
+
+        b.Entity<StudentSubject>(e =>
+        {
+            e.HasIndex(x => new { x.StudentId, x.AcademicYearId, x.SubjectId }).IsUnique();
+            e.HasOne<Student>().WithMany().HasForeignKey(x => x.StudentId);
+            e.HasOne<Subject>().WithMany().HasForeignKey(x => x.SubjectId);
+            e.HasOne<AcademicYear>().WithMany().HasForeignKey(x => x.AcademicYearId);
+        });
+
+        b.Entity<TeacherAllocation>(e =>
+        {
+            e.HasIndex(x => new { x.SectionId, x.SubjectId, x.TeacherUserId }).IsUnique();
+            e.HasIndex(x => new { x.AcademicYearId, x.TeacherUserId });
+            e.HasOne<Section>().WithMany().HasForeignKey(x => x.SectionId);
+            e.HasOne<Subject>().WithMany().HasForeignKey(x => x.SubjectId);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.TeacherUserId);
+            e.HasOne<AcademicYear>().WithMany().HasForeignKey(x => x.AcademicYearId);
+        });
+
+        b.Entity<PeriodDefinition>(e =>
+        {
+            e.Property(x => x.Name).HasMaxLength(64);
+            e.HasIndex(x => new { x.CampusId, x.ShiftId, x.PeriodNo }).IsUnique();
+            e.HasOne<Shift>().WithMany().HasForeignKey(x => x.ShiftId);
+        });
+
+        b.Entity<TimetableSlot>(e =>
+        {
+            e.Property(x => x.Note).HasMaxLength(200);
+            // Several slots may share a cell only as an option block (parallel electives of one subject group).
+            e.HasIndex(x => new { x.SectionId, x.Day, x.PeriodNo, x.SubjectId }).IsUnique();
+            e.HasIndex(x => new { x.AcademicYearId, x.TeacherUserId, x.Day });
+            e.HasIndex(x => new { x.AcademicYearId, x.RoomId, x.Day });
+            e.HasOne<Section>().WithMany().HasForeignKey(x => x.SectionId);
+            e.HasOne<Subject>().WithMany().HasForeignKey(x => x.SubjectId);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.TeacherUserId);
+            e.HasOne<Room>().WithMany().HasForeignKey(x => x.RoomId);
+            e.HasOne<AcademicYear>().WithMany().HasForeignKey(x => x.AcademicYearId);
+        });
+
+        b.Entity<Substitution>(e =>
+        {
+            e.Property(x => x.Reason).HasMaxLength(300);
+            e.HasIndex(x => new { x.Date, x.SubstituteUserId });
+            e.HasIndex(x => new { x.TimetableSlotId, x.Date });
+            e.HasOne<TimetableSlot>().WithMany().HasForeignKey(x => x.TimetableSlotId);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.SubstituteUserId);
+        });
+
+        b.Entity<CalendarEvent>(e =>
+        {
+            e.Property(x => x.Title).HasMaxLength(Name);
+            e.Property(x => x.TitleBn).HasMaxLength(Name);
+            e.Property(x => x.Location).HasMaxLength(Name);
+            e.Property(x => x.Description).HasMaxLength(2000);
+            e.HasIndex(x => new { x.StartDate, x.EndDate });
+            e.HasOne<AcademicYear>().WithMany().HasForeignKey(x => x.AcademicYearId);
+            e.HasOne<Campus>().WithMany().HasForeignKey(x => x.CampusId);
+        });
     }
 
     public static void RestrictCascades(ModelBuilder b)

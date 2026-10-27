@@ -60,3 +60,12 @@ public abstract class CampusEntity : SoftDeleteEntity, ICampusScoped
 {
     public Guid CampusId { get; set; }
 }
+
+/// <summary>
+/// Campus-owned rows that are deleted for real, e.g. timetable cells and subject choices. They are rewritten often,
+/// carry unique indexes that soft-deleted rows would block, and their history is kept by the audit trail instead.
+/// </summary>
+public abstract class CampusRecord : AuditableEntity, ICampusScoped
+{
+    public Guid CampusId { get; set; }
+}

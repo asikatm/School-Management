@@ -60,6 +60,18 @@ public static class Permissions
         public const string Manage = "backup.manage";
     }
 
+    public static class Academic
+    {
+        /// <summary>See curriculum, allocations, timetables and the calendar.</summary>
+        public const string View = "academic.view";
+
+        /// <summary>Curriculum, subject groups, rooms, bell schedule and teacher allocation.</summary>
+        public const string Manage = "academic.manage";
+        public const string Timetable = "academic.timetable";
+        public const string Substitutions = "academic.substitutions";
+        public const string Calendar = "academic.calendar";
+    }
+
     public static IReadOnlyList<string> All { get; } =
         typeof(Permissions).GetNestedTypes()
             .SelectMany(t => t.GetFields())

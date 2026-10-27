@@ -10,6 +10,7 @@ public static partial class NavCatalog
         new NavItem("All students", "students", Icons.Material.Filled.People, P.Students.View),
         new NavItem("Import", "students/import", Icons.Material.Filled.UploadFile, P.Students.Create),
         new NavItem("Sections & rolls", "students/allocation", Icons.Material.Filled.GroupWork, P.Students.Edit),
+        new NavItem("Subject choices", "students/subject-choices", Icons.Material.Filled.Checklist, P.Academic.View),
         new NavItem("Promotion", "students/promotion", Icons.Material.Filled.TrendingUp, P.Students.Approve),
         new NavItem("Withdrawals", "students/withdrawals", Icons.Material.Filled.ExitToApp, P.Students.View),
         new NavItem("TC register", "students/transfer-certificates", Icons.Material.Filled.Description, P.Students.View),

@@ -758,3 +758,56 @@ code {
 .form-floating > .form-control-plaintext:focus::placeholder, .form-floating > .form-control:focus::placeholder {
     text-align: start;
 }
+/* ---------- Timetable ---------- */
+.tt-wrap { overflow-x: auto; padding: 0; }
+.tt-grid { border-collapse: separate; border-spacing: 0; width: 100%; min-width: 900px; font-size: .82rem; }
+.tt-grid th, .tt-grid td { border-right: 1px solid #EEF1F6; border-bottom: 1px solid #EEF1F6; padding: 6px; vertical-align: top; }
+.tt-grid thead th { background: #F7F9FC; font-weight: 600; color: #3C4A60; text-align: center; position: sticky; top: 0; z-index: 1; }
+.tt-grid thead th small { display: block; font-weight: 400; color: #8A97AB; font-size: .72rem; }
+.tt-grid .tt-day { background: #F7F9FC; text-align: left; font-weight: 700; color: #1B2A41; width: 100px; position: sticky; left: 0; z-index: 2; }
+.tt-grid .tt-break { background: repeating-linear-gradient(135deg, #FBF6E9, #FBF6E9 6px, #F6EED8 6px, #F6EED8 12px); width: 34px; min-width: 34px; color: #A08A4C; }
+.tt-cell { min-width: 96px; height: 62px; }
+.tt-cell.editable { cursor: pointer; transition: background .15s; }
+.tt-cell.editable:hover { background: #F2F7FF; }
+.tt-add { color: #C3CBD8; font-size: 1.2rem; display: block; text-align: center; line-height: 46px; }
+.tt-lesson {
+    display: flex; flex-direction: column; gap: 1px; padding: 4px 7px; margin-bottom: 3px; border-radius: 8px; line-height: 1.25;
+    background: color-mix(in srgb, var(--c) 12%, #fff); border-left: 3px solid var(--c); color: #1B2A41;
+}
+.tt-lesson b { color: color-mix(in srgb, var(--c) 75%, #000); }
+.tt-lesson span, .tt-lesson small { color: #56657A; font-size: .72rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tt-lesson.wide { min-width: 150px; }
+.tt-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; flex: none; }
+.tt-plan { padding: 8px 0; border-bottom: 1px solid #EEF1F6; }
+.tt-plan small { color: #8A97AB; }
+.tt-plan .tt-plan-name { color: #56657A; font-size: .82rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tt-plan .ok { color: #2E7D32; font-weight: 700; }
+.tt-plan .under { color: #1E4E8C; font-weight: 700; }
+.tt-plan .over { color: #C62828; font-weight: 700; }
+.tt-week-row { display: flex; gap: 12px; padding: 10px 0; border-bottom: 1px solid #EEF1F6; }
+.tt-week-day { width: 110px; flex: none; font-weight: 700; color: #1B2A41; }
+.tt-week-day small { display: block; font-weight: 400; color: #8A97AB; }
+.tt-week-items { display: flex; flex-wrap: wrap; gap: 8px; }
+.tt-free { color: #8A97AB; font-style: italic; }
+.bell-break td { background: #FBF6E9; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); border-top: 1px solid #EEF1F6; border-left: 1px solid #EEF1F6; }
+.cal-head { padding: 8px; font-weight: 700; font-size: .8rem; color: #56657A; background: #F7F9FC; border-right: 1px solid #EEF1F6; border-bottom: 1px solid #EEF1F6; text-align: center; }
+.cal-day { min-height: 104px; padding: 6px; border-right: 1px solid #EEF1F6; border-bottom: 1px solid #EEF1F6; background: #fff; overflow: hidden; }
+.cal-day.other { background: #FAFBFD; color: #B7C0CE; }
+.cal-day.today { box-shadow: inset 0 0 0 2px #1E4E8C; }
+.cal-day.weekend { background: #FBFCFE; }
+.cal-num { font-weight: 700; font-size: .85rem; margin-bottom: 4px; }
+.cal-item { font-size: .72rem; padding: 2px 6px; border-radius: 6px; margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.cal-item.Term { background: #E3F2FD; color: #0D47A1; }
+.cal-item.Holiday { background: #FDECEA; color: #B71C1C; }
+.cal-item.Event { background: #EDE7F6; color: #4527A0; }
+.cal-item.draft { opacity: .6; border: 1px dashed currentColor; }
+.myday-row { display: flex; gap: 14px; align-items: center; padding: 12px; border-radius: 12px; border: 1px solid #EEF1F6; margin-bottom: 10px; background: #fff; }
+.myday-time { width: 92px; flex: none; font-weight: 700; color: #1B2A41; }
+.myday-time small { display: block; font-weight: 400; color: #8A97AB; }
+.myday-row.now { border-color: #1E4E8C; box-shadow: 0 0 0 3px rgba(30, 78, 140, .12); }
+.myday-row.Covered { opacity: .6; }
+.myday-row.Cover { border-left: 4px solid #fb8c00; }
+
+/* Color.Secondary on text is used for muted helper lines; keep it grey rather than the gold brand colour. */
+.mud-typography.mud-secondary-text { color: var(--mud-palette-text-secondary) !important; }

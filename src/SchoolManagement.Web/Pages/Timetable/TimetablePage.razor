@@ -1,0 +1,302 @@
+@page "/timetable"
+@inherits AppPage
+
+<PageTitle>Timetable</PageTitle>
+
+<div class="d-flex align-center flex-wrap gap-2 mb-3">
+    <MudText Typo="Typo.h4">Timetable</MudText>
+    <MudSpacer />
+    <MudToggleGroup T="string" Value="mode" ValueChanged="ModeChanged" Color="Color.Primary" Size="Size.Small" Outlined="true">
+        <MudToggleItem Value="@("section")" Text="By section" />
+        <MudToggleItem Value="@("teacher")" Text="By teacher" />
+        <MudToggleItem Value="@("room")" Text="By room" />
+    </MudToggleGroup>
+</div>
+
+@if (mode == "section")
+{
+    <MudPaper Class="pa-3 mb-3">
+        <MudGrid Spacing="2">
+            <StudentClassPicker @bind-CampusId="campusId" @bind-AcademicYearId="yearId" @bind-YearGroupId="yearGroupId" @bind-SectionId="sectionId"
+                                Required="true" SectionRequired="true" Changed="LoadSection" />
+        </MudGrid>
+    </MudPaper>
+
+    @if (data is not null)
+    {
+        <div class="d-flex flex-wrap gap-2 align-center mb-3">
+            <MudText Typo="Typo.h6">@data.Section.Label</MudText>
+            <MudChip T="string" Size="Size.Small" Color="@(Placed >= Required && Required > 0 ? Color.Success : Color.Default)">@Placed / @Required periods placed</MudChip>
+            <MudSpacer />
+            @if (canEdit)
+            {
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.AutoFixHigh" OnClick="Auto" Disabled="Busy">Auto-generate</MudButton>
+                <MudButton Variant="Variant.Outlined" Color="Color.Error" StartIcon="@Icons.Material.Filled.DeleteSweep" OnClick="Clear" Disabled="@(Busy || data.Slots.Count == 0)">Clear</MudButton>
+            }
+            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Rule" OnClick="Check" Disabled="Busy">Check clashes</MudButton>
+            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Print" OnClick="@(() => OpenFile($"api/academics/timetable/section/{sectionId}/print"))" Disabled="Busy">Print</MudButton>
+        </div>
+
+        @if (issues is not null)
+        {
+            <MudAlert Severity="@(issues.Any(i => i.Severity == "Error") ? Severity.Error : issues.Count > 0 ? Severity.Warning : Severity.Success)"
+                      ShowCloseIcon="true" CloseIconClicked="() => issues = null" Class="mb-3">
+                @if (issues.Count == 0)
+                {
+                    <span>No clashes and every planned period is placed.</span>
+                }
+                else
+                {
+                    <b>@issues.Count(i => i.Severity == "Error") clash(es), @issues.Count(i => i.Severity == "Warning") warning(s)</b>
+                    <ul class="mt-1" style="max-height:180px;overflow:auto">
+                        @foreach (var i in issues.Take(60))
+                        {
+                            <li>@i.Message</li>
+                        }
+                    </ul>
+                }
+            </MudAlert>
+        }
+
+        <MudGrid Spacing="3">
+            <MudItem xs="12" xl="9">
+                <MudPaper Class="tt-wrap">
+                    <table class="tt-grid">
+                        <thead>
+                            <tr>
+                                <th class="tt-day">Day</th>
+                                @foreach (var p in data.Periods)
+                                {
+                                    <th class="@(p.IsBreak ? "tt-break" : "")">
+                                        <div>@p.Name</div>
+                                        <small>@p.StartTime.ToString("HH:mm")–@p.EndTime.ToString("HH:mm")</small>
+                                    </th>
+                                }
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var day in data.Days)
+                            {
+                                <tr>
+                                    <th class="tt-day">@day</th>
+                                    @foreach (var p in data.Periods)
+                                    {
+                                        if (p.IsBreak)
+                                        {
+                                            <td class="tt-break"></td>
+                                            continue;
+                                        }
+                                        var cell = data.Slots.Where(s => s.Day == day && s.PeriodNo == p.PeriodNo).ToList();
+                                        <td class="tt-cell @(canEdit ? "editable" : "")" @onclick="() => EditCell(day, p, cell)">
+                                            @foreach (var s in cell)
+                                            {
+                                                <div class="tt-lesson" style="--c:@Colour(s.SubjectCode)">
+                                                    <b>@s.SubjectCode</b>
+                                                    <span>@Initials(s.TeacherName)@(s.RoomName is null ? "" : " · " + s.RoomName)</span>
+                                                </div>
+                                            }
+                                            @if (cell.Count == 0 && canEdit)
+                                            {
+                                                <span class="tt-add">+</span>
+                                            }
+                                        </td>
+                                    }
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </MudPaper>
+            </MudItem>
+            <MudItem xs="12" xl="3">
+                <MudPaper Class="pa-3">
+                    <MudText Typo="Typo.h6" Class="mb-2">Weekly plan</MudText>
+                    @if (data.Plan.Count == 0)
+                    {
+                        <MudText Typo="Typo.body2" Color="Color.Secondary">No curriculum for this class yet (Academic setup → Curriculum).</MudText>
+                    }
+                    @foreach (var p in data.Plan.OrderBy(p => p.GroupName).ThenBy(p => p.Code))
+                    {
+                        <div class="tt-plan">
+                            <div class="d-flex align-center">
+                                <span class="tt-dot" style="background:@Colour(p.Code)"></span>
+                                <b class="mr-1">@p.Code</b><span class="tt-plan-name">@p.Name</span>
+                                <MudSpacer />
+                                <span class="@(p.Placed == p.Required ? "ok" : p.Placed > p.Required ? "over" : "under")">@p.Placed/@p.Required</span>
+                            </div>
+                            <MudProgressLinear Value="@(p.Required == 0 ? 0 : Math.Min(100, 100.0 * p.Placed / p.Required))" Size="Size.Small" Rounded="true"
+                                               Color="@(p.Placed > p.Required ? Color.Error : p.Placed == p.Required ? Color.Success : Color.Primary)" />
+                            <small>@(p.Teachers.Count == 0 ? "No teacher allocated" : string.Join(", ", p.Teachers.Select(t => t.Name)))@(p.GroupName is null ? "" : " · " + p.GroupName)</small>
+                        </div>
+                    }
+                    <MudButton Href="timetable/allocation" Size="Size.Small" Variant="Variant.Text" EndIcon="@Icons.Material.Filled.ChevronRight" Class="mt-2">Teacher allocation</MudButton>
+                </MudPaper>
+            </MudItem>
+        </MudGrid>
+    }
+}
+else
+{
+    <MudPaper Class="pa-3 mb-3">
+        <MudGrid Spacing="2">
+            <MudItem xs="12" sm="4">
+                <MudSelect T="Guid?" Value="yearId" ValueChanged="YearChanged" Label="Academic year" Variant="Variant.Outlined" Margin="Margin.Dense">
+                    @foreach (var y in years)
+                    {
+                        <MudSelectItem T="Guid?" Value="y.Id">@y.Name@(y.IsCurrent ? " (current)" : "")</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="5">
+                @if (mode == "teacher")
+                {
+                    <MudSelect T="Guid?" Value="teacherId" ValueChanged="TeacherChanged" Label="Teacher" Variant="Variant.Outlined" Margin="Margin.Dense">
+                        @foreach (var t in teachers)
+                        {
+                            <MudSelectItem T="Guid?" Value="t.Id">@t.FullName</MudSelectItem>
+                        }
+                    </MudSelect>
+                }
+                else
+                {
+                    <MudSelect T="Guid?" Value="roomId" ValueChanged="RoomChanged" Label="Room" Variant="Variant.Outlined" Margin="Margin.Dense">
+                        @foreach (var r in rooms)
+                        {
+                            <MudSelectItem T="Guid?" Value="r.Id">@r.Name (@r.Code)</MudSelectItem>
+                        }
+                    </MudSelect>
+                }
+            </MudItem>
+            <MudItem xs="12" sm="3" Class="d-flex align-center">
+                <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Print" Disabled="@(person is null)"
+                           OnClick="@(() => OpenFile(mode == "teacher" ? $"api/academics/timetable/teacher/{teacherId}/print?academicYearId={yearId}" : $"api/academics/timetable/room/{roomId}/print?academicYearId={yearId}"))">Print</MudButton>
+            </MudItem>
+        </MudGrid>
+    </MudPaper>
+
+    @if (person is not null)
+    {
+        <WeekView Timetable="person" Title="@(mode == "teacher" ? "Teacher" : "Room")" ShowSection="true" />
+    }
+}
+
+@code {
+    [SupplyParameterFromQuery(Name = "section")] public Guid? SectionQuery { get; set; }
+    [SupplyParameterFromQuery(Name = "teacher")] public Guid? TeacherQuery { get; set; }
+    [SupplyParameterFromQuery(Name = "room")] public Guid? RoomQuery { get; set; }
+
+    private string mode = "section";
+    private Guid? campusId, yearId, yearGroupId, sectionId, teacherId, roomId;
+    private SectionTimetable? data;
+    private PersonTimetable? person;
+    private List<TimetableIssue>? issues;
+    private List<TeacherOption> teachers = [];
+    private List<RoomView> rooms = [];
+    private List<AcademicYearView> years = [];
+    private bool canEdit;
+
+    private int Required => data?.Plan.Where(p => p.GroupId is null).Sum(p => p.Required) + data?.Plan.Where(p => p.GroupId is not null).GroupBy(p => p.GroupId).Sum(g => g.Max(p => p.Required)) ?? 0;
+    private int Placed => data?.Slots.Select(s => (s.Day, s.PeriodNo)).Distinct().Count() ?? 0;
+
+    protected override async Task OnInitializedAsync()
+    {
+        canEdit = Session.Has(P.Academic.Timetable);
+        // Set before the first await: the class picker initialises during that await and loads with whatever is set.
+        sectionId = SectionQuery;
+        await Run(async () => years = await Api.GetAsync<List<AcademicYearView>>("api/academic-years"));
+        yearId = years.FirstOrDefault(y => y.IsCurrent)?.Id ?? years.FirstOrDefault()?.Id;
+        if (TeacherQuery is { } t) { mode = "teacher"; teacherId = t; await LoadLookups(); await LoadPerson(); }
+        else if (RoomQuery is { } r) { mode = "room"; roomId = r; await LoadLookups(); await LoadPerson(); }
+        else if (SectionQuery is { } s) { sectionId = s; await LoadSection(); }
+    }
+
+    private async Task ModeChanged(string value)
+    {
+        mode = value;
+        person = null;
+        // The section view loads one campus's teachers and rooms; the other views list the whole school.
+        teachers = [];
+        rooms = [];
+        if (mode != "section") await LoadLookups();
+        else await LoadSection();
+    }
+
+    private async Task LoadLookups()
+    {
+        await Run(async () =>
+        {
+            if (teachers.Count == 0) teachers = await Api.GetAsync<List<TeacherOption>>("api/academics/teachers");
+            if (rooms.Count == 0) rooms = await Api.GetAsync<List<RoomView>>("api/academics/rooms");
+        });
+    }
+
+    private async Task LoadSection()
+    {
+        issues = null;
+        if (sectionId is null) { data = null; return; }
+        await Run(async () =>
+        {
+            data = await Api.GetAsync<SectionTimetable>($"api/academics/timetable/section/{sectionId}");
+            (campusId, yearId, yearGroupId) = (data.Section.CampusId, data.Section.AcademicYearId, data.Section.YearGroupId);
+            if (canEdit) teachers = await Api.GetAsync<List<TeacherOption>>($"api/academics/teachers?campusId={data.Section.CampusId}");
+            if (canEdit) rooms = await Api.GetAsync<List<RoomView>>($"api/academics/rooms?campusId={data.Section.CampusId}");
+        });
+    }
+
+    private async Task YearChanged(Guid? id) { yearId = id; await LoadPerson(); }
+    private async Task TeacherChanged(Guid? id) { teacherId = id; await LoadPerson(); }
+    private async Task RoomChanged(Guid? id) { roomId = id; await LoadPerson(); }
+
+    private async Task LoadPerson()
+    {
+        person = null;
+        if (yearId is null) return;
+        if (mode == "teacher" && teacherId is { } t)
+            await Run(async () => person = await Api.GetAsync<PersonTimetable>($"api/academics/timetable/teacher/{t}?academicYearId={yearId}"));
+        else if (mode == "room" && roomId is { } r)
+            await Run(async () => person = await Api.GetAsync<PersonTimetable>($"api/academics/timetable/room/{r}?academicYearId={yearId}"));
+    }
+
+    private async Task EditCell(DayOfWeek day, PeriodView period, List<SlotView> cell)
+    {
+        if (!canEdit || data is null) return;
+        var dlg = await Dialogs.ShowAsync<SlotDialog>($"{day} · {period.Name} ({period.StartTime:HH\\:mm}–{period.EndTime:HH\\:mm})",
+            new DialogParameters<SlotDialog>
+            {
+                { x => x.Timetable, data }, { x => x.Day, day }, { x => x.Period, period }, { x => x.Cell, cell },
+                { x => x.Teachers, teachers }, { x => x.Rooms, rooms.Where(r => r.IsActive).ToList() }
+            },
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        // Reload even on cancel: lessons may have been removed inside the dialog.
+        await dlg.Result;
+        await LoadSection();
+    }
+
+    private async Task Auto()
+    {
+        if (data!.Slots.Count > 0 && !await Confirm("Auto-generate", "Replace this section's timetable with a generated one? Other sections are not changed.", "Generate")) return;
+        AutoTimetableResult? result = null;
+        if (!await Run(async () => result = await Api.PostAsync<AutoTimetableResult>($"api/academics/timetable/section/{sectionId}/auto", new AutoTimetableRequest(true)))) return;
+        Snackbar.Add(result!.Unplaced.Count == 0 ? $"Placed {result.Placed} lessons with no clashes." : $"Placed {result.Placed}; could not place: {string.Join(", ", result.Unplaced)}.",
+            result.Unplaced.Count == 0 ? Severity.Success : Severity.Warning);
+        foreach (var w in result.Warnings) Snackbar.Add(w.Message, Severity.Warning);
+        await LoadSection();
+    }
+
+    private async Task Clear()
+    {
+        if (!await Confirm("Clear timetable", $"Remove every lesson from {data!.Section.Label}?", "Clear")) return;
+        if (await Run(() => Api.DeleteAsync($"api/academics/timetable/section/{sectionId}"), "Timetable cleared.")) await LoadSection();
+    }
+
+    private async Task Check()
+    {
+        await Run(async () => issues = await Api.GetAsync<List<TimetableIssue>>(ApiClient.Query("api/academics/timetable/check", ("academicYearId", data!.Section.AcademicYearId), ("campusId", data.Section.CampusId))));
+    }
+
+    internal static string Initials(string? name) =>
+        name is null ? "No teacher" : string.Concat(name.Split(' ', StringSplitOptions.RemoveEmptyEntries).Select(w => char.ToUpperInvariant(w[0])));
+
+    private static readonly string[] Palette = ["#1e88e5", "#43a047", "#fb8c00", "#8e24aa", "#00897b", "#e53935", "#3949ab", "#6d4c41", "#c0ca33", "#d81b60", "#00acc1", "#5e35b1"];
+
+    internal static string Colour(string code) => Palette[Math.Abs(code.Aggregate(17, (h, c) => h * 31 + c)) % Palette.Length];
+}

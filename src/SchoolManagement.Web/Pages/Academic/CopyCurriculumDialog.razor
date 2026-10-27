@@ -1,0 +1,29 @@
+<MudDialog>
+    <DialogContent>
+        <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-3">The chosen classes' curriculum and option groups are replaced.</MudAlert>
+        <div style="max-height:360px;overflow:auto">
+            @foreach (var (id, label) in Options)
+            {
+                <MudCheckBox T="bool" Value="chosen.Contains(id)" ValueChanged="v => Toggle(id, v)" Label="@label" Dense="true" />
+            }
+        </div>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="() => MudDialog.Cancel()">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="() => MudDialog.Close(DialogResult.Ok(chosen.ToList()))" Disabled="@(chosen.Count == 0)">
+            Copy to @chosen.Count
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public List<(Guid Id, string Label)> Options { get; set; } = [];
+
+    private readonly HashSet<Guid> chosen = [];
+
+    private void Toggle(Guid id, bool on)
+    {
+        if (on) chosen.Add(id); else chosen.Remove(id);
+    }
+}

@@ -1,0 +1,157 @@
+@page "/timetable/calendar"
+@inherits AppPage
+
+<PageTitle>Academic calendar</PageTitle>
+
+<div class="d-flex align-center flex-wrap gap-2 mb-3">
+    <MudText Typo="Typo.h4">Academic calendar</MudText>
+    <MudSpacer />
+    <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Link" OnClick="CopyFeed">Calendar feed (iCal)</MudButton>
+    @if (canManage)
+    {
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="() => Edit(null, null)" Disabled="Busy">New event</MudButton>
+    }
+</div>
+
+<MudPaper Class="pa-3 mb-3">
+    <div class="d-flex flex-wrap align-center gap-2">
+        <MudIconButton Icon="@Icons.Material.Filled.ChevronLeft" OnClick="() => Move(-1)" title="Previous month" />
+        <MudText Typo="Typo.h6" Style="min-width:170px;text-align:center">@month.ToString("MMMM yyyy")</MudText>
+        <MudIconButton Icon="@Icons.Material.Filled.ChevronRight" OnClick="() => Move(1)" title="Next month" />
+        <MudButton Size="Size.Small" Variant="Variant.Outlined" OnClick="ThisMonth">Today</MudButton>
+        <MudSpacer />
+        <MudSelect T="Guid?" Value="campusId" ValueChanged="CampusChanged" Label="Campus" Clearable="true" Placeholder="All campuses" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:260px">
+            @foreach (var c in campuses)
+            {
+                <MudSelectItem T="Guid?" Value="c.Id">@c.Name</MudSelectItem>
+            }
+        </MudSelect>
+        <div class="d-flex gap-2">
+            <span class="cal-item Term">Term</span><span class="cal-item Holiday">Holiday</span><span class="cal-item Event">Event</span>
+        </div>
+    </div>
+</MudPaper>
+
+<MudPaper Class="pa-0 mb-4" Style="overflow:hidden">
+    <div class="cal-grid">
+        @foreach (var d in WeekDays)
+        {
+            <div class="cal-head">@d.ToString()[..3]</div>
+        }
+        @foreach (var day in Cells)
+        {
+            var today = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(6));
+            var cellItems = items.Where(i => i.StartDate <= day && i.EndDate >= day && (i.Kind != CalendarItemKind.Term || i.StartDate == day || i.EndDate == day)).ToList();
+            <div class="cal-day @(day.Month != month.Month ? "other" : "") @(day == today ? "today" : "") @(day.DayOfWeek == DayOfWeek.Friday ? "weekend" : "")"
+                 @ondblclick="() => Edit(null, day)">
+                <div class="cal-num">@day.Day</div>
+                @foreach (var i in cellItems.Take(4))
+                {
+                    <div class="cal-item @i.Kind @(i.IsPublished ? "" : "draft")" title="@Tooltip(i)" @onclick="() => Open(i)" @onclick:stopPropagation="true">
+                        @(i.Kind == CalendarItemKind.Term ? (i.StartDate == day ? "▶ " : "■ ") : "")@i.Title
+                    </div>
+                }
+                @if (cellItems.Count > 4)
+                {
+                    <small>+@(cellItems.Count - 4) more</small>
+                }
+            </div>
+        }
+    </div>
+</MudPaper>
+
+<MudPaper Class="pa-3">
+    <MudText Typo="Typo.h6" Class="mb-2">This month</MudText>
+    @if (items.Where(i => i.EndDate >= First && i.StartDate <= Last).ToList() is { Count: > 0 } list)
+    {
+        @foreach (var i in list)
+        {
+            <div class="d-flex align-center gap-3 py-2" style="border-bottom:1px solid #EEF1F6">
+                <span class="cal-item @i.Kind" style="min-width:120px;text-align:center">@i.Category</span>
+                <div style="flex:1">
+                    <b>@i.Title</b>@(i.IsPublished ? "" : " (draft)")
+                    <div><small>@Format.Date(i.StartDate)@(i.EndDate != i.StartDate ? " – " + Format.Date(i.EndDate) : "")@(i.StartTime is { } st ? $", {st:HH\\:mm}" + (i.EndTime is { } et ? $"–{et:HH\\:mm}" : "") : "")@(i.Location is null ? "" : " · " + i.Location)</small></div>
+                </div>
+                <small>@(i.ForParents ? "Parents" : "")@(i.ForParents && i.ForStaff ? " · " : "")@(i.ForStaff ? "Staff" : "")@(i.IsPublic ? " · Website" : "")</small>
+            </div>
+        }
+    }
+    else
+    {
+        <MudText Typo="Typo.body2" Color="Color.Secondary">Nothing this month.</MudText>
+    }
+    <MudText Typo="Typo.caption" Class="d-block mt-2">Holidays are managed in Academic setup → Holidays; terms in Academic years. Double-click a day to add an event.</MudText>
+</MudPaper>
+
+@code {
+    private static readonly DayOfWeek[] WeekDays = [DayOfWeek.Saturday, DayOfWeek.Sunday, DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday];
+
+    private DateOnly month = new(DateTime.UtcNow.AddHours(6).Year, DateTime.UtcNow.AddHours(6).Month, 1);
+    private List<CalendarItem> items = [];
+    private List<CampusView> campuses = [];
+    private List<AcademicYearView> years = [];
+    private Guid? campusId;
+    private bool canManage;
+
+    private DateOnly First => month;
+    private DateOnly Last => month.AddMonths(1).AddDays(-1);
+
+    /// <summary>Whole weeks (Saturday first) covering the month.</summary>
+    private IEnumerable<DateOnly> Cells
+    {
+        get
+        {
+            var start = First.AddDays(-(((int)First.DayOfWeek + 1) % 7));
+            var end = Last.AddDays(6 - (((int)Last.DayOfWeek + 1) % 7));
+            for (var d = start; d <= end; d = d.AddDays(1)) yield return d;
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        canManage = Session.Has(P.Academic.Calendar);
+        await Run(async () =>
+        {
+            campuses = (await Api.GetAsync<List<CampusView>>("api/campuses")).Where(c => c.IsActive).ToList();
+            years = await Api.GetAsync<List<AcademicYearView>>("api/academic-years");
+        });
+        await Load();
+    }
+
+    private async Task Load()
+    {
+        var from = Cells.First();
+        var to = Cells.Last();
+        await Run(async () => items = await Api.GetAsync<List<CalendarItem>>(ApiClient.Query("api/academics/calendar", ("from", from), ("to", to), ("campusId", campusId))));
+    }
+
+    private async Task Move(int months) { month = month.AddMonths(months); await Load(); }
+    private async Task ThisMonth() { var n = DateTime.UtcNow.AddHours(6); month = new DateOnly(n.Year, n.Month, 1); await Load(); }
+    private async Task CampusChanged(Guid? id) { campusId = id; await Load(); }
+
+    private static string Tooltip(CalendarItem i) =>
+        $"{i.Category}: {i.Title}{(i.Location is null ? "" : " · " + i.Location)}{(i.Description is null ? "" : "\n" + i.Description)}";
+
+    private async Task Open(CalendarItem i)
+    {
+        if (i.Kind == CalendarItemKind.Event && canManage) await Edit(i, null);
+        else Snackbar.Add($"{i.Category}: {i.Title} ({Format.Date(i.StartDate)}{(i.EndDate != i.StartDate ? " – " + Format.Date(i.EndDate) : "")})", Severity.Info);
+    }
+
+    private async Task Edit(CalendarItem? item, DateOnly? day)
+    {
+        if (!canManage) return;
+        var dlg = await Dialogs.ShowAsync<CalendarEventDialog>(item is null ? "New event" : "Edit event",
+            new DialogParameters<CalendarEventDialog> { { x => x.Item, item }, { x => x.Day, day }, { x => x.Campuses, campuses }, { x => x.Years, years } },
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (await dlg.Result is { Canceled: false }) await Load();
+    }
+
+    private async Task CopyFeed()
+    {
+        var url = Nav.ToAbsoluteUri("api/public/calendar/feed.ics" + (campusId is null ? "" : $"?campusId={campusId}")).ToString();
+        await Dialogs.ShowMessageBox("Calendar feed",
+            (MarkupString)$"Subscribe from Google Calendar, Outlook or a phone with this address. It contains terms, holidays and published public events.<br/><br/><code style='word-break:break-all'>{url}</code>",
+            yesText: "Done");
+    }
+}

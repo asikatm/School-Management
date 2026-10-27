@@ -1,0 +1,188 @@
+@page "/timetable/substitutions"
+@inherits AppPage
+
+<PageTitle>Substitutions</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-1">Substitutions</MudText>
+<MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-4">When a teacher is absent, choose the day: their periods are listed with free teachers, best fit first (★ teaches the subject).</MudText>
+
+<MudTabs Elevation="1" Rounded="true" ApplyEffectsToContainer="true" PanelClass="pa-4">
+    <MudTabPanel Text="Arrange cover" Icon="@Icons.Material.Filled.PersonOff">
+        <MudGrid Spacing="2" Class="mb-3">
+            <MudItem xs="12" sm="5">
+                <MudSelect T="Guid?" Value="teacherId" ValueChanged="TeacherChanged" Label="Absent teacher" Variant="Variant.Outlined" Margin="Margin.Dense">
+                    @foreach (var t in teachers)
+                    {
+                        <MudSelectItem T="Guid?" Value="t.Id">@t.FullName</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="4">
+                <MudDatePicker Date="date" DateChanged="DateChanged" Label="Date" Variant="Variant.Outlined" Margin="Margin.Dense" DateFormat="ddd, dd MMM yyyy" />
+            </MudItem>
+            <MudItem xs="12" sm="3">
+                <MudTextField @bind-Value="reason" Label="Reason" Placeholder="e.g. Sick leave" Variant="Variant.Outlined" Margin="Margin.Dense" />
+            </MudItem>
+        </MudGrid>
+
+        @if (needs is not null)
+        {
+            @if (needs.Holiday is not null)
+            {
+                <MudAlert Severity="Severity.Info">@needs.Date.ToString("dd MMM yyyy") is a holiday (@needs.Holiday); no cover is needed.</MudAlert>
+            }
+            else if (needs.Periods.Count == 0)
+            {
+                <MudAlert Severity="Severity.Info">@needs.TeacherName has no periods on @needs.Day.</MudAlert>
+            }
+            else
+            {
+                <MudSimpleTable Dense="true" Hover="true" Outlined="true">
+                    <thead><tr><th>Period</th><th>Class</th><th>Subject</th><th style="width:360px">Cover</th><th></th></tr></thead>
+                    <tbody>
+                        @foreach (var n in needs.Periods)
+                        {
+                            <tr>
+                                <td><b>@n.Slot.PeriodName</b><br /><small>@n.Slot.StartTime.ToString("HH:mm")–@n.Slot.EndTime.ToString("HH:mm")</small></td>
+                                <td>@n.Slot.SectionLabel<br /><small>@n.Slot.RoomName</small></td>
+                                <td>@n.Slot.SubjectName</td>
+                                <td>
+                                    @if (n.SubstitutionId is not null)
+                                    {
+                                        <MudChip T="string" Color="Color.Success" Size="Size.Small" Icon="@Icons.Material.Filled.Check">@n.SubstituteName</MudChip>
+                                        @if (n.Reason is not null) { <small>@n.Reason</small> }
+                                    }
+                                    else
+                                    {
+                                        <MudSelect T="Guid?" Value="picks.GetValueOrDefault(n.Slot.Id)" ValueChanged="v => picks[n.Slot.Id] = v" Margin="Margin.Dense"
+                                                   Placeholder="@(n.Candidates.Count == 0 ? "Nobody is free" : "Choose a teacher")" Disabled="@(n.Candidates.Count == 0)">
+                                            @foreach (var c in n.Candidates)
+                                            {
+                                                <MudSelectItem T="Guid?" Value="c.UserId">@(c.TeachesSubject ? "★ " : "")@c.Name · @c.CoversThisWeek cover(s) this week · @c.PeriodsThatDay period(s) that day</MudSelectItem>
+                                            }
+                                        </MudSelect>
+                                    }
+                                </td>
+                                <td style="text-align:right">
+                                    @if (n.SubstitutionId is { } sid)
+                                    {
+                                        <MudButton Size="Size.Small" Color="Color.Error" OnClick="() => Cancel(sid)" Disabled="Busy">Cancel</MudButton>
+                                    }
+                                    else
+                                    {
+                                        <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" OnClick="() => Assign(n)"
+                                                   Disabled="@(Busy || picks.GetValueOrDefault(n.Slot.Id) is null)">Assign</MudButton>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+                <MudText Typo="Typo.caption" Class="d-block mt-2">The substitute gets an in-app message and an SMS with the period, class and room.</MudText>
+            }
+        }
+    </MudTabPanel>
+
+    <MudTabPanel Text="Cover list" Icon="@Icons.Material.Filled.ListAlt">
+        <div class="d-flex flex-wrap gap-2 align-center mb-3">
+            <MudDateRangePicker @bind-DateRange="range" Label="Dates" Variant="Variant.Outlined" Margin="Margin.Dense" DateFormat="dd MMM yyyy" Style="max-width:320px" />
+            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Search" OnClick="LoadList" Disabled="Busy">Show</MudButton>
+        </div>
+        <MudTable T="SubstitutionView" Items="list" Dense="true" Hover="true" Elevation="0">
+            <HeaderContent><MudTh>Date</MudTh><MudTh>Period</MudTh><MudTh>Class</MudTh><MudTh>Subject</MudTh><MudTh>Absent</MudTh><MudTh>Covered by</MudTh><MudTh>Reason</MudTh><MudTh>Status</MudTh></HeaderContent>
+            <RowTemplate>
+                <MudTd>@Format.Date(context.Date)</MudTd>
+                <MudTd>@context.PeriodName <small>@context.StartTime.ToString("HH:mm")</small></MudTd>
+                <MudTd>@context.SectionLabel</MudTd>
+                <MudTd>@context.SubjectName</MudTd>
+                <MudTd>@context.AbsentTeacherName</MudTd>
+                <MudTd>@context.SubstituteName</MudTd>
+                <MudTd>@context.Reason</MudTd>
+                <MudTd><MudChip T="string" Size="Size.Small" Color="@(context.Status == SubstitutionStatus.Assigned ? Color.Success : Color.Default)">@Format.Enum(context.Status)</MudChip></MudTd>
+            </RowTemplate>
+            <NoRecordsContent><MudText>No cover booked for these dates.</MudText></NoRecordsContent>
+        </MudTable>
+    </MudTabPanel>
+
+    <MudTabPanel Text="Cover report" Icon="@Icons.Material.Filled.Summarize">
+        <div class="d-flex flex-wrap gap-2 align-center mb-3">
+            <MudDateRangePicker @bind-DateRange="reportRange" Label="Period" Variant="Variant.Outlined" Margin="Margin.Dense" DateFormat="dd MMM yyyy" Style="max-width:320px" />
+            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Search" OnClick="LoadReport" Disabled="Busy">Show</MudButton>
+            <MudText Typo="Typo.caption">Covers given are the basis for cover-period pay in payroll.</MudText>
+        </div>
+        <MudTable T="CoverReportRow" Items="report" Dense="true" Hover="true" Elevation="0">
+            <HeaderContent><MudTh>Teacher</MudTh><MudTh>Covers given</MudTh><MudTh>Periods covered for them</MudTh></HeaderContent>
+            <RowTemplate>
+                <MudTd>@context.Name</MudTd>
+                <MudTd><b>@context.CoversGiven</b></MudTd>
+                <MudTd>@context.PeriodsCoveredForThem</MudTd>
+            </RowTemplate>
+            <NoRecordsContent><MudText>No cover in this period.</MudText></NoRecordsContent>
+        </MudTable>
+    </MudTabPanel>
+</MudTabs>
+
+@code {
+    private List<TeacherOption> teachers = [];
+    private Guid? teacherId;
+    private DateTime? date = DateTime.UtcNow.AddHours(6).Date;
+    private string? reason;
+    private CoverNeeds? needs;
+    private readonly Dictionary<Guid, Guid?> picks = [];
+    private DateRange range = new(DateTime.UtcNow.AddHours(6).Date, DateTime.UtcNow.AddHours(6).Date.AddDays(7));
+    private DateRange reportRange = new(new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1), DateTime.UtcNow.AddHours(6).Date);
+    private List<SubstitutionView> list = [];
+    private List<CoverReportRow> report = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Run(async () => teachers = await Api.GetAsync<List<TeacherOption>>("api/academics/teachers"));
+        await LoadList();
+    }
+
+    private async Task TeacherChanged(Guid? id) { teacherId = id; await LoadNeeds(); }
+    private async Task DateChanged(DateTime? d) { date = d; await LoadNeeds(); }
+
+    private async Task LoadNeeds()
+    {
+        picks.Clear();
+        needs = null;
+        if (teacherId is null || date is null) return;
+        await Run(async () => needs = await Api.GetAsync<CoverNeeds>(ApiClient.Query("api/academics/substitutions/needs", ("teacherUserId", teacherId), ("date", DateOnly.FromDateTime(date.Value)))));
+        foreach (var n in needs?.Periods ?? []) picks[n.Slot.Id] = n.Candidates.FirstOrDefault()?.UserId;
+    }
+
+    private async Task Assign(CoverNeed n)
+    {
+        var request = new AssignCoverRequest(n.Slot.Id, needs!.Date, picks[n.Slot.Id]!.Value, string.IsNullOrWhiteSpace(reason) ? null : reason.Trim());
+        if (await Run(() => Api.PostAsync<SubstitutionView>("api/academics/substitutions", request), "Cover assigned and the teacher notified."))
+        {
+            await LoadNeeds();
+            await LoadList();
+        }
+    }
+
+    private async Task Cancel(Guid id)
+    {
+        if (!await Confirm("Cancel cover", "Cancel this cover? The substitute is told it is no longer needed.", "Cancel cover")) return;
+        if (await Run(() => Api.PostAsync($"api/academics/substitutions/{id}/cancel"), "Cover cancelled."))
+        {
+            await LoadNeeds();
+            await LoadList();
+        }
+    }
+
+    private async Task LoadList()
+    {
+        if (range.Start is null) return;
+        await Run(async () => list = await Api.GetAsync<List<SubstitutionView>>(ApiClient.Query("api/academics/substitutions",
+            ("from", DateOnly.FromDateTime(range.Start.Value)), ("to", DateOnly.FromDateTime(range.End ?? range.Start.Value)))));
+    }
+
+    private async Task LoadReport()
+    {
+        if (reportRange.Start is null) return;
+        await Run(async () => report = await Api.GetAsync<List<CoverReportRow>>(ApiClient.Query("api/academics/substitutions/report",
+            ("from", DateOnly.FromDateTime(reportRange.Start.Value)), ("to", DateOnly.FromDateTime(reportRange.End ?? reportRange.Start.Value)))));
+    }
+}

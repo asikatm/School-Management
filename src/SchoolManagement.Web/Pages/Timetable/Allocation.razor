@@ -1,0 +1,169 @@
+@page "/timetable/allocation"
+@inherits AppPage
+
+<PageTitle>Teacher allocation</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-1">Teacher allocation</MudText>
+<MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-4">Who teaches which subject to which section, and how many periods a week. The timetable is built from this.</MudText>
+
+<MudTabs Elevation="1" Rounded="true" ApplyEffectsToContainer="true" PanelClass="pa-4" @bind-ActivePanelIndex="tab">
+    <MudTabPanel Text="By section" Icon="@Icons.Material.Filled.Groups">
+        <MudGrid Spacing="2" Class="mb-3">
+            <StudentClassPicker @bind-CampusId="campusId" @bind-AcademicYearId="yearId" @bind-YearGroupId="yearGroupId" @bind-SectionId="sectionId"
+                                Required="true" SectionRequired="true" Changed="LoadSection" />
+        </MudGrid>
+        @if (sectionId is not null && plan is not null)
+        {
+            <MudSimpleTable Dense="true" Hover="true" Outlined="true">
+                <thead><tr><th>Subject</th><th>Type</th><th style="width:320px">Teacher</th><th style="width:120px">Periods / week</th><th>In timetable</th><th></th></tr></thead>
+                <tbody>
+                    @foreach (var r in rows)
+                    {
+                        var p = plan.Plan.FirstOrDefault(x => x.SubjectId == r.SubjectId);
+                        <tr>
+                            <td><b>@r.Code</b> @r.Name</td>
+                            <td>@(r.Type is { } type ? Format.Enum(type) : "—")@(r.GroupName is null ? "" : $" · {r.GroupName}")</td>
+                            <td>
+                                <MudSelect T="Guid?" @bind-Value="r.TeacherId" Margin="Margin.Dense" Clearable="true" Placeholder="Not allocated" ReadOnly="!canManage">
+                                    @foreach (var t in teachers)
+                                    {
+                                        <MudSelectItem T="Guid?" Value="t.Id">@t.FullName (@LoadOf(t.Id))</MudSelectItem>
+                                    }
+                                </MudSelect>
+                            </td>
+                            <td><MudNumericField @bind-Value="r.Periods" Min="0" Max="20" Margin="Margin.Dense" ReadOnly="!canManage" /></td>
+                            <td>@(allocations.FirstOrDefault(a => a.SubjectId == r.SubjectId && a.TeacherUserId == r.TeacherId)?.Placed ?? 0)</td>
+                            <td style="text-align:right">
+                                @if (canManage)
+                                {
+                                    <MudIconButton Icon="@Icons.Material.Filled.CallSplit" Size="Size.Small" title="Split between two teachers" OnClick="() => Split(r)" />
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+            <div class="d-flex gap-2 mt-3">
+                @if (canManage)
+                {
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Save" OnClick="Save" Disabled="Busy">Save allocation</MudButton>
+                }
+                <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.GridOn" Href="@($"timetable?section={sectionId}")">Open timetable</MudButton>
+            </div>
+            <MudText Typo="Typo.caption" Class="d-block mt-2">Electives appear when a teacher is allocated or a student in the section chose them. Teacher load in brackets is periods a week across all sections.</MudText>
+        }
+    </MudTabPanel>
+
+    <MudTabPanel Text="Teacher load" Icon="@Icons.Material.Filled.Speed">
+        <div class="d-flex gap-2 align-center mb-3">
+            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="LoadLoad" Disabled="@(Busy || yearId is null)">Refresh</MudButton>
+            <MudText Typo="Typo.caption">Overloaded and under-used limits are set in Settings (Timetable:MaxTeacherPeriodsPerWeek / MinTeacherPeriodsPerWeek).</MudText>
+        </div>
+        <MudTable T="TeacherLoad" Items="load" Dense="true" Hover="true" Elevation="0">
+            <HeaderContent>
+                <MudTh>Teacher</MudTh><MudTh>Allocated</MudTh><MudTh>In timetable</MudTh><MudTh>Sections</MudTh><MudTh>Subjects</MudTh><MudTh>Status</MudTh><MudTh></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd>@context.Name</MudTd>
+                <MudTd><b>@context.AllocatedPeriods</b></MudTd>
+                <MudTd>@context.PlacedPeriods</MudTd>
+                <MudTd>@context.Sections</MudTd>
+                <MudTd>@string.Join(", ", context.Subjects)</MudTd>
+                <MudTd>
+                    <MudChip T="string" Size="Size.Small" Color="@(context.Status switch { LoadStatus.Overloaded => Color.Error, LoadStatus.UnderUsed => Color.Warning, _ => Color.Success })">
+                        @(context.Status switch { LoadStatus.Overloaded => "Overloaded", LoadStatus.UnderUsed => "Under-used", _ => "OK" })
+                    </MudChip>
+                </MudTd>
+                <MudTd><MudIconButton Icon="@Icons.Material.Filled.CalendarViewWeek" Size="Size.Small" title="Teacher timetable" Href="@($"timetable?teacher={context.TeacherUserId}")" /></MudTd>
+            </RowTemplate>
+            <NoRecordsContent><MudText>No allocations yet.</MudText></NoRecordsContent>
+        </MudTable>
+    </MudTabPanel>
+
+    <MudTabPanel Text="Not yet allocated" Icon="@Icons.Material.Filled.ReportProblem" BadgeData="@(gaps?.Count > 0 ? gaps.Count : null)" BadgeColor="Color.Warning">
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="LoadGaps" Disabled="@(Busy || yearId is null)" Class="mb-3">Refresh</MudButton>
+        <MudTable T="AllocationGap" Items="gaps" Dense="true" Hover="true" Elevation="0" GroupBy="bySection">
+            <GroupHeaderTemplate><MudTh colspan="3"><b>@context.Key</b> · @context.Items.Count() subject(s)</MudTh></GroupHeaderTemplate>
+            <HeaderContent><MudTh>Subject</MudTh><MudTh>Type</MudTh><MudTh>Periods / week</MudTh></HeaderContent>
+            <RowTemplate>
+                <MudTd>@context.SubjectName</MudTd>
+                <MudTd>@Format.Enum(context.Type)</MudTd>
+                <MudTd>@context.PeriodsPerWeek</MudTd>
+            </RowTemplate>
+            <NoRecordsContent><MudText>Every curriculum subject has a teacher.</MudText></NoRecordsContent>
+        </MudTable>
+    </MudTabPanel>
+</MudTabs>
+
+@code {
+    private sealed class Row
+    {
+        public Guid SubjectId { get; init; }
+        public string Code { get; init; } = "";
+        public string Name { get; init; } = "";
+        public SubjectType? Type { get; init; }
+        public string? GroupName { get; init; }
+        public Guid? TeacherId { get; set; }
+        public int Periods { get; set; }
+    }
+
+    private readonly TableGroupDefinition<AllocationGap> bySection = new() { Selector = g => g.SectionLabel, Indentation = false };
+    private int tab;
+    private Guid? campusId, yearId, yearGroupId, sectionId;
+    private SectionTimetable? plan;
+    private List<AllocationView> allocations = [];
+    private List<Row> rows = [];
+    private List<TeacherOption> teachers = [];
+    private List<TeacherLoad> load = [];
+    private List<AllocationGap>? gaps;
+    private bool canManage;
+
+    protected override void OnInitialized() => canManage = Session.Has(P.Academic.Manage);
+
+    private string LoadOf(Guid id) => (load.FirstOrDefault(l => l.TeacherUserId == id)?.AllocatedPeriods ?? 0).ToString();
+
+    private async Task LoadSection()
+    {
+        if (sectionId is null || yearId is null) { plan = null; return; }
+        await Run(async () =>
+        {
+            plan = await Api.GetAsync<SectionTimetable>($"api/academics/timetable/section/{sectionId}");
+            allocations = await Api.GetAsync<List<AllocationView>>($"api/academics/allocations?academicYearId={yearId}&sectionId={sectionId}");
+            teachers = await Api.GetAsync<List<TeacherOption>>($"api/academics/teachers?campusId={campusId}");
+            load = await Api.GetAsync<List<TeacherLoad>>($"api/academics/allocations/load?academicYearId={yearId}");
+            var curriculum = await Api.GetAsync<CurriculumView>($"api/academics/curriculum/{plan.Section.YearGroupId}");
+
+            rows = [];
+            foreach (var c in curriculum.Subjects)
+            {
+                var mine = allocations.Where(a => a.SubjectId == c.SubjectId).ToList();
+                if (mine.Count == 0) rows.Add(new Row { SubjectId = c.SubjectId, Code = c.Code, Name = c.Name, Type = c.Type, GroupName = c.GroupName, Periods = c.PeriodsPerWeek });
+                else rows.AddRange(mine.Select(a => new Row { SubjectId = c.SubjectId, Code = c.Code, Name = c.Name, Type = c.Type, GroupName = c.GroupName, TeacherId = a.TeacherUserId, Periods = a.PeriodsPerWeek }));
+            }
+            // Allocations for subjects since removed from the curriculum are kept visible so they can be cleared.
+            foreach (var a in allocations.Where(a => curriculum.Subjects.All(c => c.SubjectId != a.SubjectId)))
+                rows.Add(new Row { SubjectId = a.SubjectId, Code = a.SubjectCode, Name = a.SubjectName + " (not in curriculum)", TeacherId = a.TeacherUserId, Periods = a.PeriodsPerWeek });
+        });
+    }
+
+    private void Split(Row r)
+    {
+        var half = r.Periods / 2;
+        r.Periods -= half;
+        rows.Insert(rows.IndexOf(r) + 1, new Row { SubjectId = r.SubjectId, Code = r.Code, Name = r.Name, Type = r.Type, GroupName = r.GroupName, Periods = half });
+    }
+
+    private async Task Save()
+    {
+        var request = rows.Where(r => r.TeacherId is not null && r.Periods > 0)
+            .Select(r => new AllocationRowRequest(r.SubjectId, r.TeacherId!.Value, r.Periods)).ToList();
+        if (await Run(() => Api.PutAsync<List<AllocationView>>($"api/academics/allocations/section/{sectionId}", request), "Allocation saved."))
+            await LoadSection();
+    }
+
+    private async Task LoadLoad() =>
+        await Run(async () => load = await Api.GetAsync<List<TeacherLoad>>(ApiClient.Query("api/academics/allocations/load", ("academicYearId", yearId), ("campusId", campusId))));
+
+    private async Task LoadGaps() =>
+        await Run(async () => gaps = await Api.GetAsync<List<AllocationGap>>(ApiClient.Query("api/academics/allocations/gaps", ("academicYearId", yearId), ("campusId", campusId))));
+}

@@ -12,7 +12,9 @@
         <MudNavGroup @key="group.Title" Title="@group.Title" Icon="@group.Icon" Expanded="@items.Any(IsCurrent)">
             @foreach (var item in items)
             {
-                <MudNavLink Href="@item.Href" Icon="@item.Icon" Match="NavLinkMatch.Prefix">@item.Title</MudNavLink>
+                @* A link that is the parent path of another item ("students" vs "students/import") must match exactly. *@
+                <MudNavLink Href="@item.Href" Icon="@item.Icon"
+                            Match="@(NavCatalog.Groups.SelectMany(g => g.Items).Any(o => o != item && o.Href.StartsWith(item.Href + "/")) ? NavLinkMatch.All : NavLinkMatch.Prefix)">@item.Title</MudNavLink>
             }
         </MudNavGroup>
     }

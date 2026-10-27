@@ -15,5 +15,8 @@ public static partial class NavCatalog
         new NavItem("Subjects, houses & fees", "academic/master-data", Icons.Material.Filled.MenuBook, P.Settings.View, P.Settings.Manage),
         new NavItem("Holidays", "academic/holidays", Icons.Material.Filled.EventBusy, P.Settings.View, P.Settings.Manage),
         new NavItem("Grading schemes", "academic/grading-schemes", Icons.Material.Filled.Grade, P.Settings.View, P.Settings.Manage),
+        new NavItem("Curriculum", "academic/curriculum", Icons.Material.Filled.LibraryBooks, P.Academic.View),
+        new NavItem("Rooms", "academic/rooms", Icons.Material.Filled.MeetingRoom, P.Academic.View),
+        new NavItem("Bell schedule", "academic/bell-schedule", Icons.Material.Filled.NotificationsActive, P.Academic.View),
     ]);
 }

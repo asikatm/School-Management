@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
+using SchoolManagement.Domain.Academics;
 using SchoolManagement.Domain.Admission;
 using SchoolManagement.Domain.Approvals;
 using SchoolManagement.Domain.Audit;
@@ -130,6 +131,17 @@ public abstract class AppDbContext : DbContext
     public DbSet<IdCard> IdCards => Set<IdCard>();
     public DbSet<WithdrawalRequest> WithdrawalRequests => Set<WithdrawalRequest>();
     public DbSet<TransferCertificate> TransferCertificates => Set<TransferCertificate>();
+
+    // ACA
+    public DbSet<Room> Rooms => Set<Room>();
+    public DbSet<SubjectGroup> SubjectGroups => Set<SubjectGroup>();
+    public DbSet<CurriculumSubject> CurriculumSubjects => Set<CurriculumSubject>();
+    public DbSet<StudentSubject> StudentSubjects => Set<StudentSubject>();
+    public DbSet<TeacherAllocation> TeacherAllocations => Set<TeacherAllocation>();
+    public DbSet<PeriodDefinition> PeriodDefinitions => Set<PeriodDefinition>();
+    public DbSet<TimetableSlot> TimetableSlots => Set<TimetableSlot>();
+    public DbSet<Substitution> Substitutions => Set<Substitution>();
+    public DbSet<CalendarEvent> CalendarEvents => Set<CalendarEvent>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {

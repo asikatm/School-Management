@@ -13,7 +13,7 @@ public sealed record NavGroup(string Title, string Icon, IReadOnlyList<NavItem> 
 /// </summary>
 public static partial class NavCatalog
 {
-    public static IReadOnlyList<NavGroup> Groups => [Admission, Students, Academic, Administration];
+    public static IReadOnlyList<NavGroup> Groups => [Admission, Students, Timetable, Academic, Administration];
 
     public static NavItem Dashboard { get; } = new("Dashboard", "", Icons.Material.Filled.Dashboard);
 }
